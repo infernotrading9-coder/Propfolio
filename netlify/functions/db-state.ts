@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
-import { dashboardService } from '../../server/db/service'
+import { dashboardService, payoutService } from '../../server/db/service'
 
 export const handler: Handler = async (event) => {
   try {
@@ -16,6 +16,19 @@ export const handler: Handler = async (event) => {
       name: f.name,
       createdAt: f.createdAt ? new Date(f.createdAt).toISOString() : new Date().toISOString(),
     }))
+
+    // Load payouts for all challenges
+    const allPayouts = await payoutService.getByUserId(user.id)
+    const payoutsByChallenge = allPayouts.reduce((acc: any, p: any) => {
+      if (!acc[p.challengeId]) acc[p.challengeId] = []
+      acc[p.challengeId].push({
+        id: p.id,
+        amount: parseFloat(String(p.amount)),
+        date: p.date,
+        description: p.description || '',
+      })
+      return acc
+    }, {})
 
     // challenges will be attached in the client via existing loader, but we can pass raw
     // We'll follow the same mapping logic as databaseStorage.loadState did
@@ -36,7 +49,7 @@ export const handler: Handler = async (event) => {
       },
       monthlyPnL: {},
       weeklyPnL: {},
-      payouts: [],
+      payouts: payoutsByChallenge[c.id] || [],
       createdAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
     }))
 
