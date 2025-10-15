@@ -2,7 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from './ui/Button';
 import { NeonCard } from './NeonCard';
-import { Challenge } from '../types';
+import { Challenge, PayoutEntry } from '../types';
 import { Plus, Trash2, DollarSign } from 'lucide-react';
 import { apiClient } from '../utils/apiClient';
 
@@ -18,8 +18,15 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [justAdded, setJustAdded] = React.useState<string | null>(null);
   
-
-  const payouts = Array.isArray(challenge.payouts) ? challenge.payouts : [];
+  // Local payouts state for instant UI updates
+  const initialPayouts = Array.isArray(challenge.payouts) ? challenge.payouts : [];
+  const [payouts, setPayouts] = React.useState<PayoutEntry[]>(initialPayouts);
+  
+  // Keep local state in sync when challenge or its payouts change externally
+  React.useEffect(() => {
+    setPayouts(Array.isArray(challenge.payouts) ? challenge.payouts : []);
+  }, [challenge.id, challenge.payouts]);
+  
   const totalPayouts = payouts.reduce((sum, p) => sum + p.amount, 0);
 
   const validateForm = () => {
@@ -45,18 +52,21 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
     
     try {
       // Add payout via API
-      const newPayout = await apiClient.addPayout(challenge.id, Number(amount), date);
+      const { payout: created } = await apiClient.addPayout(challenge.id, Number(amount), date);
       
-      // Update the challenge with new payout
+      // Update local state immediately
+      setPayouts(prev => [...prev, created]);
+      
+      // Update the parent state
       const currentPayouts = Array.isArray(challenge.payouts) ? challenge.payouts : [];
       const updatedChallenge = {
         ...challenge,
-        payouts: [...currentPayouts, newPayout]
+        payouts: [...currentPayouts, created]
       };
       onUpdate(updatedChallenge);
       
       // Trigger success animation
-      setJustAdded(newPayout.id);
+      setJustAdded(created.id);
       setTimeout(() => setJustAdded(null), 1000);
       
       // Reset form
@@ -72,20 +82,26 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
 
   const handleRemovePayout = async (payoutId: string) => {
     setLoading(true);
+
+    // Optimistic UI: remove locally first
+    const prevChallenge = challenge;
+
+    const newList = payouts.filter(p => p.id !== payoutId);
+    setPayouts(newList);
+
+    const updatedChallenge = {
+      ...challenge,
+      payouts: newList
+    };
+    onUpdate(updatedChallenge);
     
     try {
-      // Remove payout via API
       await apiClient.removePayout(payoutId);
-      
-      // Update the challenge by removing the payout
-      const updatedChallenge = {
-        ...challenge,
-        payouts: payouts.filter(p => p.id !== payoutId)
-      };
-      
-      onUpdate(updatedChallenge);
     } catch (error) {
       console.error('Remove payout error:', error);
+      // Revert UI on failure
+      onUpdate(prevChallenge);
+      alert('Failed to remove payout. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -173,7 +189,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
           <div className="space-y-2">
             <h4 className="text-sm font-medium text-white/80">Payout History</h4>
             <AnimatePresence mode="popLayout">
-              {payouts
+              {[...payouts]
                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                 .map((payout, index) => (
                 <motion.div

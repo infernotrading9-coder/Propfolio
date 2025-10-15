@@ -862,18 +862,22 @@ const Dashboard: React.FC = () => {
                 />
                 
                 <PayoutManager
+                  key={`${editing.id}-${Array.isArray(editing.payouts) ? editing.payouts.length : 0}`}
                   challenge={editing}
                   onUpdate={async (updated) => {
                     // Update the editing modal state immediately
-                    setEditing(updated);
+                    setEditing({ ...updated, payouts: Array.isArray(updated.payouts) ? [...updated.payouts] : [] });
                     
                     // Update the main state
                     setState(prev => ({
                       ...prev,
                       challenges: prev.challenges.map(c => 
-                        c.id === updated.id ? updated : c
+                        c.id === updated.id ? { ...updated, payouts: Array.isArray(updated.payouts) ? [...updated.payouts] : [] } : c
                       )
                     }));
+                    
+                    // Refresh in background to ensure consistency with server
+                    refreshState();
                   }}
                 />
               </div>

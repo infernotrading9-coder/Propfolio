@@ -33,21 +33,24 @@ export const LandingPage: React.FC = () => {
     {
       name: "Alex Chen",
       role: "Full-Time Prop Trader",
-      image: "👨‍💼",
+      avatar: "https://randomuser.me/api/portraits/men/12.jpg",
+      fallback: "/avatars/avatar-1.svg",
       content: "Finally stopped using spreadsheets! Propfolio helped me track 12 challenges and I'm now profitable with 5 firms.",
       rating: 5
     },
     {
       name: "Sarah Johnson",
       role: "Trading Coach",
-      image: "👩‍💼", 
+      avatar: "https://randomuser.me/api/portraits/women/32.jpg", 
+      fallback: "/avatars/avatar-2.svg",
       content: "My students love the rule tracking feature. No more blown accounts due to missed daily loss limits!",
       rating: 5
     },
     {
       name: "Mike Rodriguez",
       role: "Prop Trader",
-      image: "👨‍💻",
+      avatar: "https://randomuser.me/api/portraits/men/45.jpg",
+      fallback: "/avatars/avatar-3.svg",
       content: "The ROI insights are incredible. I can see exactly which firms are most profitable for my strategy.",
       rating: 5
     }
@@ -160,10 +163,23 @@ export const LandingPage: React.FC = () => {
           >
             <div className="flex items-center gap-2">
               <div className="flex -space-x-2">
-                {['👨‍💼', '👩‍💻', '👨‍💻', '👩‍💼', '👨‍🚀'].map((emoji, i) => (
-                  <div key={i} className="w-8 h-8 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 rounded-full flex items-center justify-center border border-white/10">
-                    <span className="text-sm">{emoji}</span>
-                  </div>
+                {[
+                  { src: 'https://randomuser.me/api/portraits/thumb/men/15.jpg', fallback: '/avatars/avatar-1.svg' },
+                  { src: 'https://randomuser.me/api/portraits/thumb/women/28.jpg', fallback: '/avatars/avatar-2.svg' },
+                  { src: 'https://randomuser.me/api/portraits/thumb/men/36.jpg', fallback: '/avatars/avatar-3.svg' },
+                  { src: 'https://randomuser.me/api/portraits/thumb/women/53.jpg', fallback: '/avatars/avatar-4.svg' },
+                  { src: 'https://randomuser.me/api/portraits/thumb/men/67.jpg', fallback: '/avatars/avatar-5.svg' },
+                ].map((a, i) => (
+                  <img
+                    key={i}
+                    src={a.src}
+                    alt="Trader avatar"
+                    width={32}
+                    height={32}
+                    loading="lazy"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = a.fallback; (e.currentTarget as HTMLImageElement).onerror = null; }}
+                    className="w-8 h-8 rounded-full object-cover border border-white/10"
+                  />
                 ))}
               </div>
               <span className="text-sm">1,200+ traders trust Propfolio</span>
@@ -274,7 +290,15 @@ export const LandingPage: React.FC = () => {
                 </div>
                 <p className="text-white/80 mb-6 leading-relaxed">"{testimonial.content}"</p>
                 <div className="flex items-center gap-3">
-                  <div className="text-2xl">{testimonial.image}</div>
+                  <img
+                    src={(testimonial as any).avatar}
+                    alt={`${testimonial.name} avatar`}
+                    width={40}
+                    height={40}
+                    loading="lazy"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = (testimonial as any).fallback || '/avatars/avatar-1.svg'; (e.currentTarget as HTMLImageElement).onerror = null; }}
+                    className="w-10 h-10 rounded-full object-cover border border-white/10"
+                  />
                   <div>
                     <div className="font-semibold text-white">{testimonial.name}</div>
                     <div className="text-sm text-white/60">{testimonial.role}</div>
