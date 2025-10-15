@@ -443,7 +443,7 @@ export const AdditionalCharts: React.FC<{
       );
     }
 
-    // Desktop version with horizontal scroll
+    // Desktop version - responsive container
     const currentData = firmView === 'exposure' ? firmExposureData : firmROIData;
     const colors = firmView === 'exposure' 
       ? ['#f97316', '#a855f7', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#84cc16']
@@ -476,8 +476,8 @@ export const AdditionalCharts: React.FC<{
     let startAngle = 0;
 
     return (
-      <div className="overflow-x-auto">
-        <div className="flex items-start gap-6 min-h-[400px] min-w-max">
+      <div className="w-full">
+        <div className="flex items-start gap-6 min-h-[400px]">
           {/* Pie Chart */}
           <div className="flex-none">
             <svg width="240" height="240" className="overflow-visible">
@@ -651,7 +651,7 @@ export const AdditionalCharts: React.FC<{
           </div>
           
           {/* Stats Legend - Enhanced with Animations */}
-          <div className="flex-1 space-y-3 min-w-[380px] max-w-lg ml-auto py-4">
+          <div className="flex-1 space-y-3 max-w-lg ml-auto py-4">
             {currentData.map((item, index) => (
               <div 
                 key={item.name} 
@@ -1447,9 +1447,9 @@ export const AdditionalCharts: React.FC<{
     const spacing = 80;
 
     return (
-      <div className="overflow-x-auto">
-        <div className="min-h-[400px] flex items-center justify-center">
-          <svg width={strategyData.length * spacing + 100} height={chartHeight + 80} className="overflow-visible">
+      <div className="w-full flex justify-center">
+        <div className="min-h-[400px] flex items-center justify-center max-w-full">
+          <svg width="100%" viewBox={`0 0 ${strategyData.length * spacing + 100} ${chartHeight + 80}`} height={chartHeight + 80} className="max-w-full" preserveAspectRatio="xMidYMid meet">
             {strategyData.map((strategy, index) => {
               const barHeight = Math.abs(strategy.roi / maxROI) * (chartHeight - 40);
               const barX = 50 + index * spacing;
@@ -1461,21 +1461,23 @@ export const AdditionalCharts: React.FC<{
                   <rect
                     x={barX}
                     y={barY}
-                    width={barWidth}
-                    height={Math.max(barHeight, 2)}
+                    width={Math.max(barWidth, 2)}
+                    height={barHeight}
                     fill={color}
                     rx="4"
                     className="transition-all duration-300 hover:opacity-80"
                     style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
                   >
-                    <animate
-                      attributeName="height"
-                      from="0"
-                      to={Math.max(barHeight, 2).toString()}
-                      dur="0.8s"
-                      begin={`${index * 0.1}s`}
-                      fill="freeze"
-                    />
+                    {!isMobile && (
+                      <animate
+                        attributeName="height"
+                        from="0"
+                        to={Math.max(barHeight, 2).toString()}
+                        dur="0.8s"
+                        begin={`${index * 0.1}s`}
+                        fill="freeze"
+                      />
+                    )}
                   </rect>
 
                   <text
@@ -1626,9 +1628,9 @@ export const AdditionalCharts: React.FC<{
     const labelWidth = 120;
 
     return (
-      <div className="overflow-x-auto">
-        <div className="min-h-[400px] flex items-center justify-center">
-          <svg width={chartWidth + labelWidth + 100} height={challengeTypeData.length * spacing + 60} className="overflow-visible">
+      <div className="w-full flex justify-center">
+        <div className="min-h-[400px] flex items-center justify-center max-w-full">
+          <svg width="100%" viewBox={`0 0 ${chartWidth + labelWidth + 100} ${challengeTypeData.length * spacing + 60}`} height={challengeTypeData.length * spacing + 60} className="max-w-full" preserveAspectRatio="xMidYMid meet">
             {challengeTypeData.map((type, index) => {
               const barWidth = Math.abs(type.roi / maxROI) * chartWidth;
               const barY = 40 + index * spacing;
