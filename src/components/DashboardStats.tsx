@@ -182,14 +182,14 @@ export const DashboardStats: React.FC<{ challenges: Challenge[] }> = ({ challeng
     },
     {
       title: 'Cost Per Live Account',
-      value: stats.costPerLiveAccount > 0 ? `$${stats.costPerLiveAccount.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '$0',
+      value: stats.costPerLiveAccount > 0 ? `$${stats.costPerLiveAccount.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'No live accounts',
       icon: <Calculator className="w-6 h-6 text-orange-300 drop-shadow-neon-orange" />,
       glow: 'orange',
       textColor: 'text-orange-300',
     },
     {
       title: 'Avg Time to Live',
-      value: stats.averageTimeToLive > 0 ? `${Math.round(stats.averageTimeToLive)} days` : 'N/A',
+      value: stats.averageTimeToLive > 0 ? `${Math.round(stats.averageTimeToLive)} days` : 'Complete phases first',
       icon: <Clock className="w-6 h-6 text-amber-300 drop-shadow-neon-amber" />,
       glow: 'amber',
       textColor: 'text-amber-300',

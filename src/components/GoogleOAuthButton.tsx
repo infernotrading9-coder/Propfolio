@@ -82,7 +82,7 @@ export const GoogleOAuthButton: React.FC<GoogleOAuthButtonProps> = ({
       window.google.accounts.id.renderButton(buttonRef.current, {
         theme: 'outline',
         size: 'large',
-        width: '100%',
+        width: buttonRef.current.offsetWidth || 400,
         text: 'continue_with',
         shape: 'rectangular',
         logo_alignment: 'left',
@@ -141,12 +141,14 @@ export const GoogleOAuthButton: React.FC<GoogleOAuthButtonProps> = ({
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full overflow-hidden">
       {!showFallback && (
         <div
           ref={buttonRef}
           className={`w-full min-h-[44px] ${disabled ? 'pointer-events-none opacity-50' : ''}`}
-        />
+        >
+          {/* Google button will render here */}
+        </div>
       )}
       
       {/* Fallback button */}
