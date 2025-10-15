@@ -864,8 +864,16 @@ const Dashboard: React.FC = () => {
                 <PayoutManager
                   challenge={editing}
                   onUpdate={async (updated) => {
-                    await apiClient.updateChallenge(updated);
-                    await refreshState();
+                    // Update the editing modal state immediately
+                    setEditing(updated);
+                    
+                    // Update the main state
+                    setState(prev => ({
+                      ...prev,
+                      challenges: prev.challenges.map(c => 
+                        c.id === updated.id ? updated : c
+                      )
+                    }));
                   }}
                 />
               </div>
