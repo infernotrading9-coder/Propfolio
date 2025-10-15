@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Import Trading Data from JSON</title>
+    <style>
+        body {
+            background: #020408;
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .container {
+            background: #0b0f17;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+        }
+        .button {
+            background: #22d3ee;
+            color: #020408;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 20px 10px;
+            box-shadow: 0 0 20px rgba(34, 211, 238, 0.4);
+        }
+        .button:hover {
+            background: #06b6d4;
+            transform: translateY(-2px);
+        }
+        .success {
+            background: #16a34a;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+        }
+        .info {
+            background: rgba(34, 211, 238, 0.1);
+            border: 1px solid rgba(34, 211, 238, 0.3);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Import Your Trading Data (JSON)</h1>
+        <p>Click the button below to import your individual trade records as challenges:</p>
+        
+        <div class="info">
+            <h3>📊 What will be imported from your JSON:</h3>
+            <ul>
+                <li><strong>4 Prop Firms:</strong> Maven, 8Markets, Think Capital, Breakout, Elite Trader Funding</li>
+                <li><strong>Multiple Challenges</strong> grouped by Account numbers</li>
+                <li><strong>Successful Trades:</strong> Maven Account 2 (5 winning trades, $20k payout)</li>
+                <li><strong>Elite Trader Success:</strong> 3 winning trades ($2.4k payout)</li>
+                <li><strong>Challenge Outcomes:</strong> Pass/Fail status based on your data</li>
+            </ul>
+        </div>
+        
+        <button class="button" onclick="importTradeData()">Import Trade Data</button>
+        <button class="button" onclick="clearData()" style="background: #ef4444;">Clear Existing Data</button>
+        
+        <div id="success" class="success">
+            <h3>✅ Import Successful!</h3>
+            <p>Your trading data has been converted to challenges and imported successfully.</p>
+            <p><strong>Please refresh your dashboard page</strong> to see all your challenges.</p>
+            <p><a href="http://localhost:5173" style="color: #22d3ee;">← Back to Dashboard</a></p>
+        </div>
+        
+        <div id="results" style="margin-top: 20px; text-align: left;"></div>
+    </div>
+
+    <script>
+        function importTradeData() {
+            // Your trade data
+            const tradeData = [
+                {
+                    "Date": "1/10/2025", "Day": "Friday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 17800, "SL": 17790, "TP": 17830, "Outcome": "Loss", "PnL": -1000, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "1/13/2025", "Day": "Monday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 17800, "SL": 17790, "TP": 17830, "Outcome": "Loss", "PnL": -1000, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "1/14/2025", "Day": "Tuesday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 17800, "SL": 17790, "TP": 17830, "Outcome": "Loss", "PnL": -1000, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "1/15/2025", "Day": "Wednesday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 17800, "SL": 17790, "TP": 17830, "Outcome": "Loss", "PnL": -1000, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "1/16/2025", "Day": "Thursday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 17800, "SL": 17790, "TP": 17830, "Outcome": "Loss", "PnL": -1000, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "2/3/2025", "Day": "Monday", "Propfirm": "8Markets", "Size": "50k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 17800, "SL": 17790, "TP": 17830, "Outcome": "Loss", "PnL": -1000, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "2/4/2025", "Day": "Tuesday", "Propfirm": "8Markets", "Size": "50k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 17800, "SL": 17790, "TP": 17830, "Outcome": "Loss", "PnL": -1000, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "2/5/2025", "Day": "Wednesday", "Propfirm": "8Markets", "Size": "50k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 17800, "SL": 17790, "TP": 17830, "Outcome": "Loss", "PnL": -1000, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "2/6/2025", "Day": "Thursday", "Propfirm": "8Markets", "Size": "50k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 17800, "SL": 17790, "TP": 17830, "Outcome": "Loss", "PnL": -1000, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "2/7/2025", "Day": "Friday", "Propfirm": "8Markets", "Size": "50k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 17800, "SL": 17790, "TP": 17830, "Outcome": "Loss", "PnL": -1000, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "3/3/2025", "Day": "Monday", "Propfirm": "Think Capital", "Size": "25k", "Instrument": "XAUUSD", "RR": 3,
+                    "Entry": 2000, "SL": 1998, "TP": 2006, "Outcome": "Loss", "PnL": -500, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "3/4/2025", "Day": "Tuesday", "Propfirm": "Think Capital", "Size": "25k", "Instrument": "XAUUSD", "RR": 3,
+                    "Entry": 2000, "SL": 1998, "TP": 2006, "Outcome": "Loss", "PnL": -500, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "3/5/2025", "Day": "Wednesday", "Propfirm": "Think Capital", "Size": "25k", "Instrument": "XAUUSD", "RR": 3,
+                    "Entry": 2000, "SL": 1998, "TP": 2006, "Outcome": "Loss", "PnL": -500, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "3/6/2025", "Day": "Thursday", "Propfirm": "Think Capital", "Size": "25k", "Instrument": "XAUUSD", "RR": 3,
+                    "Entry": 2000, "SL": 1998, "TP": 2006, "Outcome": "Loss", "PnL": -500, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "4/1/2025", "Day": "Tuesday", "Propfirm": "Breakout", "Size": "10k", "Instrument": "Crypto", "RR": 3,
+                    "Entry": 40000, "SL": 39800, "TP": 40600, "Outcome": "Loss", "PnL": -200, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "4/2/2025", "Day": "Wednesday", "Propfirm": "Breakout", "Size": "10k", "Instrument": "Crypto", "RR": 3,
+                    "Entry": 40000, "SL": 39800, "TP": 40600, "Outcome": "Loss", "PnL": -200, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "4/3/2025", "Day": "Thursday", "Propfirm": "Breakout", "Size": "10k", "Instrument": "Crypto", "RR": 3,
+                    "Entry": 40000, "SL": 39800, "TP": 40600, "Outcome": "Loss", "PnL": -200, "Payout": null,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "5/1/2025", "Day": "Thursday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 5,
+                    "Entry": 18000, "SL": 17980, "TP": 18100, "Outcome": "Win", "PnL": 5000, "Payout": 4000,
+                    "Account": 2, "Login": 123456, "Password": 123456, "Pass": 1, "Fail": 0, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "5/2/2025", "Day": "Friday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 5,
+                    "Entry": 18000, "SL": 17980, "TP": 18100, "Outcome": "Win", "PnL": 5000, "Payout": 4000,
+                    "Account": 2, "Login": 123456, "Password": 123456, "Pass": 1, "Fail": 0, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "5/5/2025", "Day": "Monday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 5,
+                    "Entry": 18000, "SL": 17980, "TP": 18100, "Outcome": "Win", "PnL": 5000, "Payout": 4000,
+                    "Account": 2, "Login": 123456, "Password": 123456, "Pass": 1, "Fail": 0, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "5/6/2025", "Day": "Tuesday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 5,
+                    "Entry": 18000, "SL": 17980, "TP": 18100, "Outcome": "Win", "PnL": 5000, "Payout": 4000,
+                    "Account": 2, "Login": 123456, "Password": 123456, "Pass": 1, "Fail": 0, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "5/7/2025", "Day": "Wednesday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 5,
+                    "Entry": 18000, "SL": 17980, "TP": 18100, "Outcome": "Win", "PnL": 5000, "Payout": 4000,
+                    "Account": 2, "Login": 123456, "Password": 123456, "Pass": 1, "Fail": 0, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "6/2/2025", "Day": "Monday", "Propfirm": "Elite Trader Funding", "Size": "25k", "Instrument": "XAUUSD", "RR": 4,
+                    "Entry": 2050, "SL": 2045, "TP": 2070, "Outcome": "Win", "PnL": 1000, "Payout": 800,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 1, "Fail": 0, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "6/3/2025", "Day": "Tuesday", "Propfirm": "Elite Trader Funding", "Size": "25k", "Instrument": "XAUUSD", "RR": 4,
+                    "Entry": 2050, "SL": 2045, "TP": 2070, "Outcome": "Win", "PnL": 1000, "Payout": 800,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 1, "Fail": 0, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "6/4/2025", "Day": "Wednesday", "Propfirm": "Elite Trader Funding", "Size": "25k", "Instrument": "XAUUSD", "RR": 4,
+                    "Entry": 2050, "SL": 2045, "TP": 2070, "Outcome": "Win", "PnL": 1000, "Payout": 800,
+                    "Account": 1, "Login": 123456, "Password": 123456, "Pass": 1, "Fail": 0, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "7/1/2025", "Day": "Tuesday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 18200, "SL": 18180, "TP": 18260, "Outcome": "Loss", "PnL": -2000, "Payout": null,
+                    "Account": 3, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "7/2/2025", "Day": "Wednesday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 18200, "SL": 18180, "TP": 18260, "Outcome": "Loss", "PnL": -2000, "Payout": null,
+                    "Account": 3, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "7/3/2025", "Day": "Thursday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 18200, "SL": 18180, "TP": 18260, "Outcome": "Loss", "PnL": -2000, "Payout": null,
+                    "Account": 3, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "8/1/2025", "Day": "Friday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 18200, "SL": 18180, "TP": 18260, "Outcome": "Loss", "PnL": -2000, "Payout": null,
+                    "Account": 4, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "8/4/2025", "Day": "Monday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 18200, "SL": 18180, "TP": 18260, "Outcome": "Loss", "PnL": -2000, "Payout": null,
+                    "Account": 4, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "9/1/2025", "Day": "Monday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 18200, "SL": 18180, "TP": 18260, "Outcome": "Loss", "PnL": -2000, "Payout": null,
+                    "Account": 5, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                },
+                {
+                    "Date": "10/1/2025", "Day": "Wednesday", "Propfirm": "Maven", "Size": "100k", "Instrument": "NAS", "RR": 3,
+                    "Entry": 18200, "SL": 18180, "TP": 18260, "Outcome": "Loss", "PnL": -2000, "Payout": null,
+                    "Account": 6, "Login": 123456, "Password": 123456, "Pass": 0, "Fail": 1, "Reset": 0, "Notes": null
+                }
+            ];
+
+            // Group trades by propfirm and account to create challenges
+            const challengeGroups = {};
+            
+            tradeData.forEach(trade => {
+                const key = `${trade.Propfirm}-${trade.Account}`;
+                if (!challengeGroups[key]) {
+                    challengeGroups[key] = {
+                        firm: trade.Propfirm,
+                        account: trade.Account,
+                        size: trade.Size,
+                        trades: [],
+                        startDate: trade.Date,
+                        totalPayout: 0,
+                        totalPnL: 0,
+                        hasWins: false,
+                        hasPassed: false
+                    };
+                }
+                challengeGroups[key].trades.push(trade);
+                challengeGroups[key].totalPnL += trade.PnL;
+                if (trade.Payout) {
+                    challengeGroups[key].totalPayout += trade.Payout;
+                }
+                if (trade.Outcome === 'Win') {
+                    challengeGroups[key].hasWins = true;
+                }
+                if (trade.Pass === 1) {
+                    challengeGroups[key].hasPassed = true;
+                }
+            });
+
+            // Create firms
+            const firms = [
+                { id: 'maven-001', name: 'Maven', createdAt: '2024-12-01T00:00:00Z' },
+                { id: '8markets-001', name: '8Markets', createdAt: '2024-12-01T00:00:00Z' },
+                { id: 'think-capital-001', name: 'Think Capital', createdAt: '2024-12-01T00:00:00Z' },
+                { id: 'breakout-001', name: 'Breakout', createdAt: '2024-12-01T00:00:00Z' },
+                { id: 'elite-trader-001', name: 'Elite Trader Funding', createdAt: '2024-12-01T00:00:00Z' }
+            ];
+
+            // Create challenges from grouped data
+            const challenges = [];
+            let challengeCounter = 1;
+
+            Object.values(challengeGroups).forEach(group => {
+                const firmId = firms.find(f => f.name === group.firm)?.id || 'unknown-001';
+                const accountSize = parseInt(group.size.replace('k', '')) * 1000;
+                
+                // Estimate cost based on account size (common prop firm pricing)
+                let estimatedCost = 0;
+                if (accountSize <= 10000) estimatedCost = 100;
+                else if (accountSize <= 25000) estimatedCost = 250;
+                else if (accountSize <= 50000) estimatedCost = 500;
+                else if (accountSize <= 100000) estimatedCost = 1000;
+                else estimatedCost = 2000;
+
+                const startDate = new Date(group.startDate).toISOString().split('T')[0];
+                
+                // Create payouts array if there were payouts
+                const payouts = [];
+                if (group.totalPayout > 0) {
+                    // Distribute payouts across dates when wins occurred
+                    const winTrades = group.trades.filter(t => t.Payout > 0);
+                    const uniquePayouts = [...new Set(winTrades.map(t => `${t.Date}-${t.Payout}`))];
+                    
+                    uniquePayouts.forEach((payout, index) => {
+                        const [date, amount] = payout.split('-');
+                        payouts.push({
+                            id: `payout-${challengeCounter}-${index}`,
+                            amount: parseFloat(amount),
+                            date: new Date(date).toISOString().split('T')[0]
+                        });
+                    });
+                }
+
+                // Determine phase completion based on pass/fail and outcome
+                const phase1Completed = group.hasPassed || group.hasWins;
+                const phase2Completed = group.hasPassed && group.totalPayout > 0;
+
+                challenges.push({
+                    id: `challenge-${challengeCounter.toString().padStart(3, '0')}`,
+                    propFirmId: firmId,
+                    brokerName: group.firm,
+                    accountSize: accountSize,
+                    startDate: startDate,
+                    cost: estimatedCost,
+                    totalPhases: 2, // Most prop firms are 2-phase
+                    payouts: payouts,
+                    phases: {
+                        phase1: { 
+                            completed: phase1Completed,
+                            completedAt: phase1Completed ? startDate : undefined
+                        },
+                        phase2: { 
+                            completed: phase2Completed,
+                            completedAt: phase2Completed ? payouts[0]?.date : undefined
+                        },
+                        phase3: { completed: false }
+                    },
+                    monthlyPnL: {},
+                    weeklyPnL: {}
+                });
+                
+                challengeCounter++;
+            });
+
+            // Store in localStorage
+            const appState = {
+                firms: firms,
+                challenges: challenges,
+                selectedFirmId: null
+            };
+
+            localStorage.setItem('trading_dashboard_v1', JSON.stringify(appState));
+            
+            document.getElementById('success').style.display = 'block';
+            document.getElementById('results').innerHTML = `
+                <div style="background: rgba(34, 211, 238, 0.1); padding: 15px; border-radius: 8px; margin: 10px 0;">
+                    <h4>✅ Import Complete!</h4>
+                    <p><strong>Imported:</strong> ${firms.length} firms and ${challenges.length} challenges</p>
+                    <p><strong>Successful Challenges:</strong> ${challenges.filter(c => c.payouts.length > 0).length}</p>
+                    <p><strong>Total Payouts:</strong> $${challenges.reduce((sum, c) => sum + c.payouts.reduce((pSum, p) => pSum + p.amount, 0), 0).toLocaleString()}</p>
+                    <p style="color: #22d3ee;"><strong>Next:</strong> Go to your dashboard and refresh the page!</p>
+                </div>
+            `;
+        }
+
+        function clearData() {
+            if (confirm('Are you sure you want to clear all existing data?')) {
+                localStorage.removeItem('trading_dashboard_v1');
+                localStorage.removeItem('trading_dashboard_calendar_v1');
+                document.getElementById('results').innerHTML = `
+                    <div style="background: rgba(239, 68, 68, 0.1); padding: 15px; border-radius: 8px; margin: 10px 0;">
+                        <h4>🗑️ Data Cleared</h4>
+                        <p>All existing data has been removed from localStorage.</p>
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

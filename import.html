@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Import Trading Data</title>
+    <style>
+        body {
+            background: #020408;
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .container {
+            background: #0b0f17;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+        }
+        .button {
+            background: #22d3ee;
+            color: #020408;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 20px 10px;
+            box-shadow: 0 0 20px rgba(34, 211, 238, 0.4);
+        }
+        .button:hover {
+            background: #06b6d4;
+            transform: translateY(-2px);
+        }
+        .success {
+            background: #16a34a;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+        }
+        .info {
+            background: rgba(34, 211, 238, 0.1);
+            border: 1px solid rgba(34, 211, 238, 0.3);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Import Your Trading Data</h1>
+        <p>Click the button below to import all your trading challenges from your CSV data:</p>
+        
+        <div class="info">
+            <h3>📊 What will be imported:</h3>
+            <ul>
+                <li><strong>5 Prop Firms:</strong> Breakout, Maven, Think Capital, Elite Trader Funding, 8Markets</li>
+                <li><strong>33 Challenges</strong> with correct dates, costs, and account sizes</li>
+                <li><strong>Payouts:</strong> Think Capital challenge with $6,419.55 total payouts</li>
+                <li><strong>Total Spent:</strong> $6,857.76 (matches your spreadsheet)</li>
+            </ul>
+        </div>
+        
+        <button class="button" onclick="importData()">Import All Data</button>
+        <button class="button" onclick="clearData()" style="background: #ef4444;">Clear Existing Data</button>
+        
+        <div id="success" class="success">
+            <h3>✅ Import Successful!</h3>
+            <p>Your data has been imported successfully. <strong>Please refresh your dashboard page</strong> to see all your challenges.</p>
+            <p><a href="http://localhost:5173" style="color: #22d3ee;">← Back to Dashboard</a></p>
+        </div>
+        
+        <div id="results" style="margin-top: 20px; text-align: left;"></div>
+    </div>
+
+    <script>
+        function importData() {
+            const firms = [
+                { id: 'breakout-001', name: 'Breakout', createdAt: '2024-12-01T00:00:00Z' },
+                { id: 'maven-001', name: 'Maven', createdAt: '2024-12-01T00:00:00Z' },
+                { id: 'think-capital-001', name: 'Think Capital', createdAt: '2024-12-01T00:00:00Z' },
+                { id: 'elite-trader-001', name: 'Elite Trader Funding', createdAt: '2024-12-01T00:00:00Z' },
+                { id: '8markets-001', name: '8Markets', createdAt: '2024-12-01T00:00:00Z' }
+            ];
+
+            const challenges = [
+                { id: 'challenge-001', propFirmId: 'breakout-001', brokerName: 'Breakout', accountSize: 10000, startDate: '2025-01-01', cost: 100, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-002', propFirmId: 'breakout-001', brokerName: 'Breakout', accountSize: 25000, startDate: '2025-01-05', cost: 250, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-003', propFirmId: 'breakout-001', brokerName: 'Breakout', accountSize: 25000, startDate: '2025-01-06', cost: 250, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-004', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-01-10', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-005', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 50000, startDate: '2025-01-27', cost: 220, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-006', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-02-03', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-007', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 5000, startDate: '2025-02-06', cost: 22, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-008', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-02-13', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-009', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-02-21', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-010', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-02-21', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-011', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-02-21', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-012', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-02-21', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-013', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-02-21', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-014', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 50000, startDate: '2025-03-03', cost: 224.40, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-015', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-03-04', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-016', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-03-04', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-017', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-03-26', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-018', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-03-26', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-019', propFirmId: 'maven-001', brokerName: 'Maven', accountSize: 20000, startDate: '2025-04-18', cost: 88, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-020', propFirmId: 'think-capital-001', brokerName: 'Think Capital', accountSize: 50000, startDate: '2025-04-29', cost: 317.69, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-021', propFirmId: 'think-capital-001', brokerName: 'Think Capital', accountSize: 50000, startDate: '2025-05-02', cost: 336.37, totalPhases: 2, payouts: [{ id: 'payout-001', amount: 2037.06, date: '2025-05-15' }, { id: 'payout-002', amount: 3417.32, date: '2025-06-01' }, { id: 'payout-003', amount: 965.17, date: '2025-06-15' }], phases: { phase1: { completed: true, completedAt: '2025-05-10' }, phase2: { completed: true, completedAt: '2025-05-20' }, phase3: { completed: false } } },
+                { id: 'challenge-022', propFirmId: 'think-capital-001', brokerName: 'Think Capital', accountSize: 100000, startDate: '2025-05-30', cost: 471.74, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-023', propFirmId: 'think-capital-001', brokerName: 'Think Capital', accountSize: 200000, startDate: '2025-07-02', cost: 516.81, totalPhases: 3, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-024', propFirmId: 'elite-trader-001', brokerName: 'Elite Trader Funding', accountSize: 50000, startDate: '2025-04-30', cost: 16.50, totalPhases: 1, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-025', propFirmId: 'elite-trader-001', brokerName: 'Elite Trader Funding', accountSize: 50000, startDate: '2025-04-30', cost: 16.50, totalPhases: 1, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-026', propFirmId: 'elite-trader-001', brokerName: 'Elite Trader Funding', accountSize: 50000, startDate: '2025-04-30', cost: 16.50, totalPhases: 1, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-027', propFirmId: '8markets-001', brokerName: '8Markets', accountSize: 100000, startDate: '2025-05-21', cost: 591.72, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-028', propFirmId: '8markets-001', brokerName: '8Markets', accountSize: 200000, startDate: '2025-05-30', cost: 987.96, totalPhases: 2, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-029', propFirmId: '8markets-001', brokerName: '8Markets', accountSize: 200000, startDate: '2025-07-10', cost: 602.37, totalPhases: 3, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-030', propFirmId: '8markets-001', brokerName: '8Markets', accountSize: 50000, startDate: '2025-07-23', cost: 188, totalPhases: 3, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-031', propFirmId: '8markets-001', brokerName: '8Markets', accountSize: 50000, startDate: '2025-08-04', cost: 169.20, totalPhases: 3, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-032', propFirmId: '8markets-001', brokerName: '8Markets', accountSize: 50000, startDate: '2025-09-01', cost: 208, totalPhases: 3, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } },
+                { id: 'challenge-033', propFirmId: '8markets-001', brokerName: '8Markets', accountSize: 50000, startDate: '2025-09-28', cost: 208, totalPhases: 3, payouts: [], phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } } }
+            ];
+
+            const appState = {
+                firms: firms,
+                challenges: challenges.map(c => ({ ...c, monthlyPnL: {}, weeklyPnL: {} })),
+                selectedFirmId: null
+            };
+
+            localStorage.setItem('trading_dashboard_v1', JSON.stringify(appState));
+            
+            document.getElementById('success').style.display = 'block';
+            document.getElementById('results').innerHTML = `
+                <div style="background: rgba(34, 211, 238, 0.1); padding: 15px; border-radius: 8px; margin: 10px 0;">
+                    <h4>✅ Import Complete!</h4>
+                    <p><strong>Imported:</strong> ${firms.length} firms and ${challenges.length} challenges</p>
+                    <p><strong>Total Spent:</strong> $6,857.76</p>
+                    <p><strong>Total Payouts:</strong> $6,419.55</p>
+                    <p style="color: #22d3ee;"><strong>Next:</strong> Go to your dashboard and refresh the page!</p>
+                </div>
+            `;
+        }
+
+        function clearData() {
+            if (confirm('Are you sure you want to clear all existing data?')) {
+                localStorage.removeItem('trading_dashboard_v1');
+                localStorage.removeItem('trading_dashboard_calendar_v1');
+                document.getElementById('results').innerHTML = `
+                    <div style="background: rgba(239, 68, 68, 0.1); padding: 15px; border-radius: 8px; margin: 10px 0;">
+                        <h4>🗑️ Data Cleared</h4>
+                        <p>All existing data has been removed from localStorage.</p>
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test App Load</title>
+</head>
+<body>
+    <h1>Testing App Load</h1>
+    <p>This is a simple test to see if the server is running.</p>
+    
+    <script>
+        // Clear localStorage to eliminate any data issues
+        console.log('Clearing localStorage...');
+        localStorage.clear();
+        console.log('localStorage cleared');
+        
+        // Test if we can access the main app
+        fetch('/').then(response => {
+            console.log('Main app response status:', response.status);
+        }).catch(error => {
+            console.error('Failed to fetch main app:', error);
+        });
+    </script>
+</body>
+</html>

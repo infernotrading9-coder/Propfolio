@@ -1,0 +1,171 @@
+@import './dark-theme.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif; }
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+/* Only apply dark theme to this specific app */
+#root {
+  background: #020408;
+  color: white;
+  min-height: 100vh;
+}
+
+body {
+  margin: 0;
+  /* Remove global background - let each app handle its own */
+}
+
+/* Neon Color Animations */
+@keyframes neonPulse {
+  0%, 100% { 
+    text-shadow: 0 0 8px currentColor, 0 0 20px currentColor;
+    filter: brightness(1);
+  }
+  50% { 
+    text-shadow: 0 0 12px currentColor, 0 0 30px currentColor, 0 0 40px currentColor;
+    filter: brightness(1.2);
+  }
+}
+
+@keyframes neonShimmer {
+  0% { 
+    text-shadow: 0 0 8px currentColor, 0 0 20px currentColor;
+    transform: translateX(0);
+  }
+  25% {
+    text-shadow: 2px 0 12px currentColor, 0 0 25px currentColor;
+  }
+  50% {
+    text-shadow: 0 0 15px currentColor, 0 0 35px currentColor;
+    transform: translateX(1px);
+  }
+  75% {
+    text-shadow: -2px 0 12px currentColor, 0 0 25px currentColor;
+  }
+  100% { 
+    text-shadow: 0 0 8px currentColor, 0 0 20px currentColor;
+    transform: translateX(0);
+  }
+}
+
+@keyframes neonBreathing {
+  0%, 100% { 
+    text-shadow: 0 0 6px currentColor, 0 0 15px currentColor;
+    opacity: 0.9;
+  }
+  50% { 
+    text-shadow: 0 0 10px currentColor, 0 0 25px currentColor, 0 0 35px currentColor;
+    opacity: 1;
+  }
+}
+
+@keyframes borderGlow {
+  0%, 100% { 
+    box-shadow: 0 0 8px rgba(168,85,247,0.3), inset 0 0 8px rgba(168,85,247,0.1);
+  }
+  50% { 
+    box-shadow: 0 0 16px rgba(168,85,247,0.5), inset 0 0 12px rgba(168,85,247,0.2);
+  }
+}
+
+@keyframes cyanGlow {
+  0%, 100% { 
+    box-shadow: 0 0 8px rgba(34,211,238,0.3), inset 0 0 8px rgba(34,211,238,0.1);
+  }
+  50% { 
+    box-shadow: 0 0 16px rgba(34,211,238,0.5), inset 0 0 12px rgba(34,211,238,0.2);
+  }
+}
+
+@keyframes pinkGlow {
+  0%, 100% { 
+    box-shadow: 0 0 8px rgba(244,114,182,0.3), inset 0 0 8px rgba(244,114,182,0.1);
+  }
+  50% { 
+    box-shadow: 0 0 16px rgba(244,114,182,0.5), inset 0 0 12px rgba(244,114,182,0.2);
+  }
+}
+
+@keyframes limeGlow {
+  0%, 100% { 
+    box-shadow: 0 0 8px rgba(163,230,53,0.3), inset 0 0 8px rgba(163,230,53,0.1);
+  }
+  50% { 
+    box-shadow: 0 0 16px rgba(163,230,53,0.5), inset 0 0 12px rgba(163,230,53,0.2);
+  }
+}
+
+@keyframes amberGlow {
+  0%, 100% { 
+    box-shadow: 0 0 8px rgba(245,158,11,0.3), inset 0 0 8px rgba(245,158,11,0.1);
+  }
+  50% { 
+    box-shadow: 0 0 16px rgba(245,158,11,0.5), inset 0 0 12px rgba(245,158,11,0.2);
+  }
+}
+
+/* Main neon title with shimmer effect */
+.neon-title {
+  color: #e879f9;
+  text-shadow: 0 0 12px rgba(232,121,249,0.6), 0 0 30px rgba(232,121,249,0.35);
+  animation: neonShimmer 4s infinite ease-in-out;
+}
+
+/* Text shadow animations */
+.drop-shadow-neon { 
+  text-shadow: 0 0 10px rgba(255,255,255,0.35); 
+  animation: neonBreathing 3s infinite ease-in-out;
+}
+
+.drop-shadow-neon-cyan { 
+  filter: drop-shadow(0 0 10px rgba(34,211,238,0.6)); 
+  animation: neonPulse 2.5s infinite ease-in-out;
+}
+
+.drop-shadow-neon-pink { 
+  filter: drop-shadow(0 0 10px rgba(244,114,182,0.6)); 
+  animation: neonPulse 3.2s infinite ease-in-out;
+}
+
+.drop-shadow-neon-lime { 
+  filter: drop-shadow(0 0 10px rgba(163,230,53,0.6)); 
+  animation: neonPulse 2.8s infinite ease-in-out;
+}
+
+.drop-shadow-neon-amber { 
+  filter: drop-shadow(0 0 10px rgba(245,158,11,0.6)); 
+  animation: neonPulse 3.5s infinite ease-in-out;
+}
+
+/* Border glow animations */
+.animate-border-glow { animation: borderGlow 2.5s infinite ease-in-out; }
+.animate-cyan-glow { animation: cyanGlow 2.8s infinite ease-in-out; }
+.animate-pink-glow { animation: pinkGlow 3.2s infinite ease-in-out; }
+.animate-lime-glow { animation: limeGlow 2.6s infinite ease-in-out; }
+.animate-amber-glow { animation: amberGlow 3.8s infinite ease-in-out; }
+
+/* Legend animation */
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Legacy glow pulse for backwards compatibility */
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(168,85,247,0.25); }
+  50% { box-shadow: 0 0 24px rgba(168,85,247,0.45); }
+}
+
+.animate-glowPulse { animation: glowPulse 2.5s infinite ease-in-out; }
