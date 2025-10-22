@@ -662,7 +662,7 @@ const Dashboard: React.FC = () => {
                 challenges={visibleChallenges}
                 firms={state.firms}
                 onEdit={setEditing}
-                onTogglePhase={(id, phase) => {
+                onTogglePhase={() => {
                   // This is now handled inside ChallengeList, but keep for backwards compatibility
                 }}
                 onChallengeUpdate={(updatedChallenge) => {

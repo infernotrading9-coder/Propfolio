@@ -1,10 +1,8 @@
 import { AppState, Challenge, NewChallengeInput, NewFirmInput, PropFirm } from '../types';
 
-// In Vite dev (5173), call Netlify Functions directly to ensure JSON
-const DEV = typeof window !== 'undefined' && window.location && window.location.port === '5173';
-const API_BASE_URL = DEV ? '/.netlify/functions' : '/api';
+// Always use Netlify Functions
+const API_BASE_URL = '/.netlify/functions';
 function mapEndpoint(endpoint: string): string {
-  if (!DEV) return endpoint;
   switch (endpoint) {
     case '/auth/signup': return '/auth-signup';
     case '/auth/login': return '/auth-login';

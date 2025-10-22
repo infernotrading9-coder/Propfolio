@@ -1,5 +1,5 @@
 import React from 'react';
-import { Challenge } from '../types';
+import { Challenge, PropFirm } from '../types';
 import { Button } from './ui/Button';
 import { CheckCircle2, Circle, XCircle, Pencil, ChevronLeft, ChevronRight, Settings, Flame } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -17,8 +17,8 @@ export const ChallengeList: React.FC<{
   setCalendar?: (updater: (prev: any) => any) => void;
   buildingMode?: boolean;
   onAutomaticCalendarIntegration?: (challenge: Challenge, completedPhase: 'phase1'|'phase2'|'phase3') => Promise<void>;
-}> = ({ challenges, firms, onEdit, onTogglePhase, onChallengeUpdate, calendar, setCalendar, buildingMode = false, onAutomaticCalendarIntegration }) => {
-  const [loadingPhase, setLoadingPhase] = React.useState<string | null>(null);
+}> = ({ challenges, firms, onEdit, onChallengeUpdate, calendar, setCalendar, buildingMode = false, onAutomaticCalendarIntegration }) => {
+  const [loadingPhase] = React.useState<string | null>(null);
   const [currentPage, setCurrentPage] = React.useState(1);
   const [itemsPerPage, setItemsPerPage] = React.useState(5);
   const [showPageSizeSelector, setShowPageSizeSelector] = React.useState(false);
@@ -175,7 +175,7 @@ export const ChallengeList: React.FC<{
     <>
       <div className="grid grid-cols-1 gap-3">
         <AnimatePresence mode="popLayout">
-          {paginatedChallenges.map((c, index) => {
+          {paginatedChallenges.map((c) => {
             if (!c || !c.id) return null;
             // Find the challenge number based on oldest-to-newest order (oldest = #1)
             const idx = sortedForNumbering.findIndex(sc => sc && sc.id === c.id);
@@ -263,7 +263,7 @@ export const ChallengeList: React.FC<{
                   
                   {/* Right side - Phase buttons and Edit */}
                   <div className="flex items-center gap-2 flex-wrap">
-                    {(['phase1','phase2','phase3'] as const).slice(0, c.totalPhases ?? 3).map((p, phaseIndex) => {
+                    {(['phase1','phase2','phase3'] as const).slice(0, c.totalPhases ?? 3).map((p) => {
                       const loadingKey = `${c.id}-${p}`;
                       const isLoading = loadingPhase === loadingKey;
                       const phase = c?.phases?.[p];

@@ -34,7 +34,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const API_BASE = (typeof window !== 'undefined' && window.location && window.location.port === '5173') ? '/.netlify/functions' : '/api';
+  const API_BASE = '/.netlify/functions';
 
   const signup = async (email: string, password: string, name?: string): Promise<void> => {
     const res = await fetch(`${API_BASE}/auth/signup`, {

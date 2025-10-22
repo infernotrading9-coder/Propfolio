@@ -2,7 +2,7 @@ import React from 'react';
 import { NeonCard } from './NeonCard';
 import { Button } from './ui/Button';
 import { PropFirm, NewChallengeInput, Challenge, NewFirmInput, ChallengeStatus, FirmType } from '../types';
-import { Plus, Save, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Plus, Save } from 'lucide-react';
 
 export const ChallengeForm: React.FC<{
   firms: PropFirm[];
@@ -98,7 +98,7 @@ export const ChallengeForm: React.FC<{
   const [totalPhasesStr, setTotalPhasesStr] = React.useState(String(initial?.totalPhases ?? 3));
   const [accountSizeStr, setAccountSizeStr] = React.useState(String(initial?.accountSize ?? 100000));
   const [costStr, setCostStr] = React.useState(String(initial?.cost ?? 0));
-  const [status, setStatus] = React.useState<ChallengeStatus>(initial?.status ?? 'active');
+  const [status] = React.useState<ChallengeStatus>(initial?.status ?? 'active');
   const [loading, setLoading] = React.useState(false);
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [accountSizeCleared, setAccountSizeCleared] = React.useState(false);
