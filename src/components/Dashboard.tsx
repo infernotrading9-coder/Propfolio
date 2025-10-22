@@ -559,8 +559,6 @@ const Dashboard: React.FC = () => {
 
               <CustomPnLChart challenges={visibleChallenges} />
 
-              <AdditionalCharts challenges={visibleChallenges} firms={state.firms} />
-
               <ChallengeList
                 challenges={visibleChallenges}
                 firms={state.firms}
@@ -581,6 +579,8 @@ const Dashboard: React.FC = () => {
                 buildingMode={buildingMode}
                 onAutomaticCalendarIntegration={handleAutomaticCalendarIntegration}
               />
+
+              <AdditionalCharts challenges={visibleChallenges} firms={state.firms} />
             </>
           ) : (
             <>

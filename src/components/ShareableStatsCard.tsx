@@ -411,33 +411,62 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
 
   const downloadImage = async () => {
     if (cardRef.current) {
-      // Temporarily simplify problematic CSS for screenshot
-      const originalStyles = new Map();
-      const problematicElements = cardRef.current.querySelectorAll('*');
-      
-      problematicElements.forEach((element) => {
-        if (element instanceof HTMLElement) {
-          const computedStyle = window.getComputedStyle(element);
-          const originalStyle = element.style.cssText;
-          originalStyles.set(element, originalStyle);
-          
-          // Temporarily remove problematic properties
+      const node = cardRef.current;
+
+      // Temporarily simplify problematic CSS and ensure full height capture
+      const originalStyles = new Map<HTMLElement, string>();
+      const allElements = node.querySelectorAll('*');
+
+      // Also relax overflow on the root for capture to avoid clipping
+      const rootOriginalOverflow = node.style.overflow;
+      node.style.overflow = 'visible';
+
+      allElements.forEach((el) => {
+        if (el instanceof HTMLElement) {
+          const computedStyle = window.getComputedStyle(el);
+          originalStyles.set(el, el.style.cssText);
           if (computedStyle.backdropFilter && computedStyle.backdropFilter !== 'none') {
-            element.style.backdropFilter = 'none';
-            element.style.backgroundColor = element.style.backgroundColor || 'rgba(0, 0, 0, 0.4)';
+            el.style.backdropFilter = 'none';
+            if (!el.style.backgroundColor) {
+              el.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+            }
           }
         }
       });
-      
+
       try {
-        const dataUrl = await htmlToImage.toPng(cardRef.current, {
+        // Ensure fonts are loaded to avoid reflow during capture
+        try { /* @ts-ignore */ await (document as any).fonts?.ready; } catch {}
+
+        // Temporarily let the card grow to full content height
+        const originalExplicitHeight = node.style.height;
+        node.style.height = 'auto';
+
+        // Force layout to compute scroll sizes
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        node.offsetHeight;
+
+        const width = Math.ceil(node.scrollWidth || node.getBoundingClientRect().width);
+        const height = Math.ceil(node.scrollHeight || node.getBoundingClientRect().height);
+
+        const dataUrl = await htmlToImage.toPng(node, {
           quality: 1.0,
           pixelRatio: 2,
-          width: 450,
-          height: 650,
-          backgroundColor: '#0a0a0a'
+          width,
+          height,
+          backgroundColor: '#0a0a0a',
+          style: {
+            // Neutralize potential transforms that could affect bounds
+            transform: 'none',
+            transformOrigin: 'top left',
+            overflow: 'visible',
+          },
+          cacheBust: true
         });
-        
+
+        // Restore explicit height
+        node.style.height = originalExplicitHeight;
+
         const link = document.createElement('a');
         const filename = timeframe === 'month' && selectedMonth 
           ? `trading-stats-${selectedMonth}.png`
@@ -446,20 +475,16 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
           : timeframe === 'year' && selectedYear
           ? `trading-stats-${selectedYear}.png`
           : 'trading-stats-all-time.png';
-        
+
         link.download = filename;
         link.href = dataUrl;
         link.click();
-        
       } catch (error) {
         console.error('Error generating image:', error);
       } finally {
         // Restore original styles
-        originalStyles.forEach((originalStyle, element) => {
-          if (element instanceof HTMLElement) {
-            element.style.cssText = originalStyle;
-          }
-        });
+        node.style.overflow = rootOriginalOverflow;
+        originalStyles.forEach((css, el) => { el.style.cssText = css; });
       }
     }
   };
@@ -522,28 +547,28 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
           </div>
 
           {/* Main ROI Display */}
-          <div className="bg-black/40 backdrop-blur-sm rounded-xl p-6 mb-6 border border-cyan-500/30 relative overflow-hidden">
+          <div className="bg-black/40 backdrop-blur-sm rounded-xl p-6 mb-6 border border-cyan-500/30 relative overflow-visible">
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-500/5 to-transparent"></div>
             <div className="relative text-center">
-              <div className="flex items-center justify-center mb-3">
+              <div className="flex items-center justify-center mb-2">
                 {isPositive ? (
-                  <div className="flex items-center space-x-3">
-                    <TrendingUp className="w-8 h-8 text-green-400" style={{
+                  <div className="flex items-center space-x-2">
+                    <TrendingUp className="w-7 h-7 text-green-400" style={{
                       filter: 'drop-shadow(0 0 15px rgba(34, 197, 94, 0.8))'
                     }} />
-                    <span className="text-green-400 font-black text-xl tracking-wide">PROFITABLE</span>
+                    <span className="text-green-400 font-black text-lg tracking-wide">PROFITABLE</span>
                   </div>
                 ) : (
-                  <div className="flex items-center space-x-3">
-                    <TrendingDown className="w-8 h-8 text-red-400" style={{
+                  <div className="flex items-center space-x-2">
+                    <TrendingDown className="w-7 h-7 text-red-400" style={{
                       filter: 'drop-shadow(0 0 15px rgba(239, 68, 68, 0.8))'
                     }} />
-                    <span className="text-red-400 font-black text-xl tracking-wide">LOSS</span>
+                    <span className="text-red-400 font-black text-lg tracking-wide">LOSS</span>
                   </div>
                 )}
               </div>
               
-              <div className={`text-6xl font-black mb-3 ${
+              <div className={`text-5xl font-black mb-2 ${
                 isPositive ? 'text-green-400' : 'text-red-400'
               }`} style={{
                 textShadow: isPositive 
@@ -553,7 +578,7 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
                 {stats.roi >= 0 ? '+' : ''}{(stats.roi * 100).toFixed(1)}%
               </div>
               
-              <div className={`text-2xl font-bold ${
+              <div className={`text-xl font-bold break-words px-2 ${
                 profit >= 0 ? 'text-green-300' : 'text-red-300'
               }`}>
                 {profit >= 0 ? '+' : ''}${formatMoney(profit)} NET PROFIT

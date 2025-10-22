@@ -314,9 +314,6 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Shareable Stats Showcase (carousel with screenshots) */}
-      <ShareStatsShowcase />
-
       {/* Final CTA Section */}
       <section className="py-20 px-4">
         <div className="max-w-4xl mx-auto text-center">
