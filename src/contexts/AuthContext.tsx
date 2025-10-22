@@ -34,8 +34,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const API_BASE = (typeof window !== 'undefined' && window.location && window.location.port === '5173') ? '/.netlify/functions' : '/api';
+
   const signup = async (email: string, password: string, name?: string): Promise<void> => {
-    const res = await fetch('/api/auth/signup', {
+    const res = await fetch(`${API_BASE}/auth/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, name }),
@@ -48,7 +50,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const login = async (email: string, password: string): Promise<void> => {
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -63,7 +65,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const loginWithGoogle = async (credential: string): Promise<void> => {
     const googleUser = decodeGoogleToken(credential);
     if (!googleUser) throw new Error('Failed to decode Google credential');
-    const res = await fetch('/api/auth/google', {
+    const res = await fetch(`${API_BASE}/auth/google`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: googleUser.email, name: googleUser.name }),
@@ -77,7 +79,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async (): Promise<void> => {
     try {
-      await fetch('/api/auth/logout', { method: 'DELETE', credentials: 'include' });
+      await fetch(`${API_BASE}/auth/logout`, { method: 'DELETE', credentials: 'include' });
     } catch {}
     if (currentUser?.id) {
       localStorage.removeItem(`challenges_${currentUser.id}`);
@@ -90,7 +92,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const init = async () => {
       try {
-        const res = await fetch('/api/auth/session', { credentials: 'include' });
+        const res = await fetch(`${API_BASE}/auth/session`, { credentials: 'include' });
         const data = await res.json();
         if (data?.user) {
           setCurrentUser(data.user);

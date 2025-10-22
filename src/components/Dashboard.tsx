@@ -520,9 +520,9 @@ const Dashboard: React.FC = () => {
 
           <div className="flex items-center justify-center gap-3 mb-3">
             <button onClick={() => setView('prop')} className={`px-4 py-2 rounded-md border ${view==='prop' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Prop Firm Dashboard</button>
-            <button onClick={() => setView('calendar')} className={`px-4 py-2 rounded-md border ${view==='calendar' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Challenge Calendar</button>
+            <button onClick={() => setView('calendar')} className={`px-4 py-2 rounded-md border ${view==='calendar' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Rule Calendar</button>
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight neon-title">{view==='prop' ? 'Propfolio' : 'Challenge Calendar'}</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight neon-title">{view==='prop' ? 'Propfolio' : 'Rule Calendar'}</h1>
           <p className="text-white/70 mt-2">{view==='prop' ? 'Track Challenges, Trading Rules, and ROI' : 'Track your challenge phases and trading activity'}</p>
         </header>
 
@@ -565,69 +565,21 @@ const Dashboard: React.FC = () => {
                 challenges={visibleChallenges}
                 firms={state.firms}
                 onEdit={setEditing}
-                onTogglePhase={async (id, phase) => {
-                  const target = state.challenges.find(c => c.id === id);
-                  if (!target) return;
-                  
-                  const wasCompleted = target.phases[phase].completed;
-                  const newCompletedState = !wasCompleted;
-                  
-                  // Update UI immediately for instant feedback
+                onTogglePhase={(id, phase) => {
+                  // This is now handled inside ChallengeList, but keep for backwards compatibility
+                }}
+                onChallengeUpdate={(updatedChallenge) => {
                   setState(prevState => ({
                     ...prevState,
                     challenges: prevState.challenges.map(challenge => 
-                      challenge.id === id 
-                        ? {
-                            ...challenge,
-                            phases: {
-                              ...challenge.phases,
-                              [phase]: { ...challenge.phases[phase], completed: newCompletedState }
-                            }
-                          }
-                        : challenge
+                      challenge.id === updatedChallenge.id ? updatedChallenge : challenge
                     )
                   }));
-                  
-                  // Automatically add phase completion to calendar if not in building mode
-                  if (!wasCompleted && !buildingMode) {
-                    // Create updated challenge object
-                    const updatedChallenge = {
-                      ...target,
-                      phases: {
-                        ...target.phases,
-                        [phase]: { ...target.phases[phase], completed: true }
-                      }
-                    };
-                    
-                    // Automatically create calendar entries for completed phases
-                    await handleAutomaticCalendarIntegration(updatedChallenge, phase);
-                  }
-                  
-                  // Update database in background (no await to avoid blocking UI)
-                  apiClient.markPhase(target.id, phase, newCompletedState)
-                    .then(() => {
-                      console.log('Phase updated in database');
-                    })
-                    .catch(error => {
-                      console.error('Database update failed:', error);
-                      // Revert UI state on database error
-                      setState(prevState => ({
-                        ...prevState,
-                        challenges: prevState.challenges.map(challenge => 
-                          challenge.id === id 
-                            ? {
-                                ...challenge,
-                                phases: {
-                                  ...challenge.phases,
-                                  [phase]: { ...challenge.phases[phase], completed: wasCompleted }
-                                }
-                              }
-                            : challenge
-                        )
-                      }));
-                      alert('Failed to update phase. Please try again.');
-                    });
                 }}
+                calendar={calendar}
+                setCalendar={setCalendar}
+                buildingMode={buildingMode}
+                onAutomaticCalendarIntegration={handleAutomaticCalendarIntegration}
               />
             </>
           ) : (
@@ -666,7 +618,7 @@ const Dashboard: React.FC = () => {
                               <span className="ml-2 text-sm text-red-400 font-normal">(Archived)</span>
                             )}
                           </>
-                        ) : 'Challenge Calendar'}
+                        ) : 'Rule Calendar'}
                       </h3>
                       <button 
                         onClick={() => {

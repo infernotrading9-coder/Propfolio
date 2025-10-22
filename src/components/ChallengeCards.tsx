@@ -82,7 +82,7 @@ export const ChallengeCards: React.FC<ChallengeCardsProps> = ({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h3 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-purple-300">
-          Challenge Calendars
+          Rule Calendars
         </h3>
         <div className="text-sm text-white/60">
           {activeChallenges.length} Active Challenge{activeChallenges.length !== 1 ? 's' : ''}

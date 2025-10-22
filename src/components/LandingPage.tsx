@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ArrowRight, CheckCircle, TrendingUp, BarChart3, Shield, Zap, Star } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { ShareStatsShowcase } from './ShareStatsShowcase';
 
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
@@ -258,6 +259,9 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
+      {/* Shareable Stats Showcase (carousel with screenshots) */}
+      <ShareStatsShowcase />
+
       {/* Testimonials Section */}
       <section className="py-20 px-4 bg-gradient-to-br from-cyan-500/5 to-purple-500/5">
         <div className="max-w-6xl mx-auto">
@@ -309,6 +313,9 @@ export const LandingPage: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/* Shareable Stats Showcase (carousel with screenshots) */}
+      <ShareStatsShowcase />
 
       {/* Final CTA Section */}
       <section className="py-20 px-4">

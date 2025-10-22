@@ -1,7 +1,7 @@
 import React from 'react';
 import { NeonCard } from './NeonCard';
 import { Button } from './ui/Button';
-import { PropFirm, NewChallengeInput, Challenge, NewFirmInput, ChallengeStatus } from '../types';
+import { PropFirm, NewChallengeInput, Challenge, NewFirmInput, ChallengeStatus, FirmType } from '../types';
 import { Plus, Save, CheckCircle, XCircle, Clock } from 'lucide-react';
 
 export const ChallengeForm: React.FC<{
@@ -104,6 +104,7 @@ export const ChallengeForm: React.FC<{
   const [accountSizeCleared, setAccountSizeCleared] = React.useState(false);
   const [costCleared, setCostCleared] = React.useState(false);
   const [totalPhasesCleared, setTotalPhasesCleared] = React.useState(false);
+  const [firmType, setFirmType] = React.useState<FirmType | undefined>(initial?.firmType || undefined);
   
   // Refresh date when buildingMode changes or when component mounts in build mode
   React.useEffect(() => {
@@ -165,7 +166,7 @@ export const ChallengeForm: React.FC<{
           // Create new firm
           setFirmCreating(true);
           try {
-            const newFirm = await onAddFirm({ name: propFirmName.trim() });
+            const newFirm = await onAddFirm({ name: propFirmName.trim(), firmType });
             finalPropFirmId = newFirm.id;
           } catch (error) {
             console.error('Error creating firm:', error);
@@ -183,7 +184,7 @@ export const ChallengeForm: React.FC<{
       }
       
       if (initial) {
-        onSubmit({ ...initial, propFirmId: finalPropFirmId, brokerName: initial.brokerName || 'Trading Account', accountSize, startDate, cost, totalPhases, status, strategy: strategy.trim() || undefined });
+        onSubmit({ ...initial, propFirmId: finalPropFirmId, brokerName: initial.brokerName || 'Trading Account', accountSize, startDate, cost, totalPhases, status, strategy: strategy.trim() || undefined, firmType });
       } else {
         // Save account size, strategy, and phase count for future reference
         savePreviousAccountSize(accountSize);
@@ -192,7 +193,7 @@ export const ChallengeForm: React.FC<{
           savePreviousStrategy(strategy);
         }
         
-        onSubmit({ propFirmId: finalPropFirmId, brokerName: 'Trading Account', accountSize, startDate, cost, totalPhases, status: 'active', strategy: strategy.trim() || undefined });
+        onSubmit({ propFirmId: finalPropFirmId, brokerName: 'Trading Account', accountSize, startDate, cost, totalPhases, status: 'active', strategy: strategy.trim() || undefined, firmType });
         
         // Save the start date as last used in build mode
         if (buildingMode) {
@@ -408,8 +409,39 @@ export const ChallengeForm: React.FC<{
           {errors.cost && <span className="text-xs text-red-400">{errors.cost}</span>}
           </div>
         
-          <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
-            <label className="text-xs text-white/60">Total Phases</label>
+          {/* Firm Type - Sixth */}
+          <div className="flex flex-col gap-1 flex-1 min-w-[150px]">
+            <label className="text-xs text-white/60">Firm Type</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setFirmType('futures')}
+                disabled={loading}
+                className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
+                  firmType === 'futures'
+                    ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
+                    : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
+                }`}
+              >
+                Futures
+              </button>
+              <button
+                type="button"
+                onClick={() => setFirmType('cfd')}
+                disabled={loading}
+                className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
+                  firmType === 'cfd'
+                    ? 'bg-purple-500/20 border-purple-400/50 text-purple-200'
+                    : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
+                }`}
+              >
+                CFD
+              </button>
+            </div>
+          </div>
+        
+          <div className="flex flex-col gap-1" style={{ maxWidth: '100px' }}>
+            <label className="text-xs text-white/60">Phases</label>
             <input 
               type="text" 
               list="total-phases"
@@ -454,73 +486,6 @@ export const ChallengeForm: React.FC<{
             </datalist>
           </div>
         </div>
-        
-        {/* Challenge Status - Only show when editing */}
-        {initial && (
-          <div className="border-t border-white/10 pt-4">
-            <div className="flex flex-col gap-3">
-              <label className="text-sm font-medium text-white/80">Challenge Status</label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {/* Active Status */}
-                <button
-                  type="button"
-                  onClick={() => setStatus('active')}
-                  className={`group flex items-center gap-3 px-4 py-3 rounded-lg border transition-all duration-300 ${
-                    status === 'active'
-                      ? 'bg-blue-500/20 border-blue-400/50 text-blue-200 shadow-[0_0_15px_rgba(59,130,246,0.3)]'
-                      : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
-                  }`}
-                >
-                  <Clock className={`w-5 h-5 transition-all duration-300 ${
-                    status === 'active' ? 'text-blue-300' : 'text-white/60 group-hover:text-white/80'
-                  }`} />
-                  <div className="text-left">
-                    <div className="font-semibold">Active</div>
-                    <div className="text-xs opacity-75">Challenge in progress</div>
-                  </div>
-                </button>
-                
-                {/* Passed Status */}
-                <button
-                  type="button"
-                  onClick={() => setStatus('passed')}
-                  className={`group flex items-center gap-3 px-4 py-3 rounded-lg border transition-all duration-300 ${
-                    status === 'passed'
-                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
-                      : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
-                  }`}
-                >
-                  <CheckCircle className={`w-5 h-5 transition-all duration-300 ${
-                    status === 'passed' ? 'text-emerald-300' : 'text-white/60 group-hover:text-white/80'
-                  }`} />
-                  <div className="text-left">
-                    <div className="font-semibold">Passed</div>
-                    <div className="text-xs opacity-75">Challenge completed successfully</div>
-                  </div>
-                </button>
-                
-                {/* Failed Status */}
-                <button
-                  type="button"
-                  onClick={() => setStatus('failed')}
-                  className={`group flex items-center gap-3 px-4 py-3 rounded-lg border transition-all duration-300 ${
-                    status === 'failed'
-                      ? 'bg-rose-500/20 border-rose-400/50 text-rose-200 shadow-[0_0_15px_rgba(239,68,68,0.3)]'
-                      : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
-                  }`}
-                >
-                  <XCircle className={`w-5 h-5 transition-all duration-300 ${
-                    status === 'failed' ? 'text-rose-300' : 'text-white/60 group-hover:text-white/80'
-                  }`} />
-                  <div className="text-left">
-                    <div className="font-semibold">Failed</div>
-                    <div className="text-xs opacity-75">Challenge did not meet requirements</div>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
         
         <div className="flex justify-end">
           <Button

@@ -1,8 +1,26 @@
 import { AppState, Challenge, NewChallengeInput, NewFirmInput, PropFirm } from '../types';
 
-// Use relative base; Netlify redirects map /api/* to functions
-const API_BASE_URL = '/api';
-
+// In Vite dev (5173), call Netlify Functions directly to ensure JSON
+const DEV = typeof window !== 'undefined' && window.location && window.location.port === '5173';
+const API_BASE_URL = DEV ? '/.netlify/functions' : '/api';
+function mapEndpoint(endpoint: string): string {
+  if (!DEV) return endpoint;
+  switch (endpoint) {
+    case '/auth/signup': return '/auth-signup';
+    case '/auth/login': return '/auth-login';
+    case '/auth/logout': return '/auth-login';
+    case '/auth/session': return '/auth-login';
+    case '/auth/google': return '/auth-google';
+    case '/user/data': return '/db-state';
+    case '/firms': return '/db-firms';
+    case '/challenges': return '/db-challenges';
+    case '/user/selected-firm': return '/db-user';
+    case '/payouts': return '/db-payouts';
+    case '/mark-phase': return '/db-phase';
+    case '/challenges/bulk-status': return '/db-bulk';
+    default: return endpoint;
+  }
+}
 class ApiClient {
   private getAuthToken(): string | null { return null; }
   private getUserHeaders(): Record<string, string> {
@@ -35,7 +53,7 @@ class ApiClient {
       },
     };
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...config, credentials: 'include' });
+const response = await fetch(`${API_BASE_URL}${mapEndpoint(endpoint)}`, { ...config, credentials: 'include' });
     
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Network error' }));
@@ -96,15 +114,18 @@ class ApiClient {
   }
 
   // Mark phase completion (replaces dbStorage.markPhase)
-  async markPhase(challengeId: string, phase: 'phase1'|'phase2'|'phase3', completed: boolean): Promise<void> {
+  async markPhase(challengeId: string, phase: 'phase1'|'phase2'|'phase3', completed: boolean, completedAt?: string): Promise<void> {
     await this.makeRequest('/mark-phase', {
       method: 'PUT',
-      body: JSON.stringify({ challengeId, phase, completed }),
+      body: JSON.stringify({ challengeId, phase, completed, ...(completedAt ? { completedAt } : {}) }),
     });
   }
 
   async addPayout(challengeId: string, amount: number, date: string, description?: string) {
     return this.makeRequest('/payouts', { method: 'POST', body: JSON.stringify({ challengeId, amount, date, description }) })
+  }
+  async updatePayout(payoutId: string, amount: number, date: string) {
+    return this.makeRequest('/payouts', { method: 'PUT', body: JSON.stringify({ payoutId, amount, date }) })
   }
   async removePayout(payoutId: string) {
     return this.makeRequest('/payouts', { method: 'DELETE', body: JSON.stringify({ payoutId }) })

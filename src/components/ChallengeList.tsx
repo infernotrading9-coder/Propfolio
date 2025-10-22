@@ -1,20 +1,34 @@
 import React from 'react';
-import { Challenge, PropFirm } from '../types';
+import { Challenge } from '../types';
 import { NeonCard } from './NeonCard';
 import { Button } from './ui/Button';
-import { CheckCircle2, Circle, Pencil, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
+import { CheckCircle2, Circle, XCircle, Pencil, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { PhaseOutcomePrompt } from './PhaseOutcomePrompt';
+import { apiClient } from '../utils/apiClient';
+import { archiveFailedChallenge } from '../utils/calendarStorage';
 
 export const ChallengeList: React.FC<{
   challenges: Challenge[];
   firms: PropFirm[];
   onEdit: (ch: Challenge) => void;
   onTogglePhase: (id: string, phase: 'phase1'|'phase2'|'phase3') => void;
-}> = ({ challenges, firms, onEdit, onTogglePhase }) => {
+  onChallengeUpdate: (challenge: Challenge) => void;
+  calendar?: any;
+  setCalendar?: (updater: (prev: any) => any) => void;
+  buildingMode?: boolean;
+  onAutomaticCalendarIntegration?: (challenge: Challenge, completedPhase: 'phase1'|'phase2'|'phase3') => Promise<void>;
+}> = ({ challenges, firms, onEdit, onTogglePhase, onChallengeUpdate, calendar, setCalendar, buildingMode = false, onAutomaticCalendarIntegration }) => {
   const [loadingPhase, setLoadingPhase] = React.useState<string | null>(null);
   const [currentPage, setCurrentPage] = React.useState(1);
   const [itemsPerPage, setItemsPerPage] = React.useState(5);
   const [showPageSizeSelector, setShowPageSizeSelector] = React.useState(false);
+  
+  // Phase outcome prompt state
+  const [phasePromptOpen, setPhasePromptOpen] = React.useState(false);
+  const [phasePromptChallengeId, setPhasePromptChallengeId] = React.useState<string | null>(null);
+  const [phasePromptPhase, setPhasePromptPhase] = React.useState<'phase1'|'phase2'|'phase3'>('phase1');
+  const [phasePromptPrevCompleted, setPhasePromptPrevCompleted] = React.useState<boolean>(false);
   
   const firmName = (id: string) => firms.find(f => f.id === id)?.name ?? 'Unknown';
   
@@ -26,17 +40,47 @@ export const ChallengeList: React.FC<{
   };
 
   const handlePhaseToggle = async (challengeId: string, phase: 'phase1'|'phase2'|'phase3') => {
-    const loadingKey = `${challengeId}-${phase}`;
-    setLoadingPhase(loadingKey);
+    const target = challenges.find(c => c.id === challengeId);
+    if (!target) return;
     
+    const wasCompleted = target.phases[phase].completed;
+    const newCompletedState = !wasCompleted;
+    
+    // Update UI immediately for instant feedback
+    const updatedChallenge = {
+      ...target,
+      phases: {
+        ...target.phases,
+        [phase]: { ...target.phases[phase], completed: newCompletedState }
+      }
+    };
+    onChallengeUpdate(updatedChallenge);
+    
+    // If completing a phase, show outcome prompt (pass/fail + date)
+    if (!wasCompleted && newCompletedState) {
+      setPhasePromptChallengeId(challengeId);
+      setPhasePromptPhase(phase);
+      setPhasePromptPrevCompleted(wasCompleted);
+      setPhasePromptOpen(true);
+      return; // wait for prompt submission to persist
+    }
+    
+    // For unchecking, proceed to update database
     try {
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 400));
-      onTogglePhase(challengeId, phase);
+      await apiClient.markPhase(target.id, phase, newCompletedState);
+      console.log('Phase updated in database');
     } catch (error) {
-      console.error('Phase toggle error:', error);
-    } finally {
-      setLoadingPhase(null);
+      console.error('Database update failed:', error);
+      // Revert UI state on database error
+      const revertedChallenge = {
+        ...target,
+        phases: {
+          ...target.phases,
+          [phase]: { ...target.phases[phase], completed: wasCompleted }
+        }
+      };
+      onChallengeUpdate(revertedChallenge);
+      alert('Failed to update phase. Please try again.');
     }
   };
 
@@ -137,38 +181,26 @@ export const ChallengeList: React.FC<{
             return (
             <motion.div
               key={c.id}
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, x: -100, scale: 0.95 }}
+              exit={{ opacity: 0, scale: 0.98 }}
               transition={{ 
-                duration: 0.3, 
-                delay: index * 0.05,
+                duration: 0.2,
                 ease: 'easeOut'
               }}
-              layout
             >
               <NeonCard className="p-4" glow="purple" interactive>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex-1">
-                    <motion.div 
-                      className="text-white font-semibold drop-shadow-neon mb-1 flex items-center gap-3"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 0.1 }}
-                    >
+                    <div className="text-white font-semibold drop-shadow-neon mb-1 flex items-center gap-3">
                       <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-500/20 border border-purple-400/50 text-xs font-bold text-purple-200">
                         {challengeNumber}
                       </span>
                       {firmName(c.propFirmId || '')} · ${Number(c.accountSize || 0).toLocaleString()} Account
-                    </motion.div>
-                    <motion.div 
-                      className="text-xs text-white/60"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 0.2 }}
-                    >
+                    </div>
+                    <div className="text-xs text-white/60">
                       Started {c.startDate || '—'} · Cost ${(typeof c.cost === 'number' ? c.cost : Number(c.cost || 0)).toFixed(2)} · Payouts ${getTotalPayouts(c).toFixed(2)}
-                    </motion.div>
+                    </div>
                   </div>
                   
                   <div className="flex items-center gap-2 flex-wrap">
@@ -180,48 +212,49 @@ export const ChallengeList: React.FC<{
                       // Ensure the phase object exists to avoid crashes
                       if (!phase) return null;
                       
+                      // Determine the next required (incomplete) phase
+                      const phaseOrder = (['phase1','phase2','phase3'] as const).slice(0, c.totalPhases ?? 3);
+                      const nextIncomplete = phaseOrder.find(ph => !(c?.phases?.[ph]?.completed));
+                      const isFailedThisPhase = c.status === 'failed' && nextIncomplete === p && !phase.completed;
+                      const failedIndex = c.status === 'failed' && nextIncomplete ? phaseOrder.indexOf(nextIncomplete) : -1;
+                      const currentIndexForP = phaseOrder.indexOf(p);
+                      const disabledDueToFailure = c.status === 'failed' && currentIndexForP > failedIndex;
+                      const isActiveNext = c.status !== 'failed' && nextIncomplete === p && !phase.completed;
+
                       return (
-                        <motion.div
+                        <Button
                           key={p}
-                          initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          transition={{ delay: 0.3 + phaseIndex * 0.1 }}
+                          size="sm"
+                          variant={isFailedThisPhase ? 'danger' : (phase.completed ? 'success' : (isActiveNext ? 'primary' : 'ghost'))}
+                          onClick={() => handlePhaseToggle(c.id, p)}
+                          loading={isLoading}
+                          disabled={isLoading || disabledDueToFailure}
+                          leftIcon={isFailedThisPhase ? (
+                            <XCircle className="w-4 h-4" />
+                          ) : (phase.completed ? 
+                            <CheckCircle2 className="w-4 h-4"/> : 
+                            <Circle className="w-4 h-4"/>
+                          )}
+                          className={`text-xs ${isFailedThisPhase ? 'line-through decoration-red-400 decoration-2' : ''} ${disabledDueToFailure ? 'opacity-50 cursor-not-allowed' : ''} ${isActiveNext ? '!bg-gradient-to-r !from-purple-600 !to-purple-500' : ''}`}
+                          title={phase.completedAt ? `Completed on ${new Date(phase.completedAt).toLocaleDateString()}` : (isFailedThisPhase ? 'Failed' : (isActiveNext ? 'Active' : 'Click to mark as completed'))}
+                          glow={isActiveNext}
+                          style={isActiveNext ? { boxShadow: '0 0 25px rgba(168, 85, 247, 0.8), 0 0 50px rgba(168, 85, 247, 0.5), 0 0 75px rgba(168, 85, 247, 0.3)' } : undefined}
                         >
-                          <Button
-                            size="sm"
-                            variant={phase.completed ? 'success' : 'ghost'}
-                            onClick={() => handlePhaseToggle(c.id, p)}
-                            loading={isLoading}
-                            disabled={isLoading}
-                            leftIcon={phase.completed ? 
-                              <CheckCircle2 className="w-4 h-4"/> : 
-                              <Circle className="w-4 h-4"/>
-                            }
-                            className="text-xs"
-                            title={phase.completedAt ? `Completed on ${new Date(phase.completedAt).toLocaleDateString()}` : 'Click to mark as completed'}
-                          >
-                            {p.replace('phase','Phase ')}
-                          </Button>
-                        </motion.div>
+                          {p.replace('phase','Phase ')}{isActiveNext ? ' · Active' : ''}
+                        </Button>
                       );
                     }).filter(Boolean)}
                     
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.6 }}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => onEdit(c)}
+                      leftIcon={<Pencil className="w-4 h-4"/>}
+                      className="px-3"
+                      title="Edit Challenge"
                     >
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => onEdit(c)}
-                        leftIcon={<Pencil className="w-4 h-4"/>}
-                        className="px-3"
-                        title="Edit Challenge"
-                      >
-                        Edit
-                      </Button>
-                    </motion.div>
+                      Edit
+                    </Button>
                     
                   </div>
                 </div>
@@ -326,6 +359,90 @@ export const ChallengeList: React.FC<{
           )}
         </div>
       )}
+      
+      {/* Phase Outcome Prompt */}
+      <PhaseOutcomePrompt
+        open={phasePromptOpen}
+        phase={phasePromptPhase}
+        totalPhases={(challenges.find(c => c.id === phasePromptChallengeId)?.totalPhases || 3) as 1|2|3}
+        onCancel={() => {
+          if (!phasePromptChallengeId) return;
+          // Revert UI toggle
+          const target = challenges.find(c => c.id === phasePromptChallengeId);
+          if (target) {
+            const revertedChallenge = {
+              ...target,
+              phases: {
+                ...target.phases,
+                [phasePromptPhase]: { ...target.phases[phasePromptPhase], completed: phasePromptPrevCompleted }
+              }
+            };
+            onChallengeUpdate(revertedChallenge);
+          }
+          setPhasePromptOpen(false);
+          setPhasePromptChallengeId(null);
+        }}
+        onSubmit={async (outcome, date) => {
+          try {
+            if (!phasePromptChallengeId) return;
+            const ch = challenges.find(c => c.id === phasePromptChallengeId);
+            if (!ch) return;
+
+            // Persist phase completion with selected date
+            await apiClient.markPhase(ch.id, phasePromptPhase, true, date);
+
+            if (outcome === 'failed') {
+              // Ensure phase is not marked completed
+              const failedChallenge = {
+                ...ch,
+                status: 'failed' as const,
+                phases: {
+                  ...ch.phases,
+                  [phasePromptPhase]: { ...ch.phases[phasePromptPhase], completed: false, completedAt: undefined }
+                }
+              };
+              onChallengeUpdate(failedChallenge);
+
+              // Mark challenge as failed
+              await apiClient.bulkUpdateStatus([ch.id], 'failed');
+
+              // Archive from calendar across all accounts
+              if (setCalendar && calendar) {
+                setCalendar((prev: any) => ({
+                  ...prev,
+                  accountData: prev.accountData.map((ad: any) => {
+                    const copy = { ...ad, challengePhases: [...ad.challengePhases] };
+                    try { archiveFailedChallenge(copy, ch.id); } catch {}
+                    return copy;
+                  })
+                }));
+              }
+            } else {
+              // Passed: persist completion with selected date
+              const passedChallenge = {
+                ...ch,
+                status: 'active' as const,
+                phases: {
+                  ...ch.phases,
+                  [phasePromptPhase]: { ...ch.phases[phasePromptPhase], completed: true, completedAt: date }
+                }
+              };
+              onChallengeUpdate(passedChallenge);
+              
+              // Passed phase -> ensure next calendar segment exists automatically
+              if (!buildingMode && onAutomaticCalendarIntegration) {
+                await onAutomaticCalendarIntegration(passedChallenge, phasePromptPhase);
+              }
+            }
+          } catch (e) {
+            console.error('Phase outcome handling failed:', e);
+            alert('Failed to save phase outcome.');
+          } finally {
+            setPhasePromptOpen(false);
+            setPhasePromptChallengeId(null);
+          }
+        }}
+      />
     </>
   );
 };

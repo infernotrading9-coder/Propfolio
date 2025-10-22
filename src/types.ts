@@ -22,6 +22,7 @@ export interface Challenge {
   startDate: string; // ISO date when challenge purchased
   cost: number; // amount spent to buy challenge
   strategy?: string; // trading strategy used
+  firmType?: FirmType; // type of firm: futures or CFD (for analytics)
   monthlyPnL: Record<string, number>; // key: YYYY-MM, value: PnL
   weeklyPnL: Record<string, number>; // key: YYYY-WXX (e.g., 2024-W42), value: PnL
   phases: Record<PhaseName, PhaseStatus>;
@@ -31,9 +32,12 @@ export interface Challenge {
   createdAt: string; // ISO timestamp when challenge was created
 }
 
+export type FirmType = 'futures' | 'cfd';
+
 export interface PropFirm {
   id: string;
   name: string; // rememberable selectable firm name
+  firmType?: FirmType; // type of firm: futures or CFD
   createdAt: string;
 }
 
@@ -74,7 +78,7 @@ export interface StatsSummary {
   }>;
 }
 
-export type NewFirmInput = { name: string };
+export type NewFirmInput = { name: string; firmType?: FirmType };
 export type NewChallengeInput = {
   propFirmId: string;
   brokerName: string;
@@ -84,4 +88,5 @@ export type NewChallengeInput = {
   totalPhases: 1 | 2 | 3;
   status?: ChallengeStatus; // optional, defaults to 'active'
   strategy?: string;
+  firmType?: FirmType; // type of firm: futures or CFD
 };

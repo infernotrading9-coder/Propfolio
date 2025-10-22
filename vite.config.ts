@@ -5,6 +5,16 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8888',
+        changeOrigin: true
+      },
+      '/.netlify/functions': {
+        target: 'http://localhost:8888',
+        changeOrigin: true
+      }
+    },
     headers: {
       // Set COOP headers to handle Google OAuth properly
       // Remove COEP to allow external resources like Stripe.js and Google scripts

@@ -5,6 +5,7 @@ import { UserTier, canAccessFeature, hasReachedLimit, getFeatureLimit, FeatureNa
 // Admin emails that get full access
 const ADMIN_EMAILS = [
   'infernotrading9@gmail.com',
+  'cabreraxdaniel@gmail.com',
   // Add more admin emails as needed
 ];
 

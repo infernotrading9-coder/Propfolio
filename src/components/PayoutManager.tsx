@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from './ui/Button';
 import { NeonCard } from './NeonCard';
 import { Challenge, PayoutEntry } from '../types';
-import { Plus, Trash2, DollarSign } from 'lucide-react';
+import { Plus, Trash2, DollarSign, Edit2 } from 'lucide-react';
 import { apiClient } from '../utils/apiClient';
 
 interface PayoutManagerProps {
@@ -17,6 +17,9 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
   const [loading, setLoading] = React.useState(false);
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [justAdded, setJustAdded] = React.useState<string | null>(null);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [editAmount, setEditAmount] = React.useState('');
+  const [editDate, setEditDate] = React.useState('');
   
   // Local payouts state for instant UI updates
   const initialPayouts = Array.isArray(challenge.payouts) ? challenge.payouts : [];
@@ -105,6 +108,58 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEditPayout = (payout: PayoutEntry) => {
+    setEditingId(payout.id);
+    setEditAmount(payout.amount.toString());
+    setEditDate(payout.date);
+  };
+
+  const handleSaveEdit = async (payoutId: string) => {
+    const amountNum = Number(editAmount);
+    if (!editAmount.trim() || amountNum <= 0 || isNaN(amountNum)) {
+      alert('Amount must be greater than 0');
+      return;
+    }
+    
+    if (!editDate) {
+      alert('Date is required');
+      return;
+    }
+
+    setLoading(true);
+    const prevChallenge = challenge;
+
+    // Update locally first
+    const newList = payouts.map(p => 
+      p.id === payoutId ? { ...p, amount: amountNum, date: editDate } : p
+    );
+    setPayouts(newList);
+
+    const updatedChallenge = {
+      ...challenge,
+      payouts: newList
+    };
+    onUpdate(updatedChallenge);
+    
+    try {
+      await apiClient.updatePayout(payoutId, amountNum, editDate);
+      setEditingId(null);
+    } catch (error) {
+      console.error('Update payout error:', error);
+      // Revert UI on failure
+      onUpdate(prevChallenge);
+      alert('Failed to update payout. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditAmount('');
+    setEditDate('');
   };
 
   const inputClasses = (fieldName: string) => `
@@ -207,36 +262,113 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
                     type: justAdded === payout.id ? 'spring' : 'tween'
                   }}
                   layout
-                  className={`flex items-center justify-between p-3 rounded-lg transition-all duration-300 ${
+                  className={`rounded-lg transition-all duration-300 ${
                     justAdded === payout.id 
                       ? 'bg-lime-500/20 border-lime-400/50 shadow-[0_0_20px_rgba(163,230,53,0.3)]'
                       : 'bg-white/5 border-white/10 hover:border-white/20'
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-full bg-lime-500/20">
-                      <DollarSign className="w-4 h-4 text-lime-400" />
-                    </div>
-                    <div>
-                      <div className="font-medium text-white">
-                        ${payout.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  {editingId === payout.id ? (
+                    // Edit mode
+                    <div className="p-3 space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs text-white/60">Amount</label>
+                          <div className="relative">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                              <span className="text-white/60 text-sm">$</span>
+                            </div>
+                            <input
+                              type="text"
+                              value={editAmount}
+                              onChange={e => {
+                                const rawValue = e.target.value.replace(/[^\d.-]/g, '');
+                                const parts = rawValue.split('.');
+                                let formattedValue = parts[0];
+                                if (parts.length > 1) {
+                                  formattedValue += '.' + parts[1].slice(0, 2);
+                                }
+                                setEditAmount(formattedValue);
+                              }}
+                              className="pl-8 w-full px-3 py-2 rounded-md bg-white/5 border border-white/10 focus:border-lime-400/50 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-lime-500/30"
+                              placeholder="1,000"
+                              disabled={loading}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs text-white/60">Date</label>
+                          <input
+                            type="date"
+                            value={editDate}
+                            onChange={e => setEditDate(e.target.value)}
+                            className="w-full px-3 py-2 rounded-md bg-white/5 border border-white/10 focus:border-lime-400/50 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-lime-500/30"
+                            disabled={loading}
+                          />
+                        </div>
                       </div>
-                      <div className="text-xs text-white/60">
-                        {new Date(payout.date).toLocaleDateString()}
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={handleCancelEdit}
+                          disabled={loading}
+                          className="px-3"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="success"
+                          onClick={() => handleSaveEdit(payout.id)}
+                          disabled={loading}
+                          className="px-3"
+                        >
+                          Save
+                        </Button>
                       </div>
                     </div>
-                  </div>
-                  
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => handleRemovePayout(payout.id)}
-                    disabled={loading}
-                    leftIcon={<Trash2 className="w-4 h-4" />}
-                    className="px-3"
-                  >
-                    Remove
-                  </Button>
+                  ) : (
+                    // View mode
+                    <div className="flex items-center justify-between p-3">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-full bg-lime-500/20">
+                          <DollarSign className="w-4 h-4 text-lime-400" />
+                        </div>
+                        <div>
+                          <div className="font-medium text-white">
+                            ${payout.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </div>
+                          <div className="text-xs text-white/60">
+                            {new Date(payout.date).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleEditPayout(payout)}
+                          disabled={loading}
+                          leftIcon={<Edit2 className="w-4 h-4" />}
+                          className="px-3"
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => handleRemovePayout(payout.id)}
+                          disabled={loading}
+                          leftIcon={<Trash2 className="w-4 h-4" />}
+                          className="px-3"
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </motion.div>
               ))}
             </AnimatePresence>
