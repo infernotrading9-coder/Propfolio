@@ -1,7 +1,7 @@
 import React from 'react';
 import { Challenge } from '../types';
 import { Button } from './ui/Button';
-import { CheckCircle2, Circle, XCircle, Pencil, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
+import { CheckCircle2, Circle, XCircle, Pencil, ChevronLeft, ChevronRight, Settings, Flame } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PhaseOutcomePrompt } from './PhaseOutcomePrompt';
 import { apiClient } from '../utils/apiClient';
@@ -181,6 +181,14 @@ export const ChallengeList: React.FC<{
             const idx = sortedForNumbering.findIndex(sc => sc && sc.id === c.id);
             const challengeNumber = idx >= 0 ? idx + 1 : 0;
             
+            // Check if challenge is LIVE (all phases completed)
+            const isLive = (() => {
+              const totalPhases = c.totalPhases || 3;
+              if (totalPhases === 1) return c.phases.phase1?.completed;
+              if (totalPhases === 2) return c.phases.phase1?.completed && c.phases.phase2?.completed;
+              return c.phases.phase1?.completed && c.phases.phase2?.completed && c.phases.phase3?.completed;
+            })();
+            
             return (
             <motion.div
               key={c.id}
@@ -192,9 +200,17 @@ export const ChallengeList: React.FC<{
                 ease: 'easeOut'
               }}
             >
-              <div className="group relative bg-gradient-to-br from-gray-900/90 to-gray-800/60 backdrop-blur-sm rounded-xl p-5 border border-white/10 hover:border-cyan-400/30 transition-all duration-300 hover:shadow-[0_0_30px_rgba(6,182,212,0.15)]">
+              <div className={`group relative bg-gradient-to-br from-gray-900/90 to-gray-800/60 backdrop-blur-sm rounded-xl p-5 border transition-all duration-300 ${
+                isLive 
+                  ? 'border-emerald-400/40 shadow-[0_0_40px_rgba(16,185,129,0.25)] hover:border-emerald-400/60 hover:shadow-[0_0_50px_rgba(16,185,129,0.35)]'
+                  : 'border-white/10 hover:border-cyan-400/30 hover:shadow-[0_0_30px_rgba(6,182,212,0.15)]'
+              }`}>
                 {/* Glow effect on hover */}
-                <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/0 via-purple-500/0 to-cyan-500/0 group-hover:from-cyan-500/5 group-hover:via-purple-500/5 group-hover:to-cyan-500/5 rounded-xl transition-all duration-300"></div>
+                <div className={`absolute inset-0 rounded-xl transition-all duration-300 ${
+                  isLive
+                    ? 'bg-gradient-to-r from-emerald-500/5 via-green-500/5 to-emerald-500/5 group-hover:from-emerald-500/10 group-hover:via-green-500/10 group-hover:to-emerald-500/10'
+                    : 'bg-gradient-to-r from-cyan-500/0 via-purple-500/0 to-cyan-500/0 group-hover:from-cyan-500/5 group-hover:via-purple-500/5 group-hover:to-cyan-500/5'
+                }`}></div>
                 
                 <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                   {/* Left side - Challenge info */}
@@ -204,12 +220,24 @@ export const ChallengeList: React.FC<{
                       <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500/20 to-purple-500/20 border border-cyan-400/40 text-sm font-bold text-cyan-200 shadow-[0_0_15px_rgba(6,182,212,0.3)]">
                         {challengeNumber}
                       </span>
-                      <div>
-                        <div className="text-white font-bold text-lg">
-                          {firmName(c.propFirmId || '')}
-                        </div>
-                        <div className="text-cyan-300 text-sm font-semibold">
-                          ${Number(c.accountSize || 0).toLocaleString()} Account
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-white font-bold text-lg">
+                              {firmName(c.propFirmId || '')}
+                            </span>
+                            {/* LIVE Badge */}
+                            {isLive && (
+                              <span className="relative inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-emerald-500/30 to-green-500/30 border-2 border-emerald-400/60 rounded-full animate-pulse">
+                                <Flame className="w-4 h-4 text-emerald-300 animate-bounce" />
+                                <span className="text-emerald-200 font-black text-xs tracking-wider">LIVE</span>
+                                <div className="absolute inset-0 rounded-full bg-emerald-400/20 blur-md animate-pulse"></div>
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-cyan-300 text-sm font-semibold">
+                            ${Number(c.accountSize || 0).toLocaleString()} Account
+                          </div>
                         </div>
                       </div>
                     </div>

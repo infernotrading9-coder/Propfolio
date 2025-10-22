@@ -21,6 +21,9 @@ import { ChallengeCards } from './ChallengeCards';
 import { BulkActions } from './BulkActions';
 import { ShareStatsModal } from './ShareStatsModal';
 import { DebugWindow } from './DebugWindow';
+import { RulesManagementModal } from './RulesManagementModal';
+import { RulesCompliancePrompt } from './RulesCompliancePrompt';
+import { ListChecks } from 'lucide-react';
 
 type ViewMode = 'prop' | 'calendar';
 
@@ -44,6 +47,9 @@ const Dashboard: React.FC = () => {
   const [selectedPhase, setSelectedPhase] = React.useState<'phase1' | 'phase2' | 'phase3' | 'live'>('phase1');
   const [isCreatingPhaseCalendar, setIsCreatingPhaseCalendar] = React.useState(false);
   const [isShareStatsModalOpen, setIsShareStatsModalOpen] = React.useState(false);
+  const [isRulesModalOpen, setIsRulesModalOpen] = React.useState(false);
+  const [isRulesComplianceOpen, setIsRulesComplianceOpen] = React.useState(false);
+  const [selectedComplianceDate, setSelectedComplianceDate] = React.useState<string | null>(null);
   
   // Bulk actions state for build mode
   const [selectedChallengeIds, setSelectedChallengeIds] = React.useState<Set<string>>(new Set());
@@ -156,6 +162,14 @@ const Dashboard: React.FC = () => {
   // Handle calendar day updates for the selected phase
   const handleDayUpdate = (date: string, followedRules: boolean | null) => {
     try {
+      // If current phase has rules, open compliance prompt instead
+      const currentPhaseRules = getCurrentPhaseRules();
+      if (currentPhaseRules.length > 0) {
+        setSelectedComplianceDate(date);
+        setIsRulesComplianceOpen(true);
+        return;
+      }
+      
       const phaseAccountId = selectedChallengeCalendarData.phaseAccountId;
       if (!phaseAccountId) {
         console.log('No phase account ID available for day update');
@@ -196,6 +210,91 @@ const Dashboard: React.FC = () => {
     } catch (error) {
       console.error('Error updating calendar day:', error);
     }
+  };
+  
+  // Get rules for current phase
+  const getCurrentPhaseRules = React.useCallback(() => {
+    if (!selectedChallenge) return [];
+    
+    // Check new phase-specific rules first
+    if (selectedChallenge.phaseRules) {
+      return selectedChallenge.phaseRules[selectedPhase] || [];
+    }
+    
+    // Fall back to legacy rules (for backwards compatibility)
+    return selectedChallenge.rules || [];
+  }, [selectedChallenge, selectedPhase]);
+  
+  // Handle saving rules to a challenge phase
+  const handleSaveRules = async (rules: any[]) => {
+    if (!selectedChallenge) return;
+    
+    try {
+      // Create updated phaseRules object
+      const updatedPhaseRules = {
+        ...selectedChallenge.phaseRules,
+        [selectedPhase]: rules
+      };
+      
+      // Save complete phaseRules to database
+      await apiClient.updatePhaseRules(selectedChallenge.id, updatedPhaseRules);
+      
+      // Update local state
+      setState(prevState => ({
+        ...prevState,
+        challenges: prevState.challenges.map(challenge => 
+          challenge.id === selectedChallenge.id 
+            ? { 
+                ...challenge, 
+                phaseRules: updatedPhaseRules
+              }
+            : challenge
+        )
+      }));
+    } catch (error) {
+      console.error('Failed to save rules:', error);
+      throw error;
+    }
+  };
+  
+  // Handle saving rule compliance for a specific day
+  const handleSaveRuleCompliance = (date: string, ruleCompliance: Record<string, boolean>) => {
+    const phaseAccountId = selectedChallengeCalendarData.phaseAccountId;
+    if (!phaseAccountId) return;
+    
+    setCalendar(prev => {
+      const accountData = prev.accountData.find(d => d.accountId === phaseAccountId);
+      if (!accountData) return prev;
+      
+      // Determine if all rules were followed
+      const allFollowed = Object.values(ruleCompliance).every(v => v === true);
+      const anyBroken = Object.values(ruleCompliance).some(v => v === false);
+      const followedRules = allFollowed ? true : anyBroken ? false : null;
+      
+      const existingEntryIndex = accountData.entries.findIndex(e => e.date === date);
+      
+      let updatedEntries;
+      if (existingEntryIndex >= 0) {
+        // Update existing entry
+        updatedEntries = accountData.entries.map((entry, i) => 
+          i === existingEntryIndex 
+            ? { ...entry, ruleCompliance, followedRules }
+            : entry
+        );
+      } else {
+        // Add new entry
+        updatedEntries = [...accountData.entries, { date, followedRules, ruleCompliance }];
+      }
+      
+      return {
+        ...prev,
+        accountData: prev.accountData.map(d => 
+          d.accountId === phaseAccountId
+            ? { ...d, entries: updatedEntries }
+            : d
+        )
+      };
+    });
   };
   
   // Account deletion now handled through challenge management
@@ -720,12 +819,47 @@ const Dashboard: React.FC = () => {
                   </div>
                   {selectedChallengeCalendarData.phaseAccountId ? (
                     <>
+                      {/* Manage Rules Button */}
+                      <div className="mb-4 flex justify-end">
+                        <button
+                          onClick={() => setIsRulesModalOpen(true)}
+                          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 hover:from-cyan-500/30 hover:to-purple-500/30 border border-cyan-400/50 rounded-lg text-cyan-200 font-semibold transition-all duration-200"
+                        >
+                          <ListChecks className="w-5 h-5" />
+                          Manage Trading Rules
+                        </button>
+                      </div>
+                      
+                      {/* Display Current Rules */}
+                      {(() => {
+                        const currentRules = getCurrentPhaseRules();
+                        const phaseLabel = selectedPhase === 'phase1' ? 'Phase 1' : selectedPhase === 'phase2' ? 'Phase 2' : selectedPhase === 'phase3' ? 'Phase 3' : 'Live Account';
+                        return currentRules.length > 0 && (
+                          <div className="mb-6 p-4 bg-gradient-to-br from-gray-900/60 to-gray-800/40 backdrop-blur-sm rounded-xl border border-white/10">
+                            <h3 className="text-lg font-bold text-cyan-300 mb-3 flex items-center gap-2">
+                              <ListChecks className="w-5 h-5" />
+                              {phaseLabel} Trading Rules
+                            </h3>
+                            <div className="space-y-2">
+                              {currentRules.map((rule, index) => (
+                                <div key={rule.id} className="flex items-center gap-3 text-white/80">
+                                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-xs font-bold text-cyan-200">
+                                    {index + 1}
+                                  </span>
+                                  <span>{rule.text}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      
                       <Calendar 
                         entries={selectedChallengeCalendarData.entries} 
                         onDayUpdate={selectedChallenge?.status !== 'failed' ? handleDayUpdate : undefined}
                         isArchived={selectedChallenge?.status === 'failed'}
                       />
-                      <Statistics 
+                      <Statistics
                         entries={selectedChallengeCalendarData.entries} 
                         accountName={`${state.firms.find(f => f.id === selectedChallenge.propFirmId)?.name || 'Unknown'} - Challenge #${getChallengeNumber(selectedChallenge)} - ${selectedPhase === 'phase1' ? 'Phase 1' : selectedPhase === 'phase2' ? 'Phase 2' : selectedPhase === 'phase3' ? 'Phase 3' : 'Live Account'}`}
                         isArchived={selectedChallenge?.status === 'failed'}
@@ -928,6 +1062,39 @@ const Dashboard: React.FC = () => {
           firms={state.firms}
           selectedChallenge={selectedChallenge}
         />
+        
+        {/* Rules Management Modal */}
+        {selectedChallenge && (() => {
+          const phaseLabel = selectedPhase === 'phase1' ? 'Phase 1' : selectedPhase === 'phase2' ? 'Phase 2' : selectedPhase === 'phase3' ? 'Phase 3' : 'Live Account';
+          return (
+            <RulesManagementModal
+              isOpen={isRulesModalOpen}
+              onClose={() => setIsRulesModalOpen(false)}
+              rules={getCurrentPhaseRules()}
+              onSaveRules={handleSaveRules}
+              challengeTitle={`${state.firms.find(f => f.id === selectedChallenge.propFirmId)?.name || 'Unknown'} - Challenge #${getChallengeNumber(selectedChallenge)} - ${phaseLabel}`}
+            />
+          );
+        })()}
+        
+        {/* Rules Compliance Prompt */}
+        {selectedChallenge && selectedComplianceDate && (
+          <RulesCompliancePrompt
+            isOpen={isRulesComplianceOpen}
+            onClose={() => {
+              setIsRulesComplianceOpen(false);
+              setSelectedComplianceDate(null);
+            }}
+            date={selectedComplianceDate}
+            rules={getCurrentPhaseRules()}
+            existingCompliance={
+              selectedChallengeCalendarData?.entries
+                ?.find(e => e.date === selectedComplianceDate)
+                ?.ruleCompliance || {}
+            }
+            onSave={(ruleCompliance) => handleSaveRuleCompliance(selectedComplianceDate, ruleCompliance)}
+          />
+        )}
 
       </div>
     </div>

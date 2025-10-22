@@ -133,6 +133,25 @@ const response = await fetch(`${API_BASE_URL}${mapEndpoint(endpoint)}`, { ...con
   async bulkUpdateStatus(ids: string[], status: string) {
     return this.makeRequest('/challenges/bulk-status', { method: 'POST', body: JSON.stringify({ ids, status }) })
   }
+  
+  // Update challenge rules (deprecated - use updatePhaseRules)
+  async updateChallengeRules(challengeId: string, rules: any[]) {
+    return this.makeRequest('/challenges', { 
+      method: 'PUT', 
+      body: JSON.stringify({ id: challengeId, updates: { rules } }) 
+    });
+  }
+  
+  // Update rules for a specific phase (sends complete phaseRules object)
+  async updatePhaseRules(challengeId: string, completePhaseRules: any) {
+    return this.makeRequest('/challenges', { 
+      method: 'PUT', 
+      body: JSON.stringify({ 
+        id: challengeId, 
+        updates: { phaseRules: completePhaseRules } 
+      }) 
+    });
+  }
 }
 
 export const apiClient = new ApiClient();

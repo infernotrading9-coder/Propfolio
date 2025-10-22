@@ -14,6 +14,12 @@ export interface PayoutEntry {
 
 export type ChallengeStatus = 'active' | 'passed' | 'failed';
 
+export interface TradingRule {
+  id: string;
+  text: string;
+  createdAt: string;
+}
+
 export interface Challenge {
   id: string;
   propFirmId: string;
@@ -30,6 +36,13 @@ export interface Challenge {
   totalPhases: 1 | 2 | 3; // how many phases this challenge has
   status: ChallengeStatus; // overall challenge status
   createdAt: string; // ISO timestamp when challenge was created
+  rules?: TradingRule[]; // trading rules to follow for this challenge (deprecated - use phaseRules)
+  phaseRules?: {
+    phase1?: TradingRule[];
+    phase2?: TradingRule[];
+    phase3?: TradingRule[];
+    live?: TradingRule[];
+  }; // trading rules per phase
 }
 
 export type FirmType = 'futures' | 'cfd';
