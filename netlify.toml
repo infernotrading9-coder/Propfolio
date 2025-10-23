@@ -66,11 +66,11 @@
   to = "/.netlify/functions/db-bulk"
   status = 200
 
-[context.production]
-  [[context.production.redirects]]
-    from = "/*"
-    to = "/index.html"
-    status = 200
+# Catchall must be LAST so API routes match first
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
 
 [dev]
   command = "npm run dev"
