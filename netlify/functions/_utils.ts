@@ -12,6 +12,28 @@ export const parseCookie = (cookie: string | undefined) => Object.fromEntries((c
 export const sha256 = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
 
 export const getUserFromSession = async (event: Parameters<Handler>[0]) => {
+  // 1) Prefer Netlify Identity (Authorization: Bearer <token>)
+  try {
+    const clientContext: any = (event as any).clientContext || (event as any).context?.clientContext
+    const idUser = clientContext?.user || clientContext?.identity?.user
+    if (idUser?.email) {
+      const email = String(idUser.email)
+      const name = (idUser.user_metadata?.full_name || idUser.user_metadata?.name || null) as any
+      const id = (idUser.sub || idUser.id || crypto.randomUUID()) as string
+      let user = await userService.getByEmail(email)
+      if (!user) {
+        try {
+          user = await userService.create({ id, email, name } as any)
+        } catch (e) {
+          // If creation failed due to existing email with different id, just fetch again
+          try { user = await userService.getByEmail(email) } catch {}
+        }
+      }
+      if (user) return user
+    }
+  } catch {}
+
+  // 2) Fallback to our legacy cookie session
   const cookies = parseCookie((event.headers as any).cookie)
   const token = cookies['pf_session']
   if (token) {
@@ -22,7 +44,7 @@ export const getUserFromSession = async (event: Parameters<Handler>[0]) => {
     }
   }
 
-  // Dev fallback: allow identifying user via headers sent by the SPA
+  // 3) Dev fallback: allow identifying user via headers sent by the SPA
   const headers = event.headers as any
   const headerUserId = headers['x-user-id'] || headers['X-User-Id']
   const headerEmail = headers['x-user-email'] || headers['X-User-Email']
