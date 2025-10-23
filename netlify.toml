@@ -85,6 +85,14 @@
     X-XSS-Protection = "1; mode=block"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+    Cross-Origin-Opener-Policy = "same-origin-allow-popups"
+
+# Allow Netlify Identity iframe endpoints to load inside frames
+[[headers]]
+  for = "/.netlify/identity/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    Cross-Origin-Opener-Policy = "unsafe-none"
 
 # Cache static assets
 [[headers]]

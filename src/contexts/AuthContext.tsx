@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { decodeGoogleToken } from '../utils/googleAuth';
+import netlifyIdentity from 'netlify-identity-widget';
 
 interface User {
   id: string;
@@ -12,7 +12,7 @@ interface AuthContextType {
   loading: boolean;
   signup: (email: string, password: string, name?: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
-  loginWithGoogle: (credential: string) => Promise<void>;
+  loginWithGoogle: (credential?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -30,56 +30,64 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+function mapIdentityUser(u: any): User {
+  return {
+    id: u?.id || u?.sub,
+    email: u?.email,
+    name: u?.user_metadata?.full_name || u?.user_metadata?.name || u?.full_name || null,
+  } as User;
+}
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const API_BASE = '/.netlify/functions';
-
-  const signup = async (email: string, password: string, name?: string): Promise<void> => {
-    const res = await fetch(`${API_BASE}/auth/signup`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name }),
-      credentials: 'include',
+  const awaitLoginViaIdentity = (): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      const onLogin = (user: any) => {
+        try {
+          const mapped = mapIdentityUser(user);
+          setCurrentUser(mapped);
+          localStorage.setItem('user', JSON.stringify(mapped));
+        } finally {
+          netlifyIdentity.close();
+          netlifyIdentity.off('login', onLogin as any);
+          netlifyIdentity.off('error', onError as any);
+        }
+        resolve(user);
+      };
+      const onError = (err: any) => {
+        netlifyIdentity.off('login', onLogin as any);
+        netlifyIdentity.off('error', onError as any);
+        reject(err || new Error('Identity error'));
+      };
+      netlifyIdentity.on('login', onLogin as any);
+      netlifyIdentity.on('error', onError as any);
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to create account');
-    setCurrentUser(data.user);
-    localStorage.setItem('user', JSON.stringify(data.user));
   };
 
-  const login = async (email: string, password: string): Promise<void> => {
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-      credentials: 'include',
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Login failed');
-    setCurrentUser(data.user);
-    localStorage.setItem('user', JSON.stringify(data.user));
+  const signup = async (_email: string, _password: string, _name?: string): Promise<void> => {
+    netlifyIdentity.open('signup');
+    await awaitLoginViaIdentity();
   };
 
-  const loginWithGoogle = async (credential: string): Promise<void> => {
-    const googleUser = decodeGoogleToken(credential);
-    if (!googleUser) throw new Error('Failed to decode Google credential');
-    const res = await fetch(`${API_BASE}/auth/google`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: googleUser.email, name: googleUser.name }),
-      credentials: 'include',
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Google authentication failed');
-    setCurrentUser(data.user);
-    localStorage.setItem('user', JSON.stringify(data.user));
+  const login = async (_email: string, _password: string): Promise<void> => {
+    netlifyIdentity.open('login');
+    await awaitLoginViaIdentity();
+  };
+
+  const loginWithGoogle = async (): Promise<void> => {
+    // Assume the Identity modal was already used; just sync the current user
+    const u = netlifyIdentity.currentUser();
+    if (!u) throw new Error('Not logged in');
+    const mapped = mapIdentityUser(u);
+    setCurrentUser(mapped);
+    localStorage.setItem('user', JSON.stringify(mapped));
   };
 
   const logout = async (): Promise<void> => {
     try {
-      await fetch(`${API_BASE}/auth/logout`, { method: 'DELETE', credentials: 'include' });
+      await netlifyIdentity.logout();
     } catch {}
     if (currentUser?.id) {
       localStorage.removeItem(`challenges_${currentUser.id}`);
@@ -90,25 +98,43 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   useEffect(() => {
-    const init = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/auth/session`, { credentials: 'include' });
-        const data = await res.json();
-        if (data?.user) {
-          setCurrentUser(data.user);
-          localStorage.setItem('user', JSON.stringify(data.user));
-        } else {
-          const storedUser = localStorage.getItem('user');
-          if (storedUser) setCurrentUser(JSON.parse(storedUser));
-        }
-      } catch {
+    const apiUrl = (import.meta as any).env?.VITE_IDENTITY_API_URL;
+    const config: any = {};
+    if (apiUrl) {
+      config.APIUrl = apiUrl;
+    }
+    // Don't set APIUrl in production - let it auto-detect from site URL
+    netlifyIdentity.init(config);
+    const onInit = (user: any) => {
+      if (user) {
+        const mapped = mapIdentityUser(user);
+        setCurrentUser(mapped);
+        localStorage.setItem('user', JSON.stringify(mapped));
+      } else {
         const storedUser = localStorage.getItem('user');
         if (storedUser) setCurrentUser(JSON.parse(storedUser));
-      } finally {
-        setLoading(false);
       }
-    }
-    init();
+      setLoading(false);
+    };
+    const onLogin = (user: any) => {
+      const mapped = mapIdentityUser(user);
+      setCurrentUser(mapped);
+      localStorage.setItem('user', JSON.stringify(mapped));
+    };
+    const onLogout = () => {
+      setCurrentUser(null);
+      localStorage.removeItem('user');
+    };
+    netlifyIdentity.on('init', onInit as any);
+    netlifyIdentity.on('login', onLogin as any);
+    netlifyIdentity.on('logout', onLogout as any);
+    // Trigger init immediately
+    (netlifyIdentity as any).init(config);
+    return () => {
+      netlifyIdentity.off('init', onInit as any);
+      netlifyIdentity.off('login', onLogin as any);
+      netlifyIdentity.off('logout', onLogout as any);
+    };
   }, []);
 
   const value: AuthContextType = {

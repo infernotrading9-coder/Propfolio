@@ -1,26 +1,22 @@
 import { AppState, Challenge, NewChallengeInput, NewFirmInput, PropFirm } from '../types';
+import netlifyIdentity from 'netlify-identity-widget';
 
-// Always use Netlify Functions
-const API_BASE_URL = '/.netlify/functions';
+// Use unified /api routes (mapped in netlify.toml to functions)
+const API_BASE_URL = '/api';
+// Endpoints are already defined as /api/* in netlify.toml, no mapping needed
 function mapEndpoint(endpoint: string): string {
-  switch (endpoint) {
-    case '/auth/signup': return '/auth-signup';
-    case '/auth/login': return '/auth-login';
-    case '/auth/logout': return '/auth-login';
-    case '/auth/session': return '/auth-login';
-    case '/auth/google': return '/auth-google';
-    case '/user/data': return '/db-state';
-    case '/firms': return '/db-firms';
-    case '/challenges': return '/db-challenges';
-    case '/user/selected-firm': return '/db-user';
-    case '/payouts': return '/db-payouts';
-    case '/mark-phase': return '/db-phase';
-    case '/challenges/bulk-status': return '/db-bulk';
-    default: return endpoint;
-  }
+  return endpoint;
 }
 class ApiClient {
-  private getAuthToken(): string | null { return null; }
+  private async getAuthToken(): Promise<string | null> {
+    try {
+      const user = netlifyIdentity.currentUser();
+      if (user && typeof user.jwt === 'function') {
+        return await user.jwt();
+      }
+    } catch {}
+    return null;
+  }
   private getUserHeaders(): Record<string, string> {
     try {
       if (typeof window !== 'undefined') {
@@ -39,28 +35,42 @@ class ApiClient {
   }
 
   private async makeRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
-    const token = this.getAuthToken();
+    const token = await this.getAuthToken();
     
     const config: RequestInit = {
       ...options,
       headers: {
-'Content-Type': 'application/json',
+        'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...this.getUserHeaders(),
-        ...options.headers,
+        ...(options.headers || {}),
       },
     };
 
-const response = await fetch(`${API_BASE_URL}${mapEndpoint(endpoint)}`, { ...config, credentials: 'include' });
+    const response = await fetch(`${API_BASE_URL}${mapEndpoint(endpoint)}`, { ...config, credentials: 'include' });
     
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Network error' }));
-      throw new Error(error.error || `HTTP ${response.status}`);
+      const contentType = response.headers.get('content-type');
+      if (contentType?.includes('application/json')) {
+        const error = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(error.error || `HTTP ${response.status}`);
+      } else {
+        const text = await response.text();
+        console.error('Non-JSON response:', response.status, text.substring(0, 200));
+        throw new Error(`HTTP ${response.status}: Expected JSON but got ${contentType}`);
+      }
     }
 
     // Handle 204 No Content (no response body)
     if (response.status === 204) {
       return null;
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (!contentType?.includes('application/json')) {
+      const text = await response.text();
+      console.error('Expected JSON response but got:', contentType, text.substring(0, 200));
+      throw new Error(`Expected JSON but got ${contentType}`);
     }
 
     return response.json();
