@@ -50,6 +50,8 @@ const Dashboard: React.FC = () => {
   const [isRulesModalOpen, setIsRulesModalOpen] = React.useState(false);
   const [isRulesComplianceOpen, setIsRulesComplianceOpen] = React.useState(false);
   const [selectedComplianceDate, setSelectedComplianceDate] = React.useState<string | null>(null);
+  const [isFailLiveModalOpen, setIsFailLiveModalOpen] = React.useState(false);
+  const [failureDate, setFailureDate] = React.useState<string>(new Date().toISOString().slice(0, 10));
   
   // Bulk actions state for build mode
   const [selectedChallengeIds, setSelectedChallengeIds] = React.useState<Set<string>>(new Set());
@@ -577,6 +579,54 @@ const Dashboard: React.FC = () => {
       setDeleteConfirm(null);
     }
   };
+  
+  // Handle marking live account as failed
+  const handleFailLiveAccount = async () => {
+    if (!selectedChallenge) return;
+    
+    try {
+      // Calculate live account duration
+      const lastCompletedPhase = selectedChallenge.totalPhases === 3 ? selectedChallenge.phases.phase3
+        : selectedChallenge.totalPhases === 2 ? selectedChallenge.phases.phase2
+        : selectedChallenge.phases.phase1;
+      
+      const liveStartDate = lastCompletedPhase.completedAt || selectedChallenge.startDate;
+      const liveStartTime = new Date(liveStartDate).getTime();
+      const failureTime = new Date(failureDate).getTime();
+      const daysLive = Math.max(0, Math.ceil((failureTime - liveStartTime) / (1000 * 60 * 60 * 24)));
+      
+      // Update challenge status to failed
+      const updatedChallenge = { ...selectedChallenge, status: 'failed' as const };
+      await apiClient.updateChallenge(updatedChallenge);
+      
+      // Update local state
+      setState(prev => ({
+        ...prev,
+        challenges: prev.challenges.map(c => 
+          c.id === selectedChallenge.id ? updatedChallenge : c
+        )
+      }));
+      
+      // Archive all calendar phases for this challenge
+      setCalendar(prev => {
+        const newAccountData = [...prev.accountData];
+        newAccountData.forEach(accountData => {
+          archiveFailedChallenge(accountData, selectedChallenge.id);
+        });
+        return { ...prev, accountData: newAccountData };
+      });
+      
+      // Show success message
+      alert(`Live account marked as failed.\nLive for ${daysLive} days (from ${new Date(liveStartDate).toLocaleDateString()} to ${new Date(failureDate).toLocaleDateString()})`);
+      
+      // Close modal and go back to challenges view
+      setIsFailLiveModalOpen(false);
+      setSelectedChallengeId(null);
+    } catch (error) {
+      console.error('Error marking live account as failed:', error);
+      alert('Failed to mark account as failed. Please try again.');
+    }
+  };
 
 
   if (loading) {
@@ -799,21 +849,32 @@ const Dashboard: React.FC = () => {
                       {(selectedChallenge?.phases?.phase1?.completed && (selectedChallenge?.totalPhases || 1) === 1) ||
                        (selectedChallenge?.phases?.phase2?.completed && (selectedChallenge?.totalPhases || 1) === 2) ||
                        (selectedChallenge?.phases?.phase3?.completed && (selectedChallenge?.totalPhases || 1) === 3) ? (
-                        <button
-                          onClick={() => handlePhaseSwitch('live')}
-                          disabled={isCreatingPhaseCalendar}
-                          className={`px-4 py-2 rounded-lg border transition-all duration-300 ${
-                            selectedPhase === 'live'
-                              ? 'bg-gradient-to-r from-emerald-500/20 to-lime-500/20 border-emerald-400/50 text-emerald-200'
-                              : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10 hover:border-white/30'
-                          } ${isCreatingPhaseCalendar ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        >
-                          {isCreatingPhaseCalendar && selectedPhase !== 'live' ? (
-                            <span className="animate-spin mr-2">⏳</span>
-                          ) : null}
-                          Live Account
-                          <span className="ml-2 text-emerald-400">🚀</span>
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handlePhaseSwitch('live')}
+                            disabled={isCreatingPhaseCalendar}
+                            className={`px-4 py-2 rounded-lg border transition-all duration-300 ${
+                              selectedPhase === 'live'
+                                ? 'bg-gradient-to-r from-emerald-500/20 to-lime-500/20 border-emerald-400/50 text-emerald-200'
+                                : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10 hover:border-white/30'
+                            } ${isCreatingPhaseCalendar ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            {isCreatingPhaseCalendar && selectedPhase !== 'live' ? (
+                              <span className="animate-spin mr-2">⏳</span>
+                            ) : null}
+                            Live Account
+                            <span className="ml-2 text-emerald-400">🚀</span>
+                          </button>
+                          {selectedChallenge?.status !== 'failed' && (
+                            <button
+                              onClick={() => setIsFailLiveModalOpen(true)}
+                              className="px-3 py-2 rounded-lg border border-red-500/50 bg-red-500/10 hover:bg-red-500/20 text-red-300 hover:text-red-200 transition-all duration-300 text-sm"
+                              title="Mark live account as failed"
+                            >
+                              ✕ Fail
+                            </button>
+                          )}
+                        </div>
                       ) : null}
                     </div>
                   </div>
@@ -1094,6 +1155,44 @@ const Dashboard: React.FC = () => {
             }
             onSave={(ruleCompliance) => handleSaveRuleCompliance(selectedComplianceDate, ruleCompliance)}
           />
+        )}
+        
+        {/* Fail Live Account Modal */}
+        {isFailLiveModalOpen && selectedChallenge && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#0a0e17] border border-red-500/50 rounded-xl p-6 max-w-md w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]">
+              <h3 className="text-xl font-bold text-red-300 mb-4">Mark Live Account as Failed</h3>
+              <p className="text-white/70 mb-6">
+                Are you sure you want to mark this live account as failed?
+              </p>
+              
+              <div className="mb-6">
+                <label className="block text-sm text-white/70 mb-2">Failure Date</label>
+                <input
+                  type="date"
+                  value={failureDate}
+                  onChange={(e) => setFailureDate(e.target.value)}
+                  max={new Date().toISOString().slice(0, 10)}
+                  className="w-full px-3 py-2 bg-white/5 border border-white/20 rounded-lg text-white focus:border-red-400/50 focus:outline-none focus:ring-2 focus:ring-red-500/30"
+                />
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={handleFailLiveAccount}
+                  className="flex-1 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/50 text-red-200 rounded-lg transition-all duration-200 font-semibold"
+                >
+                  Confirm Failure
+                </button>
+                <button
+                  onClick={() => setIsFailLiveModalOpen(false)}
+                  className="flex-1 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/20 text-white/70 rounded-lg transition-all duration-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
       </div>

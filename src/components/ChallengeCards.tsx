@@ -63,6 +63,12 @@ export const ChallengeCards: React.FC<ChallengeCardsProps> = ({
     if (!challenge.phases.phase1.completed) return { phase: 'Phase 1', progress: 0, icon: <Trophy className="w-4 h-4 text-cyan-400" /> };
     if (!challenge.phases.phase2.completed && challenge.totalPhases > 1) return { phase: 'Phase 2', progress: 33, icon: <TrendingUp className="w-4 h-4 text-lime-400" /> };
     if (!challenge.phases.phase3.completed && challenge.totalPhases > 2) return { phase: 'Phase 3', progress: 66, icon: <TrendingUp className="w-4 h-4 text-amber-400" /> };
+    
+    // Check if failed - show different icon and color for failed live accounts
+    if (challenge.status === 'failed') {
+      return { phase: 'Failed', progress: 100, icon: <XCircle className="w-4 h-4 text-red-400" /> };
+    }
+    
     return { phase: 'Live Account', progress: 100, icon: <Trophy className="w-4 h-4 text-purple-400" /> };
   };
 

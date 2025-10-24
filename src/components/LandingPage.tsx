@@ -1,11 +1,30 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowRight, CheckCircle, TrendingUp, BarChart3, Shield, Zap, Star } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ShareStatsShowcase } from './ShareStatsShowcase';
+import { useAuth } from '../contexts/AuthContext';
 
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
+  const { currentUser, loading } = useAuth();
+
+  // Redirect to dashboard if already logged in when clicking login/signup
+  const handleLoginClick = () => {
+    if (currentUser) {
+      navigate('/dashboard');
+    } else {
+      navigate('/login');
+    }
+  };
+
+  const handleSignupClick = () => {
+    if (currentUser) {
+      navigate('/dashboard');
+    } else {
+      navigate('/signup');
+    }
+  };
 
   const features = [
     {
@@ -74,16 +93,18 @@ export const LandingPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-4">
             <button
-              onClick={() => navigate('/login')}
+              onClick={handleLoginClick}
               className="px-4 py-2 text-white/80 hover:text-white transition-colors"
+              disabled={loading}
             >
-              Login
+              {currentUser ? 'Dashboard' : 'Login'}
             </button>
             <button
-              onClick={() => navigate('/signup')}
+              onClick={handleSignupClick}
               className="px-6 py-2 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 border border-cyan-400/30 text-cyan-200 hover:from-cyan-400/30 hover:to-purple-400/30 hover:border-cyan-300/50 rounded-lg transition-all duration-300"
+              disabled={loading}
             >
-              Sign Up Free
+              {currentUser ? 'Dashboard' : 'Sign Up Free'}
             </button>
           </div>
         </div>
@@ -147,10 +168,10 @@ export const LandingPage: React.FC = () => {
             className="flex justify-center items-center mb-16"
           >
             <button
-              onClick={() => navigate('/signup')}
+              onClick={handleSignupClick}
               className="group px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold rounded-xl transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-cyan-500/25 flex items-center gap-2"
             >
-              Start Free Trial
+              {currentUser ? 'Go to Dashboard' : 'Start Free Trial'}
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
           </motion.div>
@@ -333,10 +354,10 @@ export const LandingPage: React.FC = () => {
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">
               <button
-                onClick={() => navigate('/signup')}
+                onClick={handleSignupClick}
                 className="px-10 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold rounded-xl transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-cyan-500/25"
               >
-                Start Your Free Trial
+                {currentUser ? 'Go to Dashboard' : 'Start Your Free Trial'}
               </button>
               <button
                 onClick={() => navigate('/pricing')}
@@ -386,10 +407,10 @@ export const LandingPage: React.FC = () => {
             </button>
             <span className="hidden sm:block text-white/30">•</span>
             <button
-              onClick={() => navigate('/login')}
+              onClick={handleLoginClick}
               className="text-white/60 hover:text-cyan-400 text-sm transition-colors"
             >
-              Login
+              {currentUser ? 'Dashboard' : 'Login'}
             </button>
           </div>
           <div className="text-white/40 text-sm">

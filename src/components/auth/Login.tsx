@@ -38,10 +38,12 @@ const Login: React.FC = () => {
       setError('');
       setLoading(true);
       await loginWithGoogle(credential);
-      navigate('/dashboard');
+      // Navigate after state is updated
+      setTimeout(() => {
+        navigate('/dashboard', { replace: true });
+      }, 150);
     } catch (err: any) {
       setError('Google authentication failed: ' + err.message);
-    } finally {
       setLoading(false);
     }
   };

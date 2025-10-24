@@ -23,10 +23,13 @@ export const GoogleOAuthButton: React.FC<GoogleOAuthButtonProps> = ({
     // Don't set APIUrl in production - let it auto-detect
     netlifyIdentity.init(config);
     const onLogin = () => {
-      try {
-        onSuccess('netlify-identity');
-      } catch {}
+      // Close the modal and call success callback after a small delay to ensure state updates
       netlifyIdentity.close();
+      setTimeout(() => {
+        try {
+          onSuccess('netlify-identity');
+        } catch {}
+      }, 100);
     };
     const onErrorHandler = () => {
       try { onError(); } catch {}

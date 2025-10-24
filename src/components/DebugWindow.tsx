@@ -23,6 +23,10 @@ export const DebugWindow: React.FC<DebugWindowProps> = ({
   const { currentUser } = useAuth();
   const { subscription, limits, canAddChallenge } = useSubscription();
   const { tier, isAdmin, canCreateMoreChallenges, hasReachedLimit } = useFeatureAccess();
+  
+  // Set to false to disable debug window by default
+  // Change to true when debugging is needed
+  const [isEnabled] = useState(false);
   const [isOpen, setIsOpen] = useState(true);
   const [lastError, setLastError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
@@ -140,6 +144,11 @@ export const DebugWindow: React.FC<DebugWindowProps> = ({
     }
   };
 
+  // Early return if debug window is disabled
+  if (!isEnabled) {
+    return null;
+  }
+  
   if (!isOpen) {
     return (
       <div className="fixed top-4 right-4 z-50">
