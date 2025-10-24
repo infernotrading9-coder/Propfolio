@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
 import { ArrowRight, CheckCircle, TrendingUp, BarChart3, Shield, Zap, Star } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
