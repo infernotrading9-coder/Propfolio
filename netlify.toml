@@ -94,6 +94,17 @@
     X-Frame-Options = "SAMEORIGIN"
     Cross-Origin-Opener-Policy = "unsafe-none"
 
+# Disable caching for API and Functions to avoid stale HTML
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Cache-Control = "no-store"
+
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    Cache-Control = "no-store"
+
 # Cache static assets
 [[headers]]
   for = "/assets/*"

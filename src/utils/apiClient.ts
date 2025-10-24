@@ -5,7 +5,9 @@ import netlifyIdentity from 'netlify-identity-widget';
 const API_BASE_URL = '/api';
 // Endpoints are already defined as /api/* in netlify.toml, no mapping needed
 function mapEndpoint(endpoint: string): string {
-  return endpoint;
+  const sep = endpoint.includes('?') ? '&' : '?'
+  // Cache-bust to avoid stale CDN HTML from earlier bad redirects
+  return `${endpoint}${sep}v=${Date.now()}`
 }
 class ApiClient {
   private async getAuthToken(): Promise<string | null> {
@@ -41,10 +43,12 @@ class ApiClient {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...this.getUserHeaders(),
         ...(options.headers || {}),
       },
+      cache: 'no-store',
     };
 
     const response = await fetch(`${API_BASE_URL}${mapEndpoint(endpoint)}`, { ...config, credentials: 'include' });
