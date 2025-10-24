@@ -365,7 +365,7 @@ export const ChallengeForm: React.FC<{
           </div>
         </div>
         
-        {/* Second row for Cost, Firm Type, and Phases */}
+        {/* Second row for Cost and Phases */}
         <div className="flex flex-wrap items-end gap-4">
           {/* Cost - small fixed width */}
           <div className="flex flex-col gap-1 w-24 flex-shrink-0">
@@ -459,9 +459,11 @@ export const ChallengeForm: React.FC<{
               ))}
             </datalist>
           </div>
+        </div>
 
-          {/* Firm Type - takes remaining space, no overlap */}
-          <div className="flex flex-col gap-1 flex-1 min-w-[260px]">
+        {/* Third row for Firm Type (full width) */}
+        <div className="mt-4">
+          <div className="flex flex-col gap-1 w-full">
             <label className="text-xs text-white/60">Firm Type</label>
             <div className="flex gap-2">
               <button

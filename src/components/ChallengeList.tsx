@@ -182,12 +182,13 @@ export const ChallengeList: React.FC<{
             const idx = sortedForNumbering.findIndex(sc => sc && sc.id === c.id);
             const challengeNumber = idx >= 0 ? idx + 1 : 0;
             
-            // Check if challenge is LIVE (all phases completed)
+            // Check if challenge is LIVE (all phases completed) and not failed
             const isLive = (() => {
+              if (c.status === 'failed') return false;
               const totalPhases = c.totalPhases || 3;
-              if (totalPhases === 1) return c.phases.phase1?.completed;
-              if (totalPhases === 2) return c.phases.phase1?.completed && c.phases.phase2?.completed;
-              return c.phases.phase1?.completed && c.phases.phase2?.completed && c.phases.phase3?.completed;
+              if (totalPhases === 1) return !!c.phases.phase1?.completed;
+              if (totalPhases === 2) return !!c.phases.phase1?.completed && !!c.phases.phase2?.completed;
+              return !!c.phases.phase1?.completed && !!c.phases.phase2?.completed && !!c.phases.phase3?.completed;
             })();
             
             return (
