@@ -370,6 +370,19 @@ const Dashboard: React.FC = () => {
         )
       }));
       
+      // If marking as failed, archive calendar phases for these challenges
+      if (newStatus === 'failed') {
+        setCalendar(prev => {
+          const newAccountData = [...prev.accountData];
+          challengeIds.forEach(challengeId => {
+            newAccountData.forEach(accountData => {
+              archiveFailedChallenge(accountData, challengeId);
+            });
+          });
+          return { ...prev, accountData: newAccountData };
+        });
+      }
+      
       // Clear selection
       setSelectedChallengeIds(new Set());
       
@@ -729,6 +742,13 @@ const Dashboard: React.FC = () => {
                 setCalendar={setCalendar}
                 buildingMode={buildingMode}
                 onAutomaticCalendarIntegration={handleAutomaticCalendarIntegration}
+                onFailLiveAccount={(challengeId) => {
+                  const challenge = visibleChallenges.find(c => c.id === challengeId);
+                  if (challenge) {
+                    setSelectedChallengeId(challengeId);
+                    setIsFailLiveModalOpen(true);
+                  }
+                }}
               />
 
               <AdditionalCharts challenges={visibleChallenges} firms={state.firms} />

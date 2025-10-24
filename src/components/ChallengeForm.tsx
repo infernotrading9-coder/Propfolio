@@ -363,7 +363,10 @@ export const ChallengeForm: React.FC<{
             </datalist>
             {errors.strategy && <span className="text-xs text-red-400">{errors.strategy}</span>}
           </div>
+        </div>
         
+        {/* Second row for Cost, Firm Type, and Phases */}
+        <div className="flex flex-wrap gap-4">
           <div className="flex flex-col gap-1" style={{ width: '140px', flexShrink: 0 }}>
           <label className="text-xs text-white/60">Cost</label>
           <div className="relative">

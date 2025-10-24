@@ -17,7 +17,8 @@ export const ChallengeList: React.FC<{
   setCalendar?: (updater: (prev: any) => any) => void;
   buildingMode?: boolean;
   onAutomaticCalendarIntegration?: (challenge: Challenge, completedPhase: 'phase1'|'phase2'|'phase3') => Promise<void>;
-}> = ({ challenges, firms, onEdit, onChallengeUpdate, calendar, setCalendar, buildingMode = false, onAutomaticCalendarIntegration }) => {
+  onFailLiveAccount?: (challengeId: string) => void;
+}> = ({ challenges, firms, onEdit, onChallengeUpdate, calendar, setCalendar, buildingMode = false, onAutomaticCalendarIntegration, onFailLiveAccount }) => {
   const [loadingPhase] = React.useState<string | null>(null);
   const [currentPage, setCurrentPage] = React.useState(1);
   const [itemsPerPage, setItemsPerPage] = React.useState(5);
@@ -325,6 +326,20 @@ export const ChallengeList: React.FC<{
                         </Button>
                       );
                     }).filter(Boolean)}
+                    
+                    {/* Fail button for live accounts */}
+                    {isLive && c.status !== 'failed' && onFailLiveAccount && (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => onFailLiveAccount(c.id)}
+                        leftIcon={<XCircle className="w-4 h-4"/>}
+                        className="px-3 !bg-red-500/20 hover:!bg-red-500/30 border-red-500/50"
+                        title="Mark live account as failed"
+                      >
+                        Fail
+                      </Button>
+                    )}
                     
                     <Button
                       size="sm"
