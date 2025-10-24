@@ -1,13 +1,29 @@
 import { AppState, Challenge, NewChallengeInput, NewFirmInput, PropFirm } from '../types';
 import netlifyIdentity from 'netlify-identity-widget';
 
-// Use unified /api routes (mapped in netlify.toml to functions)
-const API_BASE_URL = '/api';
-// Endpoints are already defined as /api/* in netlify.toml, no mapping needed
+// Call Netlify Functions directly (skip redirects)
+const API_BASE_URL = '/.netlify/functions';
+// Map logical endpoints to function names
 function mapEndpoint(endpoint: string): string {
-  const sep = endpoint.includes('?') ? '&' : '?'
+  const map: Record<string, string> = {
+    '/user/data': '/db-state',
+    '/firms': '/db-firms',
+    '/challenges': '/db-challenges',
+    '/user/selected-firm': '/db-user',
+    '/payouts': '/db-payouts',
+    '/mark-phase': '/db-phase',
+    '/challenges/bulk-status': '/db-bulk',
+    // Auth (legacy email/password)
+    '/auth/login': '/auth-login',
+    '/auth/signup': '/auth-signup',
+    '/auth/logout': '/auth-login',
+    '/auth/session': '/auth-login',
+    '/auth/google': '/auth-google',
+  };
+  const path = map[endpoint] || endpoint;
+  const sep = path.includes('?') ? '&' : '?';
   // Cache-bust to avoid stale CDN HTML from earlier bad redirects
-  return `${endpoint}${sep}v=${Date.now()}`
+  return `${path}${sep}v=${Date.now()}`;
 }
 class ApiClient {
   private async getAuthToken(): Promise<string | null> {
