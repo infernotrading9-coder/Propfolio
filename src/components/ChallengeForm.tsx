@@ -365,10 +365,10 @@ export const ChallengeForm: React.FC<{
           </div>
         </div>
         
-        {/* Second row for Cost and Phases */}
-        <div className="flex flex-wrap items-end gap-4">
-          {/* Cost - small fixed width */}
-          <div className="flex flex-col gap-1 w-24 flex-shrink-0">
+        {/* Cost, Phases, Firm Type - responsive grid (never overlaps) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 md:[grid-template-columns:8rem_6rem_1fr] gap-4 items-end">
+          {/* Cost */}
+          <div className="flex flex-col gap-1">
             <label className="text-xs text-white/60">Cost</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -379,27 +379,22 @@ export const ChallengeForm: React.FC<{
                 value={costStr}
                 onChange={e => { 
                   const rawValue = e.target.value.replace(/[^\d.-]/g, '');
-                  // Allow decimal point and up to 2 decimal places
                   const parts = rawValue.split('.');
                   let formattedValue = parts[0];
                   if (parts.length > 1) {
-                    formattedValue += '.' + parts[1].slice(0, 2); // Limit to 2 decimal places
+                    formattedValue += '.' + parts[1].slice(0, 2);
                   }
-                  
-                  // If this is the first keystroke and we haven't cleared yet, start fresh
                   if (!costCleared && !initial && costStr === '0') {
                     setCostStr(formattedValue);
                     setCostCleared(true);
                   } else {
                     setCostStr(formattedValue);
                   }
-                  
                   const numValue = formattedValue === '' ? 0 : parseFloat(formattedValue) || 0;
                   setCost(numValue); 
                   setErrors(prev => ({ ...prev, cost: '' })); 
                 }}
                 onFocus={() => {
-                  // Clear the field on focus if it's the default value and not editing
                   if (!costCleared && !initial && costStr === '0') {
                     setCostStr('');
                     setCostCleared(true);
@@ -413,37 +408,31 @@ export const ChallengeForm: React.FC<{
             {errors.cost && <span className="text-xs text-red-400">{errors.cost}</span>}
           </div>
 
-          {/* Phases - small fixed width */}
-          <div className="flex flex-col gap-1 w-24 flex-shrink-0">
+          {/* Phases */}
+          <div className="flex flex-col gap-1">
             <label className="text-xs text-white/60">Phases</label>
             <input 
               type="text" 
               list="total-phases"
               value={totalPhasesStr}
               onChange={e => { 
-                const rawValue = e.target.value.replace(/[^\d]/g, ''); // Only allow digits
-                
-                // If this is the first keystroke and we haven't cleared yet, start fresh
+                const rawValue = e.target.value.replace(/[^\d]/g, '');
                 if (!totalPhasesCleared && !initial) {
                   setTotalPhasesStr(rawValue);
                   setTotalPhasesCleared(true);
                 } else {
                   setTotalPhasesStr(rawValue);
                 }
-                
                 const numValue = rawValue === '' ? 3 : Number(rawValue);
                 if ([1, 2, 3].includes(numValue)) {
                   setTotalPhases(numValue as 1 | 2 | 3);
                 } else if (numValue > 3) {
-                  // Cap at 3 phases maximum
                   setTotalPhases(3);
                   setTotalPhasesStr('3');
                 }
-                
                 setErrors(prev => ({ ...prev, totalPhases: '' })); 
               }}
               onFocus={() => {
-                // Clear the field on focus if it's the default value and not editing
                 if (!totalPhasesCleared && !initial) {
                   setTotalPhasesStr('');
                   setTotalPhasesCleared(true);
@@ -459,11 +448,9 @@ export const ChallengeForm: React.FC<{
               ))}
             </datalist>
           </div>
-        </div>
 
-        {/* Third row for Firm Type (full width) */}
-        <div className="mt-4">
-          <div className="flex flex-col gap-1 w-full">
+          {/* Firm Type */}
+          <div className="flex flex-col gap-1">
             <label className="text-xs text-white/60">Firm Type</label>
             <div className="flex gap-2">
               <button
