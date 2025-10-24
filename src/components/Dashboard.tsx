@@ -751,6 +751,13 @@ const Dashboard: React.FC = () => {
                 buildingMode={buildingMode}
                 selectedChallengeIds={selectedChallengeIds}
                 onToggleSelection={handleToggleSelection}
+                onFailLiveAccount={(challengeId) => {
+                  const challenge = state.challenges.find(c => c.id === challengeId);
+                  if (challenge) {
+                    setSelectedChallengeId(challengeId);
+                    setIsFailLiveModalOpen(true);
+                  }
+                }}
               />
               
               {selectedChallenge && (

@@ -10,6 +10,7 @@ interface ChallengeCardsProps {
   buildingMode?: boolean;
   selectedChallengeIds?: Set<string>;
   onToggleSelection?: (challengeId: string) => void;
+  onFailLiveAccount?: (challengeId: string) => void;
 }
 
 export const ChallengeCards: React.FC<ChallengeCardsProps> = ({
@@ -18,7 +19,8 @@ export const ChallengeCards: React.FC<ChallengeCardsProps> = ({
   onChallengeClick,
   buildingMode = false,
   selectedChallengeIds = new Set(),
-  onToggleSelection
+  onToggleSelection,
+  onFailLiveAccount
 }) => {
   const [showArchived, setShowArchived] = React.useState(false);
   
@@ -238,15 +240,30 @@ export const ChallengeCards: React.FC<ChallengeCardsProps> = ({
                     <div className="text-xs text-white/50">
                       Started {new Date(challenge.startDate).toLocaleDateString()}
                     </div>
-                    <div className="flex items-center gap-1 text-xs text-cyan-400 group-hover:text-cyan-300 transition-colors">
-                      {buildingMode ? (
-                        <span>{selectedChallengeIds.has(challenge.id) ? 'Selected' : 'Click to select'}</span>
-                      ) : (
-                        <>
-                          <Calendar className="w-3 h-3" />
-                          <span>Click to view</span>
-                        </>
+                    <div className="flex items-center gap-2">
+                      {/* Show fail button for live accounts */}
+                      {currentPhase.phase === 'Live Account' && challenge.status !== 'failed' && onFailLiveAccount && !buildingMode && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onFailLiveAccount(challenge.id);
+                          }}
+                          className="px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 border border-red-500/50 text-red-300 hover:text-red-200 text-xs transition-all duration-200"
+                          title="Mark live account as failed"
+                        >
+                          ✕ Fail
+                        </button>
                       )}
+                      <div className="flex items-center gap-1 text-xs text-cyan-400 group-hover:text-cyan-300 transition-colors">
+                        {buildingMode ? (
+                          <span>{selectedChallengeIds.has(challenge.id) ? 'Selected' : 'Click to select'}</span>
+                        ) : (
+                          <>
+                            <Calendar className="w-3 h-3" />
+                            <span>Click to view</span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

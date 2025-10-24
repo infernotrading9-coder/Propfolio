@@ -364,7 +364,7 @@ export const ChallengeForm: React.FC<{
             {errors.strategy && <span className="text-xs text-red-400">{errors.strategy}</span>}
           </div>
         
-          <div className="flex flex-col gap-1" style={{ maxWidth: '120px' }}>
+          <div className="flex flex-col gap-1" style={{ width: '140px', flexShrink: 0 }}>
           <label className="text-xs text-white/60">Cost</label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -410,7 +410,7 @@ export const ChallengeForm: React.FC<{
           </div>
         
           {/* Firm Type - Sixth */}
-          <div className="flex flex-col gap-1" style={{ minWidth: '200px' }}>
+          <div className="flex flex-col gap-1" style={{ width: '220px', flexShrink: 0 }}>
             <label className="text-xs text-white/60">Firm Type</label>
             <div className="flex gap-2">
               <button
@@ -440,7 +440,7 @@ export const ChallengeForm: React.FC<{
             </div>
           </div>
         
-          <div className="flex flex-col gap-1" style={{ maxWidth: '100px' }}>
+          <div className="flex flex-col gap-1" style={{ width: '100px', flexShrink: 0 }}>
             <label className="text-xs text-white/60">Phases</label>
             <input 
               type="text" 
