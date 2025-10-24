@@ -667,11 +667,13 @@ const Dashboard: React.FC = () => {
             <SettingsPanel />
           </div>
 
-          <div className="flex items-center justify-center gap-3 mb-3">
+          <div className="flex items-center justify-center gap-3 mb-4">
             <button onClick={() => setView('prop')} className={`px-4 py-2 rounded-md border ${view==='prop' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Prop Firm Dashboard</button>
             <button onClick={() => setView('calendar')} className={`px-4 py-2 rounded-md border ${view==='calendar' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Rule Calendar</button>
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight neon-title">{view==='prop' ? 'Propfolio' : 'Rule Calendar'}</h1>
+          <a href="/" className="inline-block mb-2 hover:scale-105 transition-transform duration-200">
+            <h1 className="text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='prop' ? 'Propfolio' : 'Rule Calendar'}</h1>
+          </a>
           <p className="text-white/70 mt-2">{view==='prop' ? 'Track Challenges, Trading Rules, and ROI' : 'Track your challenge phases and trading activity'}</p>
         </header>
 

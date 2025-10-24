@@ -97,14 +97,14 @@ export const LandingPage: React.FC = () => {
               className="px-4 py-2 text-white/80 hover:text-white transition-colors"
               disabled={loading}
             >
-              {currentUser ? 'Dashboard' : 'Login'}
+              Login
             </button>
             <button
               onClick={handleSignupClick}
               className="px-6 py-2 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 border border-cyan-400/30 text-cyan-200 hover:from-cyan-400/30 hover:to-purple-400/30 hover:border-cyan-300/50 rounded-lg transition-all duration-300"
               disabled={loading}
             >
-              {currentUser ? 'Dashboard' : 'Sign Up Free'}
+              Sign Up Free
             </button>
           </div>
         </div>
@@ -171,7 +171,7 @@ export const LandingPage: React.FC = () => {
               onClick={handleSignupClick}
               className="group px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold rounded-xl transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-cyan-500/25 flex items-center gap-2"
             >
-              {currentUser ? 'Go to Dashboard' : 'Start Free Trial'}
+              Start Free Trial
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
           </motion.div>
@@ -357,7 +357,7 @@ export const LandingPage: React.FC = () => {
                 onClick={handleSignupClick}
                 className="px-10 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold rounded-xl transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-cyan-500/25"
               >
-                {currentUser ? 'Go to Dashboard' : 'Start Your Free Trial'}
+                Start Your Free Trial
               </button>
               <button
                 onClick={() => navigate('/pricing')}
@@ -410,7 +410,7 @@ export const LandingPage: React.FC = () => {
               onClick={handleLoginClick}
               className="text-white/60 hover:text-cyan-400 text-sm transition-colors"
             >
-              {currentUser ? 'Dashboard' : 'Login'}
+              Login
             </button>
           </div>
           <div className="text-white/40 text-sm">
