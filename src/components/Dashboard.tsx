@@ -104,6 +104,32 @@ const Dashboard: React.FC = () => {
   });
   React.useEffect(() => { saveCalendar(calendar); }, [calendar]);
 
+  // Ensure calendar accounts exist for all challenges (Phase 1) and Live accounts
+  React.useEffect(() => {
+    if (!calendar || !state.challenges || state.challenges.length === 0) return;
+
+    const isLive = (c: Challenge) => {
+      const total = c.totalPhases || 3;
+      if (total === 1) return !!c.phases?.phase1?.completed;
+      if (total === 2) return !!c.phases?.phase1?.completed && !!c.phases?.phase2?.completed;
+      return !!c.phases?.phase1?.completed && !!c.phases?.phase2?.completed && !!c.phases?.phase3?.completed;
+    };
+
+    state.challenges.forEach((ch) => {
+      if (!ch) return;
+      // Create Phase 1 calendar for active/passed challenges
+      if (ch.status !== 'failed') {
+        handleAutomaticNewChallengeCalendar(ch);
+      }
+      // Ensure Live Account calendar exists for live challenges
+      if (isLive(ch)) {
+        const total = ch.totalPhases || 3;
+        const lastPhase = total === 3 ? 'phase3' : total === 2 ? 'phase2' : 'phase1';
+        handleAutomaticCalendarIntegration(ch, lastPhase as 'phase1'|'phase2'|'phase3');
+      }
+    });
+  }, [state.challenges, calendar.accounts?.length]);
+
   
   // Note: ActiveChallenges functionality replaced with ChallengeCards
   

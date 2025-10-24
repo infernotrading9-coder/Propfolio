@@ -366,84 +366,55 @@ export const ChallengeForm: React.FC<{
         </div>
         
         {/* Second row for Cost, Firm Type, and Phases */}
-        <div className="flex flex-wrap gap-4">
-          <div className="flex flex-col gap-1" style={{ width: '140px', flexShrink: 0 }}>
-          <label className="text-xs text-white/60">Cost</label>
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <span className="text-white/60 sm:text-sm">$</span>
-            </div>
-            <input 
-              type="text" 
-              value={costStr}
-              onChange={e => { 
-                const rawValue = e.target.value.replace(/[^\d.-]/g, '');
-                // Allow decimal point and up to 2 decimal places
-                const parts = rawValue.split('.');
-                let formattedValue = parts[0];
-                if (parts.length > 1) {
-                  formattedValue += '.' + parts[1].slice(0, 2); // Limit to 2 decimal places
-                }
-                
-                // If this is the first keystroke and we haven't cleared yet, start fresh
-                if (!costCleared && !initial && costStr === '0') {
-                  setCostStr(formattedValue);
-                  setCostCleared(true);
-                } else {
-                  setCostStr(formattedValue);
-                }
-                
-                const numValue = formattedValue === '' ? 0 : parseFloat(formattedValue) || 0;
-                setCost(numValue); 
-                setErrors(prev => ({ ...prev, cost: '' })); 
-              }}
-              onFocus={() => {
-                // Clear the field on focus if it's the default value and not editing
-                if (!costCleared && !initial && costStr === '0') {
-                  setCostStr('');
-                  setCostCleared(true);
-                }
-              }}
-              className={`pl-8 ${inputClasses('cost')}`}
-              disabled={loading}
-              placeholder="100"
-            />
-          </div>
-          {errors.cost && <span className="text-xs text-red-400">{errors.cost}</span>}
-          </div>
-        
-          {/* Firm Type - Sixth */}
-          <div className="flex flex-col gap-1" style={{ width: '220px', flexShrink: 0 }}>
-            <label className="text-xs text-white/60">Firm Type</label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setFirmType('futures')}
+        <div className="flex flex-wrap items-end gap-4">
+          {/* Cost - small fixed width */}
+          <div className="flex flex-col gap-1 w-24 flex-shrink-0">
+            <label className="text-xs text-white/60">Cost</label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <span className="text-white/60 sm:text-sm">$</span>
+              </div>
+              <input 
+                type="text" 
+                value={costStr}
+                onChange={e => { 
+                  const rawValue = e.target.value.replace(/[^\d.-]/g, '');
+                  // Allow decimal point and up to 2 decimal places
+                  const parts = rawValue.split('.');
+                  let formattedValue = parts[0];
+                  if (parts.length > 1) {
+                    formattedValue += '.' + parts[1].slice(0, 2); // Limit to 2 decimal places
+                  }
+                  
+                  // If this is the first keystroke and we haven't cleared yet, start fresh
+                  if (!costCleared && !initial && costStr === '0') {
+                    setCostStr(formattedValue);
+                    setCostCleared(true);
+                  } else {
+                    setCostStr(formattedValue);
+                  }
+                  
+                  const numValue = formattedValue === '' ? 0 : parseFloat(formattedValue) || 0;
+                  setCost(numValue); 
+                  setErrors(prev => ({ ...prev, cost: '' })); 
+                }}
+                onFocus={() => {
+                  // Clear the field on focus if it's the default value and not editing
+                  if (!costCleared && !initial && costStr === '0') {
+                    setCostStr('');
+                    setCostCleared(true);
+                  }
+                }}
+                className={`pl-8 ${inputClasses('cost')}`}
                 disabled={loading}
-                className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
-                  firmType === 'futures'
-                    ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
-                    : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
-                }`}
-              >
-                Futures
-              </button>
-              <button
-                type="button"
-                onClick={() => setFirmType('cfd')}
-                disabled={loading}
-                className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
-                  firmType === 'cfd'
-                    ? 'bg-purple-500/20 border-purple-400/50 text-purple-200'
-                    : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
-                }`}
-              >
-                CFD
-              </button>
+                placeholder="100"
+              />
             </div>
+            {errors.cost && <span className="text-xs text-red-400">{errors.cost}</span>}
           </div>
-        
-          <div className="flex flex-col gap-1" style={{ width: '100px', flexShrink: 0 }}>
+
+          {/* Phases - small fixed width */}
+          <div className="flex flex-col gap-1 w-24 flex-shrink-0">
             <label className="text-xs text-white/60">Phases</label>
             <input 
               type="text" 
@@ -487,6 +458,37 @@ export const ChallengeForm: React.FC<{
                 <option key={index} value={phases.toString()} />
               ))}
             </datalist>
+          </div>
+
+          {/* Firm Type - takes remaining space, no overlap */}
+          <div className="flex flex-col gap-1 flex-1 min-w-[260px]">
+            <label className="text-xs text-white/60">Firm Type</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setFirmType('futures')}
+                disabled={loading}
+                className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
+                  firmType === 'futures'
+                    ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
+                    : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
+                }`}
+              >
+                Futures
+              </button>
+              <button
+                type="button"
+                onClick={() => setFirmType('cfd')}
+                disabled={loading}
+                className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
+                  firmType === 'cfd'
+                    ? 'bg-purple-500/20 border-purple-400/50 text-purple-200'
+                    : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
+                }`}
+              >
+                CFD
+              </button>
+            </div>
           </div>
         </div>
         
