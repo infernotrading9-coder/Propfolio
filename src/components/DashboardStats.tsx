@@ -1,26 +1,38 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { NeonCard } from './NeonCard';
 import { StatsSummary, Challenge } from '../types';
 import { Trophy, DollarSign, Percent, Wallet, Calculator, Clock } from 'lucide-react';
 
-function computeStats(challenges: Challenge[]): StatsSummary {
-  // Filter out invalid challenges first
+function computeYearStats(challenges: Challenge[], year: string): StatsSummary {
   const validChallenges = challenges.filter(challenge => challenge);
   
-  const spent = validChallenges.reduce((s, c) => s + (c?.cost ?? 0), 0);
-  const payouts = validChallenges.reduce((s, c) => {
-    // Handle both old (number) and new (array) payout structures
+  // Challenges that started in the selected year (used for costs and success rates)
+  const challengesStartedThisYear = validChallenges.filter(c => {
+    if (!c?.startDate) return false;
+    return c.startDate.slice(0, 4) === year;
+  });
+  
+  const spent = challengesStartedThisYear.reduce((s, c) => s + (c?.cost ?? 0), 0);
+  
+  // Payouts received in the selected year across ALL challenges
+  const payouts = validChallenges.reduce((sum, c) => {
     if (Array.isArray(c?.payouts)) {
-      return s + c.payouts.reduce((sum, p) => sum + (p?.amount ?? 0), 0);
+      const yearly = c.payouts.reduce((pSum, p) => {
+        const d = p?.date;
+        if (typeof d === 'string' && d.slice(0, 4) === year) {
+          return pSum + (p?.amount ?? 0);
+        }
+        return pSum;
+      }, 0);
+      return sum + yearly;
     }
-    return s + (c?.payouts ?? 0);
+    return sum;
   }, 0);
+  
   const roi = spent > 0 ? (payouts - spent) / spent : 0;
 
-  const total = validChallenges.length || 1;
-  // Live accounts = challenges that completed all phases (reached live trading)
-  const liveAccounts = validChallenges.filter(c => {
-    // Check if all phases for this challenge are completed
+  const total = challengesStartedThisYear.length || 1;
+  const liveAccounts = challengesStartedThisYear.filter(c => {
     if (!c?.phases) return false;
     const totalPhases = c.totalPhases || 3;
     if (totalPhases === 1) return c.phases?.phase1?.completed;
@@ -28,14 +40,13 @@ function computeStats(challenges: Challenge[]): StatsSummary {
     return c.phases?.phase1?.completed && c.phases?.phase2?.completed && c.phases?.phase3?.completed;
   }).length;
   
-  const phase1Pass = validChallenges.filter(c => c?.phases?.phase1?.completed).length / total;
-  const phase2Pass = validChallenges.filter(c => c?.phases?.phase2?.completed).length / total;
+  const phase1Pass = challengesStartedThisYear.filter(c => c?.phases?.phase1?.completed).length / total;
+  const phase2Pass = challengesStartedThisYear.filter(c => c?.phases?.phase2?.completed).length / total;
   
-  // Calculate cost per live account (efficiency metric)
   const costPerLiveAccount = liveAccounts > 0 ? spent / liveAccounts : 0;
   
-  // Calculate average time to live account (from start to completion of all phases)
-  const liveAccountChallenges = validChallenges.filter(c => {
+  // Average time to live account for challenges started in the selected year
+  const liveAccountChallenges = challengesStartedThisYear.filter(c => {
     if (!c?.phases) return false;
     const totalPhases = c.totalPhases || 3;
     if (totalPhases === 1) return c.phases?.phase1?.completed && c.phases?.phase1?.completedAt;
@@ -44,13 +55,11 @@ function computeStats(challenges: Challenge[]): StatsSummary {
   });
   
   let totalDaysToLive = 0;
-  
   liveAccountChallenges.forEach(challenge => {
     if (!challenge?.startDate || !challenge?.phases) return;
     const startDate = new Date(challenge.startDate);
     const totalPhases = challenge.totalPhases || 3;
     
-    // Get the final completion date based on total phases
     let finalCompletionDate;
     if (totalPhases === 1 && challenge.phases?.phase1?.completedAt) {
       finalCompletionDate = new Date(challenge.phases.phase1.completedAt);
@@ -69,31 +78,37 @@ function computeStats(challenges: Challenge[]): StatsSummary {
   });
   
   const averageTimeToLive = liveAccountChallenges.length > 0 ? totalDaysToLive / liveAccountChallenges.length : 0;
-
-  const firstChallengeMonth = validChallenges.length > 0 ? validChallenges.reduce((min, c) => {
+  
+  const firstChallengeMonth = challengesStartedThisYear.length > 0 ? challengesStartedThisYear.reduce((min, c) => {
     if (!c?.startDate || !min?.startDate) return min;
     return (c.startDate < min.startDate ? c : min);
-  }, validChallenges[0])?.startDate?.slice(0,7) : undefined;
-
-  // Calculate account size performance
+  }, challengesStartedThisYear[0])?.startDate?.slice(0,7) : undefined;
+  
+  // Account size performance scoped to challenges started this year
   const accountSizeGroups = {
-    '10K': validChallenges.filter(c => c?.accountSize && c.accountSize <= 10000),
-    '25K': validChallenges.filter(c => c?.accountSize && c.accountSize > 10000 && c.accountSize <= 25000),
-    '50K': validChallenges.filter(c => c?.accountSize && c.accountSize > 25000 && c.accountSize <= 50000),
-    '100K': validChallenges.filter(c => c?.accountSize && c.accountSize > 50000 && c.accountSize <= 100000),
-    '200K+': validChallenges.filter(c => c?.accountSize && c.accountSize > 100000)
+    '10K': challengesStartedThisYear.filter(c => c?.accountSize && c.accountSize <= 10000),
+    '25K': challengesStartedThisYear.filter(c => c?.accountSize && c.accountSize > 10000 && c.accountSize <= 25000),
+    '50K': challengesStartedThisYear.filter(c => c?.accountSize && c.accountSize > 25000 && c.accountSize <= 50000),
+    '100K': challengesStartedThisYear.filter(c => c?.accountSize && c.accountSize > 50000 && c.accountSize <= 100000),
+    '200K+': challengesStartedThisYear.filter(c => c?.accountSize && c.accountSize > 100000)
   };
   
   const accountSizePerformance: Record<string, { roi: number; successRate: number; count: number }> = {};
-  
   Object.entries(accountSizeGroups).forEach(([size, sizeChall]) => {
     if (sizeChall.length > 0) {
       const sizeSpent = sizeChall.reduce((s, c) => s + (c?.cost ?? 0), 0);
+      // Payouts for these challenges, but only amounts received in the selected year
       const sizePayouts = sizeChall.reduce((s, c) => {
         if (Array.isArray(c?.payouts)) {
-          return s + c.payouts.reduce((sum, p) => sum + (p?.amount ?? 0), 0);
+          return s + c.payouts.reduce((sum, p) => {
+            const d = p?.date;
+            if (typeof d === 'string' && d.slice(0, 4) === year) {
+              return sum + (p?.amount ?? 0);
+            }
+            return sum;
+          }, 0);
         }
-        return s + (c?.payouts ?? 0);
+        return s;
       }, 0);
       const sizeROI = sizeSpent > 0 ? (sizePayouts - sizeSpent) / sizeSpent : 0;
       
@@ -112,7 +127,7 @@ function computeStats(challenges: Challenge[]): StatsSummary {
       };
     }
   });
-
+  
   return {
     totalSpent: spent,
     totalPayouts: payouts,
@@ -124,7 +139,6 @@ function computeStats(challenges: Challenge[]): StatsSummary {
     averageTimeToLive,
     firstChallengeMonth,
     
-    // New metrics
     longestWinStreak: 0,
     longestLoseStreak: 0,
     currentStreak: { type: 'none' as const, count: 0 },
@@ -134,7 +148,28 @@ function computeStats(challenges: Challenge[]): StatsSummary {
 }
 
 export const DashboardStats: React.FC<{ challenges: Challenge[] }> = ({ challenges }) => {
-  const stats = useMemo(() => computeStats(challenges), [challenges]);
+  const [selectedYear, setSelectedYear] = useState<string>(() => new Date().getFullYear().toString());
+  
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    years.add(new Date().getFullYear().toString());
+    challenges.forEach(c => {
+      if (c?.startDate && typeof c.startDate === 'string') {
+        years.add(c.startDate.slice(0, 4));
+      }
+      if (Array.isArray(c?.payouts)) {
+        c.payouts.forEach(p => {
+          const d = p?.date;
+          if (typeof d === 'string' && d.length >= 4) {
+            years.add(d.slice(0, 4));
+          }
+        });
+      }
+    });
+    return Array.from(years).sort((a, b) => parseInt(b) - parseInt(a));
+  }, [challenges]);
+  
+  const stats = useMemo(() => computeYearStats(challenges, selectedYear), [challenges, selectedYear]);
   const roiIsPositive = stats.roi >= 0;
   
   const statItems = [
@@ -197,18 +232,34 @@ export const DashboardStats: React.FC<{ challenges: Challenge[] }> = ({ challeng
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4">
-      {statItems.map((s, idx) => (
-        <NeonCard key={idx} glow={s.glow} className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs uppercase tracking-wider text-white/60">{s.title}</div>
-              <div className={`mt-1 text-2xl font-bold ${s.textColor || 'text-white'} drop-shadow-neon`}>{s.value}</div>
+    <div>
+      <div className="flex items-center justify-end mb-4">
+        <label className="mr-3 text-sm font-medium text-white/80">Year</label>
+        <select
+          value={selectedYear}
+          onChange={(e) => setSelectedYear(e.target.value)}
+          className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400/50 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+        >
+          {availableYears.map(year => (
+            <option key={year} value={year} className="bg-gray-800">
+              {year}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4">
+        {statItems.map((s, idx) => (
+          <NeonCard key={idx} glow={s.glow} className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs uppercase tracking-wider text-white/60">{s.title}</div>
+                <div className={`mt-1 text-2xl font-bold ${s.textColor || 'text-white'} drop-shadow-neon`}>{s.value}</div>
+              </div>
+              <div className="p-2 rounded-lg bg-white/5 border border-white/10">{s.icon}</div>
             </div>
-            <div className="p-2 rounded-lg bg-white/5 border border-white/10">{s.icon}</div>
-          </div>
-        </NeonCard>
-      ))}
+          </NeonCard>
+        ))}
+      </div>
     </div>
   );
 };
