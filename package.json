@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:server": "npx tsx server/index.ts",
     "dev:full": "concurrently \"npm run dev:server\" \"npm run dev\"",
-    "build": "tsc && vite build",
+    "build": "node node_modules/typescript/bin/tsc && vite build",
     "build:server": "tsc server/index.ts --outDir dist-server --target es2020 --moduleResolution node --esModuleInterop",
     "preview": "vite preview",
     "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
