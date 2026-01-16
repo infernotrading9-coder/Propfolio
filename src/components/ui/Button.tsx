@@ -1,8 +1,7 @@
 import React from 'react';
-import { motion, type HTMLMotionProps } from 'framer-motion';
 import { LoadingSpinner } from './LoadingSpinner';
 
-interface ButtonProps extends Omit<HTMLMotionProps<'button'>, 'children'> {
+interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   variant?: 'primary' | 'secondary' | 'success' | 'danger' | 'ghost';
   size?: 'sm' | 'md' | 'lg';
   loading?: boolean;
@@ -26,11 +25,11 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const variants = {
-    primary: 'bg-purple-600 hover:bg-purple-500 text-white border border-purple-500/50 hover:border-purple-400/50 animate-border-glow drop-shadow-neon',
-    secondary: 'bg-white/10 hover:bg-white/15 text-white border border-white/20 hover:border-white/30 hover:drop-shadow-neon',
-    success: 'bg-lime-600 hover:bg-lime-500 text-white border border-lime-500/50 hover:border-lime-400/50 animate-lime-glow drop-shadow-neon-lime',
-    danger: 'bg-red-600 hover:bg-red-500 text-white border border-red-500/50 hover:border-red-400/50 animate-pink-glow drop-shadow-neon-pink',
-    ghost: 'bg-transparent hover:bg-white/10 text-white/70 hover:text-white border border-transparent hover:border-white/20 hover:drop-shadow-neon'
+    primary: 'bg-purple-600 text-white border border-purple-500/50 drop-shadow-neon',
+    secondary: 'bg-white/10 text-white border border-white/20',
+    success: 'bg-lime-600 text-white border border-lime-500/50 drop-shadow-neon-lime',
+    danger: 'bg-red-600 text-white border border-red-500/50 drop-shadow-neon-pink',
+    ghost: 'bg-transparent text-white/70 border border-transparent'
   };
 
   const sizes = {
@@ -49,21 +48,8 @@ export const Button: React.FC<ButtonProps> = ({
 
   const isDisabled = disabled || loading;
 
-  const buttonAnimation = {
-    whileTap: !isDisabled ? { scale: 0.98 } : {},
-    whileHover: !isDisabled ? { y: -1 } : {},
-    initial: { opacity: 0, y: 10 },
-    animate: { opacity: 1, y: 0 },
-    transition: {
-      type: 'spring',
-      stiffness: 400,
-      damping: 25
-    }
-  };
-
   return (
-    <motion.button
-      {...buttonAnimation}
+    <button
       className={`
         ${variants[variant]}
         ${sizes[size]}
@@ -71,8 +57,6 @@ export const Button: React.FC<ButtonProps> = ({
         relative
         rounded-lg
         font-medium
-        transition-all
-        duration-200
         focus:outline-none
         focus:ring-2
         focus:ring-purple-500/50
@@ -80,7 +64,6 @@ export const Button: React.FC<ButtonProps> = ({
         focus:ring-offset-[#020408]
         disabled:opacity-50
         disabled:cursor-not-allowed
-        disabled:transform-none
         flex
         items-center
         justify-center
@@ -90,39 +73,19 @@ export const Button: React.FC<ButtonProps> = ({
       disabled={isDisabled}
       {...props}
     >
-      {/* Loading overlay */}
       {loading && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
+        <div
           className="absolute inset-0 flex items-center justify-center bg-inherit rounded-lg"
         >
           <LoadingSpinner size="sm" color={variant === 'primary' ? 'purple' : 'cyan'} />
-        </motion.div>
+        </div>
       )}
 
-      {/* Content */}
       <span className={`flex items-center gap-2 ${loading ? 'opacity-0' : 'opacity-100'}`}>
-        {leftIcon && (
-          <motion.span
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.1 }}
-          >
-            {leftIcon}
-          </motion.span>
-        )}
+        {leftIcon && <span>{leftIcon}</span>}
         {children}
-        {rightIcon && (
-          <motion.span
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.1 }}
-          >
-            {rightIcon}
-          </motion.span>
-        )}
+        {rightIcon && <span>{rightIcon}</span>}
       </span>
-    </motion.button>
+    </button>
   );
 };

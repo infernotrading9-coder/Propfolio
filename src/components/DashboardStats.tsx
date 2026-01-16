@@ -232,7 +232,7 @@ export const DashboardStats: React.FC<{ challenges: Challenge[] }> = ({ challeng
   ];
 
   return (
-    <div>
+    <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-end mb-4">
         <label className="mr-3 text-sm font-medium text-white/80">Year</label>
         <select
@@ -247,7 +247,7 @@ export const DashboardStats: React.FC<{ challenges: Challenge[] }> = ({ challeng
           ))}
         </select>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4 justify-items-center">
         {statItems.map((s, idx) => (
           <NeonCard key={idx} glow={s.glow} className="p-4">
             <div className="flex items-center justify-between">
