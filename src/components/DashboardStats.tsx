@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { NeonCard } from './NeonCard';
 import { StatsSummary, Challenge } from '../types';
 import { Trophy, DollarSign, Percent, Wallet, Calculator, Clock } from 'lucide-react';
@@ -147,8 +147,7 @@ function computeYearStats(challenges: Challenge[], year: string): StatsSummary {
   };
 }
 
-export const DashboardStats: React.FC<{ challenges: Challenge[] }> = ({ challenges }) => {
-  const [selectedYear, setSelectedYear] = useState<string>(() => new Date().getFullYear().toString());
+export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: string; onChangeYear: (y: string) => void }> = ({ challenges, selectedYear, onChangeYear }) => {
   
   const availableYears = useMemo(() => {
     const years = new Set<string>();
@@ -176,68 +175,68 @@ export const DashboardStats: React.FC<{ challenges: Challenge[] }> = ({ challeng
     {
       title: 'Total Spent',
       value: `$${stats.totalSpent.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
-      icon: <Wallet className="w-6 h-6 text-red-300 drop-shadow-neon-red" />,
+      icon: <Wallet className="w-8 h-8 text-red-300 drop-shadow-neon-red" />,
       glow: 'red',
       textColor: 'text-red-300',
     },
     {
       title: 'Total Payouts',
       value: `$${stats.totalPayouts.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
-      icon: <DollarSign className="w-6 h-6 text-green-300 drop-shadow-neon-green" />,
+      icon: <DollarSign className="w-8 h-8 text-green-300 drop-shadow-neon-green" />,
       glow: 'green',
       textColor: 'text-green-300',
     },
     {
       title: 'ROI',
       value: `${(stats.roi * 100).toFixed(1)}%`,
-      icon: <Percent className={`w-6 h-6 ${roiIsPositive ? 'text-green-300 drop-shadow-neon-green' : 'text-red-300 drop-shadow-neon-red'}`} />,
+      icon: <Percent className={`w-8 h-8 ${roiIsPositive ? 'text-green-300 drop-shadow-neon-green' : 'text-red-300 drop-shadow-neon-red'}`} />,
       glow: roiIsPositive ? 'green' : 'red',
       textColor: roiIsPositive ? 'text-green-300' : 'text-red-300',
     },
     {
       title: 'Live Account Rate',
       value: `${(stats.liveAccountsRate * 100).toFixed(1)}%`,
-      icon: <Trophy className="w-6 h-6 text-pink-300 drop-shadow-neon-pink" />,
+      icon: <Trophy className="w-8 h-8 text-pink-300 drop-shadow-neon-pink" />,
       glow: 'pink',
       textColor: 'text-pink-300',
     },
     {
       title: 'Phase 1 Pass Rate',
       value: `${(stats.phase1PassRate * 100).toFixed(1)}%`,
-      icon: <Trophy className="w-6 h-6 text-cyan-300 drop-shadow-neon-cyan" />,
+      icon: <Trophy className="w-8 h-8 text-cyan-300 drop-shadow-neon-cyan" />,
       glow: 'cyan',
       textColor: 'text-cyan-300',
     },
     {
       title: 'Phase 2 Pass Rate',
       value: `${(stats.phase2PassRate * 100).toFixed(1)}%`,
-      icon: <Trophy className="w-6 h-6 text-lime-300 drop-shadow-neon-lime" />,
+      icon: <Trophy className="w-8 h-8 text-lime-300 drop-shadow-neon-lime" />,
       glow: 'lime',
       textColor: 'text-lime-300',
     },
     {
       title: 'Cost Per Live Account',
       value: stats.costPerLiveAccount > 0 ? `$${stats.costPerLiveAccount.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'No live accounts',
-      icon: <Calculator className="w-6 h-6 text-orange-300 drop-shadow-neon-orange" />,
+      icon: <Calculator className="w-8 h-8 text-orange-300 drop-shadow-neon-orange" />,
       glow: 'orange',
       textColor: 'text-orange-300',
     },
     {
       title: 'Avg Time to Live',
       value: stats.averageTimeToLive > 0 ? `${Math.round(stats.averageTimeToLive)} days` : 'Complete phases first',
-      icon: <Clock className="w-6 h-6 text-amber-300 drop-shadow-neon-amber" />,
+      icon: <Clock className="w-8 h-8 text-amber-300 drop-shadow-neon-amber" />,
       glow: 'amber',
       textColor: 'text-amber-300',
     },
   ];
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div>
       <div className="flex items-center justify-end mb-4">
         <label className="mr-3 text-sm font-medium text-white/80">Year</label>
         <select
           value={selectedYear}
-          onChange={(e) => setSelectedYear(e.target.value)}
+          onChange={(e) => onChangeYear(e.target.value)}
           className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400/50 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
         >
           {availableYears.map(year => (
@@ -247,13 +246,13 @@ export const DashboardStats: React.FC<{ challenges: Challenge[] }> = ({ challeng
           ))}
         </select>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4 justify-items-center">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6">
         {statItems.map((s, idx) => (
-          <NeonCard key={idx} glow={s.glow} className="p-4">
+          <NeonCard key={idx} glow={s.glow} className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs uppercase tracking-wider text-white/60">{s.title}</div>
-                <div className={`mt-1 text-2xl font-bold ${s.textColor || 'text-white'} drop-shadow-neon`}>{s.value}</div>
+                <div className={`mt-1 text-3xl font-bold ${s.textColor || 'text-white'} drop-shadow-neon`}>{s.value}</div>
               </div>
               <div className="p-2 rounded-lg bg-white/5 border border-white/10">{s.icon}</div>
             </div>

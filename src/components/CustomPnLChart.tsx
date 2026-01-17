@@ -74,12 +74,12 @@ interface TooltipState {
   } | null;
 }
 
-export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challenges }) => {
+export const CustomPnLChart: React.FC<{ challenges: Challenge[]; selectedYear: string }> = ({ challenges, selectedYear }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = React.useState(false);
   
   // On mobile, force card mode and disable display mode toggle
-  const [displayMode, setDisplayMode] = useState<'bar' | 'card'>('card');
+  const [displayMode, setDisplayMode] = useState<'bar' | 'card'>('bar');
   const [timeMode, setTimeMode] = useState<'monthly' | 'weekly'>('monthly');
   const [tooltip, setTooltip] = useState<TooltipState>({ visible: false, x: 0, y: 0, data: null });
 
@@ -96,85 +96,13 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challeng
   }, []);
 
   // Add CSS animations for cards view with mobile optimizations
-  React.useEffect(() => {
-    if (!document.getElementById('pnl-cards-animations')) {
-      const style = document.createElement('style');
-      style.id = 'pnl-cards-animations';
-      style.textContent = `
-        @keyframes fadeInUp {
-          0% { opacity: 0; transform: translateY(30px); }
-          100% { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes borderSweep {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-8px); }
-        }
-        @keyframes floatingParticle {
-          0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.4; }
-          25% { transform: translate(10px, -10px) rotate(90deg); opacity: 0.8; }
-          50% { transform: translate(-5px, -20px) rotate(180deg); opacity: 1; }
-          75% { transform: translate(-15px, -10px) rotate(270deg); opacity: 0.6; }
-        }
-        @keyframes liquidMorph {
-          0%, 100% { border-radius: 50% 40% 60% 30%; }
-          25% { border-radius: 30% 60% 40% 70%; }
-          50% { border-radius: 70% 30% 50% 60%; }
-          75% { border-radius: 40% 70% 30% 50%; }
-        }
-        @keyframes gradientShift {
-          0%, 100% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-        }
-        @keyframes rotate {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        @keyframes scanLine {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-        .perspective-1000 { perspective: 1000px; }
-        .transform-gpu { transform: translate3d(0, 0, 0); }
-        .rotate-y-12 { transform: rotateY(12deg); }
-        .rotate-x-6 { transform: rotateX(6deg); }
-        .translate-z-4 { transform: translateZ(4px); }
-        
-        /* Mobile optimizations - reduce animations */
-        @media (max-width: 768px) {
-          @keyframes floatingParticle {
-            0%, 100% { transform: translate(0, 0); opacity: 0.3; }
-            50% { transform: translate(5px, -10px); opacity: 0.6; }
-          }
-          @keyframes liquidMorph {
-            0%, 100% { border-radius: 50% 40% 60% 30%; }
-            50% { border-radius: 30% 60% 40% 70%; }
-          }
-          @keyframes rotate {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(180deg); }
-          }
-        }
-      `;
-      document.head.appendChild(style);
-    }
-  }, []);
+  // Remove heavy animations for snappier interactions
 
   const { data, hasData, dateRange, totalPnL } = useMemo(() => {
     if (challenges.length === 0) {
       return { data: [], hasData: false, dateRange: '', totalPnL: 0 };
     }
 
-    // Get total payouts for each challenge
-    const getTotalPayouts = (challenge: Challenge): number => {
-      if (Array.isArray(challenge.payouts)) {
-        return challenge.payouts.reduce((sum, p) => sum + p.amount, 0);
-      }
-      return typeof challenge.payouts === 'number' ? challenge.payouts : 0;
-    };
 
     if (timeMode === 'monthly') {
       // Calculate monthly PnL based on challenge start dates and payout dates
@@ -184,11 +112,12 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challeng
         return { data: [], hasData: false, dateRange: '', totalPnL: 0 };
       }
       
-      const firstChallenge = validChallenges.reduce((min, c) => (c.startDate < min.startDate ? c : min), validChallenges[0]);
-      const firstMonth = getMonthKey(firstChallenge.startDate);
       const now = new Date();
-      const currentMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-      const months = monthsBetween(firstMonth, currentMonth);
+      const currentYear = now.getFullYear();
+      const selectedYearNum = parseInt(selectedYear, 10);
+      const firstMonth = `${selectedYear}-01`;
+      const lastMonth = selectedYearNum === currentYear ? `${selectedYear}-${String(now.getMonth()+1).padStart(2,'0')}` : `${selectedYear}-12`;
+      const months = monthsBetween(firstMonth, lastMonth);
 
       const pnlByMonth: Record<string, { costs: number; payouts: number; pnl: number }> = {};
 
@@ -199,9 +128,12 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challeng
 
       // Add challenge costs based on start date
       validChallenges.forEach(challenge => {
-        const challengeMonth = getMonthKey(challenge.startDate);
-        if (pnlByMonth[challengeMonth]) {
-          pnlByMonth[challengeMonth].costs += challenge.cost || 0;
+        const startYear = challenge.startDate.slice(0, 4);
+        if (startYear === selectedYear) {
+          const challengeMonth = getMonthKey(challenge.startDate);
+          if (pnlByMonth[challengeMonth]) {
+            pnlByMonth[challengeMonth].costs += challenge.cost || 0;
+          }
         }
       });
 
@@ -209,9 +141,12 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challeng
       validChallenges.forEach(challenge => {
         if (Array.isArray(challenge.payouts)) {
           challenge.payouts.forEach(payout => {
-            const payoutMonth = getMonthKey(payout.date);
-            if (pnlByMonth[payoutMonth]) {
-              pnlByMonth[payoutMonth].payouts += payout.amount;
+            const payoutYear = payout.date.slice(0, 4);
+            if (payoutYear === selectedYear) {
+              const payoutMonth = getMonthKey(payout.date);
+              if (pnlByMonth[payoutMonth]) {
+                pnlByMonth[payoutMonth].payouts += payout.amount;
+              }
             }
           });
         }
@@ -238,12 +173,12 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challeng
       });
 
       const totalPnL = Object.values(pnlByMonth).reduce((sum, data) => sum + data.pnl, 0);
-      const hasData = validChallenges.some(c => (c.cost || 0) > 0 || getTotalPayouts(c) > 0);
+      const hasData = Object.values(pnlByMonth).some(d => d.costs > 0 || d.payouts > 0);
 
       return { 
         data: rows, 
         hasData, 
-        dateRange: `${getMonthName(firstMonth)} → ${getMonthName(currentMonth)}`, // Remove years
+        dateRange: `${getMonthName(firstMonth)} → ${getMonthName(lastMonth)}`, // Remove years
         totalPnL 
       };
 
@@ -255,10 +190,13 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challeng
         return { data: [], hasData: false, dateRange: '', totalPnL: 0 };
       }
       
-      const firstChallenge = validChallenges.reduce((min, c) => (c.startDate < min.startDate ? c : min), validChallenges[0]);
-      const firstWeek = getWeekNumber(new Date(firstChallenge.startDate));
-      const currentWeek = getWeekNumber(new Date());
-      const weeks = weeksBetween(firstWeek, currentWeek).slice(-12); // Last 12 weeks
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const selectedYearNum = parseInt(selectedYear, 10);
+      const startWeek = getWeekNumber(new Date(`${selectedYear}-01-01`));
+      const endWeek = selectedYearNum === currentYear ? getWeekNumber(now) : getWeekNumber(new Date(`${selectedYear}-12-31`));
+      const allWeeks = weeksBetween(startWeek, endWeek);
+      const weeks = allWeeks.slice(-12);
 
       const pnlByWeek: Record<string, { costs: number; payouts: number; pnl: number }> = {};
 
@@ -269,9 +207,12 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challeng
 
       // Add challenge costs based on start date
       validChallenges.forEach(challenge => {
-        const challengeWeek = getWeekNumber(new Date(challenge.startDate));
-        if (pnlByWeek[challengeWeek]) {
-          pnlByWeek[challengeWeek].costs += challenge.cost || 0;
+        const startYear = challenge.startDate.slice(0, 4);
+        if (startYear === selectedYear) {
+          const challengeWeek = getWeekNumber(new Date(challenge.startDate));
+          if (pnlByWeek[challengeWeek]) {
+            pnlByWeek[challengeWeek].costs += challenge.cost || 0;
+          }
         }
       });
 
@@ -279,9 +220,12 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challeng
       validChallenges.forEach(challenge => {
         if (Array.isArray(challenge.payouts)) {
           challenge.payouts.forEach(payout => {
-            const payoutWeek = getWeekNumber(new Date(payout.date));
-            if (pnlByWeek[payoutWeek]) {
-              pnlByWeek[payoutWeek].payouts += payout.amount;
+            const payoutYear = payout.date.slice(0, 4);
+            if (payoutYear === selectedYear) {
+              const payoutWeek = getWeekNumber(new Date(payout.date));
+              if (pnlByWeek[payoutWeek]) {
+                pnlByWeek[payoutWeek].payouts += payout.amount;
+              }
             }
           });
         }
@@ -305,7 +249,7 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challeng
       });
 
       const totalPnL = Object.values(pnlByWeek).reduce((sum, data) => sum + data.pnl, 0);
-      const hasData = challenges.some(c => c.cost > 0 || getTotalPayouts(c) > 0);
+      const hasData = Object.values(pnlByWeek).some(d => d.costs > 0 || d.payouts > 0);
 
       return { 
         data: rows, 
@@ -314,7 +258,7 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challeng
         totalPnL 
       };
     }
-  }, [challenges, timeMode]);
+  }, [challenges, timeMode, selectedYear]);
 
   // Chart dimensions
   const chartWidth = 800;
@@ -521,7 +465,7 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challeng
                 ? 'grid-cols-1 sm:grid-cols-2 gap-4' 
                 : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6'
             }`}>
-              {data.filter(item => item.costs > 0 || item.payouts > 0).map((item, index) => {
+              {data.filter(item => item.costs > 0 || item.payouts > 0).map((item) => {
                 const pnl = item.payouts - item.costs;
                 const pnlPositive = pnl >= 0;
                 const hasActivity = item.costs > 0 || item.payouts > 0;
@@ -532,10 +476,6 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[] }> = ({ challeng
                   <div
                     key={item.period}
                     className="group relative perspective-1000 cursor-pointer"
-                    style={{
-                      animationDelay: `${index * 0.15}s`,
-                      animation: 'fadeInUp 0.8s ease-out forwards'
-                    }}
                   >
                     {/* Holographic Card Container - Simplified on mobile */}
                     <div className={`relative transform-gpu transition-all duration-700 ${

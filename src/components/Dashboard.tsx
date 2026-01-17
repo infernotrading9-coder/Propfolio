@@ -52,6 +52,7 @@ const Dashboard: React.FC = () => {
   const [selectedComplianceDate, setSelectedComplianceDate] = React.useState<string | null>(null);
   const [isFailLiveModalOpen, setIsFailLiveModalOpen] = React.useState(false);
   const [failureDate, setFailureDate] = React.useState<string>(new Date().toISOString().slice(0, 10));
+  const [selectedYear, setSelectedYear] = React.useState<string>(new Date().getFullYear().toString());
   
   // Bulk actions state for build mode
   const [selectedChallengeIds, setSelectedChallengeIds] = React.useState<Set<string>>(new Set());
@@ -745,9 +746,9 @@ const Dashboard: React.FC = () => {
               />
 
 
-              <DashboardStats challenges={visibleChallenges} />
+              <DashboardStats challenges={visibleChallenges} selectedYear={selectedYear} onChangeYear={setSelectedYear} />
 
-              <CustomPnLChart challenges={visibleChallenges} />
+              <CustomPnLChart challenges={visibleChallenges} selectedYear={selectedYear} />
 
               <ChallengeList
                 challenges={visibleChallenges}
