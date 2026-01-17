@@ -231,10 +231,15 @@ export const AdditionalCharts: React.FC<{
       .sort((a, b) => b.challenges.length - a.challenges.length); // Sort by number of challenges
 
     return strategies.map(strategy => {
-      const totalCost = strategy.challenges.reduce((sum, c) => sum + (c?.cost || 0), 0);
+      const totalCost = strategy.challenges.reduce((sum, c) => {
+        const startYear = c?.startDate?.slice(0, 4);
+        return sum + (startYear === selectedYear ? (c?.cost || 0) : 0);
+      }, 0);
       const totalPayouts = strategy.challenges.reduce((sum, c) => {
         if (Array.isArray(c?.payouts)) {
-          return sum + c.payouts.reduce((pSum, p) => pSum + (p?.amount || 0), 0);
+          return sum + c.payouts.reduce((pSum, p) => {
+            return p?.date?.slice(0, 4) === selectedYear ? pSum + (p?.amount || 0) : pSum;
+          }, 0);
         }
         return sum + (typeof c?.payouts === 'number' ? c.payouts : 0);
       }, 0);
@@ -246,14 +251,16 @@ export const AdditionalCharts: React.FC<{
         pnl,
         roi,
         challenges: strategy.challenges.length,
-        passRate: strategy.challenges.filter(c => 
-          c?.phases?.phase1?.completed && 
-          c?.phases?.phase2?.completed && 
-          c?.phases?.phase3?.completed
-        ).length / strategy.challenges.length * 100
+        passRate: strategy.challenges.filter(c => {
+          const startYear = c?.startDate?.slice(0, 4);
+          return startYear === selectedYear &&
+            c?.phases?.phase1?.completed && 
+            c?.phases?.phase2?.completed && 
+            c?.phases?.phase3?.completed;
+        }).length / Math.max(1, strategy.challenges.filter(c => c?.startDate?.slice(0,4) === selectedYear).length) * 100
       };
     });
-  }, [challenges]);
+  }, [challenges, selectedYear]);
 
   // Challenge Type Performance Data
   const challengeTypeData = useMemo(() => {
@@ -267,20 +274,27 @@ export const AdditionalCharts: React.FC<{
     ].filter(t => t.challenges.length > 0);
 
     return types.map(type => {
-      const totalCost = type.challenges.reduce((sum, c) => sum + (c?.cost || 0), 0);
+      const totalCost = type.challenges.reduce((sum, c) => {
+        const startYear = c?.startDate?.slice(0, 4);
+        return sum + (startYear === selectedYear ? (c?.cost || 0) : 0);
+      }, 0);
       const totalPayouts = type.challenges.reduce((sum, c) => {
         if (Array.isArray(c?.payouts)) {
-          return sum + c.payouts.reduce((pSum, p) => pSum + (p?.amount || 0), 0);
+          return sum + c.payouts.reduce((pSum, p) => {
+            return p?.date?.slice(0, 4) === selectedYear ? pSum + (p?.amount || 0) : pSum;
+          }, 0);
         }
         return sum + (typeof c?.payouts === 'number' ? c.payouts : 0);
       }, 0);
       const pnl = totalPayouts - totalCost;
       const roi = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
       const profitableChallenges = type.challenges.filter(c => {
+        const startYear = c?.startDate?.slice(0, 4);
         const payouts = Array.isArray(c?.payouts) 
-          ? c.payouts.reduce((sum, p) => sum + (p?.amount || 0), 0) 
+          ? c.payouts.reduce((sum, p) => sum + (p?.date?.slice(0, 4) === selectedYear ? (p?.amount || 0) : 0), 0) 
           : (typeof c?.payouts === 'number' ? c.payouts : 0);
-        return payouts > (c?.cost || 0);
+        const cost = startYear === selectedYear ? (c?.cost || 0) : 0;
+        return payouts > cost;
       }).length;
 
       return {
@@ -295,7 +309,7 @@ export const AdditionalCharts: React.FC<{
         profitableRate: type.challenges.length > 0 ? (profitableChallenges / type.challenges.length) * 100 : 0
       };
     });
-  }, [challenges]);
+  }, [challenges, selectedYear]);
 
   // State for selected top performer
   const [selectedPerformer, setSelectedPerformer] = useState<string | null>(null);
@@ -319,17 +333,18 @@ export const AdditionalCharts: React.FC<{
       .map(challenge => {
         const firm = firms.find(f => f.id === challenge.propFirmId);
         const payouts = Array.isArray(challenge.payouts) 
-          ? challenge.payouts.reduce((sum, p) => sum + (p?.amount || 0), 0) 
+          ? challenge.payouts.reduce((sum, p) => sum + (p?.date?.slice(0, 4) === selectedYear ? (p?.amount || 0) : 0), 0) 
           : (typeof challenge.payouts === 'number' ? challenge.payouts : 0);
-        const profit = payouts - (challenge.cost || 0);
-        const roi = (challenge.cost || 0) > 0 ? (profit / challenge.cost) * 100 : 0;
+        const cost = challenge.startDate?.slice(0, 4) === selectedYear ? (challenge.cost || 0) : 0;
+        const profit = payouts - cost;
+        const roi = cost > 0 ? (profit / cost) * 100 : 0;
         
         return {
           id: challenge.id,
           challengeNumber: challengeNumbers[challenge.id] || 0,
           firm: firm?.name || 'Unknown',
           accountSize: challenge.accountSize || 0,
-          cost: challenge.cost || 0,
+          cost,
           payouts,
           profit,
           roi,
@@ -339,7 +354,7 @@ export const AdditionalCharts: React.FC<{
       .filter(account => account.hasPayouts) // Only profitable accounts
       .sort((a, b) => b.roi - a.roi) // Sort by ROI descending
       .slice(0, 10); // Top 10 performers
-  }, [challenges, firms]);
+  }, [challenges, firms, selectedYear]);
 
 
   const renderFirmAnalysisChart = () => {

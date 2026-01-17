@@ -254,7 +254,9 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
                 <div className="text-xs uppercase tracking-wider text-white/60">{s.title}</div>
                 <div className={`mt-1 text-3xl font-bold ${s.textColor || 'text-white'} drop-shadow-neon whitespace-nowrap`}>{s.value}</div>
               </div>
-              <div className="p-2 rounded-lg bg-white/5 border border-white/10">{s.icon}</div>
+              <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-white/5 border border-white/10 overflow-hidden">
+                {s.icon}
+              </div>
             </div>
           </NeonCard>
         ))}
