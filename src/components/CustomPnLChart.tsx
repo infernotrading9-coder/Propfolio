@@ -475,7 +475,7 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[]; selectedYear: s
                 return (
                   <div
                     key={item.period}
-                    className="group relative perspective-1000 cursor-pointer"
+                    className="group relative perspective-1000 cursor-pointer select-none caret-transparent"
                   >
                     {/* Holographic Card Container - Simplified on mobile */}
                     <div className={`relative transform-gpu transition-all duration-700 ${

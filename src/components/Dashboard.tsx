@@ -778,7 +778,7 @@ const Dashboard: React.FC = () => {
                 }}
               />
 
-              <AdditionalCharts challenges={visibleChallenges} firms={state.firms} />
+              <AdditionalCharts challenges={visibleChallenges} firms={state.firms} selectedYear={selectedYear} />
             </>
           ) : (
             <>

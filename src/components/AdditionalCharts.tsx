@@ -9,7 +9,8 @@ type FirmView = 'exposure' | 'roi' | 'profit';
 export const AdditionalCharts: React.FC<{ 
   challenges: Challenge[];
   firms: PropFirm[];
-}> = ({ challenges, firms }) => {
+  selectedYear: string;
+}> = ({ challenges, firms, selectedYear }) => {
   
   // Add CSS animation for rocket float effect
   React.useEffect(() => {
@@ -63,6 +64,8 @@ export const AdditionalCharts: React.FC<{
     const validChallenges = challenges.filter(challenge => challenge && challenge.propFirmId);
     
     validChallenges.forEach(challenge => {
+      const startYear = challenge.startDate?.slice(0, 4);
+      if (startYear !== selectedYear) return;
       const firm = firms.find(f => f.id === challenge.propFirmId);
       const firmName = firm?.name || 'Unknown';
       
@@ -92,11 +95,13 @@ export const AdditionalCharts: React.FC<{
     const validChallenges = challenges.filter(challenge => challenge && challenge.propFirmId);
     
     validChallenges.forEach((challenge) => {
+      const startYear = challenge.startDate?.slice(0, 4);
+      if (startYear !== selectedYear) return;
       const firm = firms.find(f => f.id === challenge.propFirmId);
       const firmName = firm?.name || 'Unknown';
       
       const challengePayouts = Array.isArray(challenge.payouts) 
-        ? challenge.payouts.reduce((sum, p) => sum + (p?.amount || 0), 0) 
+        ? challenge.payouts.reduce((sum, p) => sum + ((p?.date?.slice(0, 4) === selectedYear ? (p?.amount || 0) : 0)), 0) 
         : (typeof challenge.payouts === 'number' ? challenge.payouts : 0);
       
       // Only include challenges that actually have payouts for profit calculation
@@ -147,11 +152,13 @@ export const AdditionalCharts: React.FC<{
     const validChallenges = challenges.filter(challenge => challenge && challenge.propFirmId);
     
     validChallenges.forEach((challenge) => {
+      const startYear = challenge.startDate?.slice(0, 4);
+      if (startYear !== selectedYear) return;
       const firm = firms.find(f => f.id === challenge.propFirmId);
       const firmName = firm?.name || 'Unknown';
       
       const challengePayouts = Array.isArray(challenge.payouts) 
-        ? challenge.payouts.reduce((sum, p) => sum + (p?.amount || 0), 0) 
+        ? challenge.payouts.reduce((sum, p) => sum + ((p?.date?.slice(0, 4) === selectedYear ? (p?.amount || 0) : 0)), 0) 
         : (typeof challenge.payouts === 'number' ? challenge.payouts : 0);
       
       // Include all challenges for ROI calculation (both with and without payouts)
@@ -1819,7 +1826,7 @@ export const AdditionalCharts: React.FC<{
   };
 
   return (
-    <NeonCard glow="orange" className="p-4">
+    <NeonCard glow="orange" className="p-4 select-none caret-transparent">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-white drop-shadow-neon">
           {getChartTitle()}

@@ -248,11 +248,11 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6">
         {statItems.map((s, idx) => (
-          <NeonCard key={idx} glow={s.glow} className="p-6">
+          <NeonCard key={idx} glow={s.glow} className="p-6 select-none caret-transparent">
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs uppercase tracking-wider text-white/60">{s.title}</div>
-                <div className={`mt-1 text-3xl font-bold ${s.textColor || 'text-white'} drop-shadow-neon`}>{s.value}</div>
+                <div className={`mt-1 text-3xl font-bold ${s.textColor || 'text-white'} drop-shadow-neon whitespace-nowrap`}>{s.value}</div>
               </div>
               <div className="p-2 rounded-lg bg-white/5 border border-white/10">{s.icon}</div>
             </div>
