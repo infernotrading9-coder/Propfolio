@@ -1,5 +1,6 @@
 import { AppState, Challenge, NewChallengeInput, NewFirmInput, PropFirm } from '../types';
 import netlifyIdentity from 'netlify-identity-widget';
+import * as tempStorage from './tempStorage';
 
 // Call Netlify Functions directly (skip redirects)
 const API_BASE_URL = '/.netlify/functions';
@@ -26,6 +27,9 @@ function mapEndpoint(endpoint: string): string {
   return `${path}${sep}v=${Date.now()}`;
 }
 class ApiClient {
+  private useLocal(): boolean {
+    return !!(import.meta as any).env?.DEV;
+  }
   private async getAuthToken(): Promise<string | null> {
     try {
       const user = netlifyIdentity.currentUser();
@@ -98,67 +102,89 @@ class ApiClient {
 
   // Load user data (replaces dbStorage.loadState)
   async loadState(_userId: string): Promise<AppState> {
+    if (this.useLocal()) {
+      return await tempStorage.loadState(_userId);
+    }
     return this.makeRequest('/user/data');
   }
 
   // Add firm (replaces dbStorage.addFirm)
   async addFirm(_userId: string, input: NewFirmInput): Promise<{ firm: PropFirm }> {
-    return this.makeRequest('/firms', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    });
+    if (this.useLocal()) {
+      return await tempStorage.addFirm(_userId, input);
+    }
+    return this.makeRequest('/firms', { method: 'POST', body: JSON.stringify(input) });
   }
 
   // Add challenge (replaces dbStorage.addChallenge)
   async addChallenge(_userId: string, input: NewChallengeInput): Promise<{ challenge: Challenge }> {
-    return this.makeRequest('/challenges', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    });
+    if (this.useLocal()) {
+      return await tempStorage.addChallenge(_userId, input);
+    }
+    return this.makeRequest('/challenges', { method: 'POST', body: JSON.stringify(input) });
   }
 
   // Update challenge (replaces dbStorage.updateChallenge)
   async updateChallenge(challenge: Challenge): Promise<void> {
-    await this.makeRequest(`/challenges`, {
-      method: 'PUT',
-      body: JSON.stringify({ id: challenge.id, updates: challenge }),
-    });
+    if (this.useLocal()) {
+      await tempStorage.updateChallenge(challenge);
+      return;
+    }
+    await this.makeRequest(`/challenges`, { method: 'PUT', body: JSON.stringify({ id: challenge.id, updates: challenge }) });
   }
 
   // Remove challenge (replaces dbStorage.removeChallenge)
   async removeChallenge(challengeId: string): Promise<void> {
-    await this.makeRequest(`/challenges`, {
-      method: 'DELETE',
-      body: JSON.stringify({ id: challengeId }),
-    });
+    if (this.useLocal()) {
+      await tempStorage.removeChallenge(challengeId);
+      return;
+    }
+    await this.makeRequest(`/challenges`, { method: 'DELETE', body: JSON.stringify({ id: challengeId }) });
   }
 
   // Set selected firm (replaces dbStorage.setSelectedFirm)
   async setSelectedFirm(_userId: string, firmId: string | null): Promise<void> {
-    await this.makeRequest('/user/selected-firm', {
-      method: 'PUT',
-      body: JSON.stringify({ firmId }),
-    });
+    if (this.useLocal()) {
+      await tempStorage.setSelectedFirm(_userId, firmId);
+      return;
+    }
+    await this.makeRequest('/user/selected-firm', { method: 'PUT', body: JSON.stringify({ firmId }) });
   }
 
   // Mark phase completion (replaces dbStorage.markPhase)
   async markPhase(challengeId: string, phase: 'phase1'|'phase2'|'phase3', completed: boolean, completedAt?: string): Promise<void> {
-    await this.makeRequest('/mark-phase', {
-      method: 'PUT',
-      body: JSON.stringify({ challengeId, phase, completed, ...(completedAt ? { completedAt } : {}) }),
-    });
+    if (this.useLocal()) {
+      await tempStorage.markPhase(challengeId, phase, completed);
+      return;
+    }
+    await this.makeRequest('/mark-phase', { method: 'PUT', body: JSON.stringify({ challengeId, phase, completed, ...(completedAt ? { completedAt } : {}) }) });
   }
 
   async addPayout(challengeId: string, amount: number, date: string, description?: string) {
+    if (this.useLocal()) {
+      const payout = await tempStorage.addPayout(challengeId, amount, date, description);
+      return { payout };
+    }
     return this.makeRequest('/payouts', { method: 'POST', body: JSON.stringify({ challengeId, amount, date, description }) })
   }
   async updatePayout(payoutId: string, amount: number, date: string) {
+    if (this.useLocal()) {
+      await tempStorage.updatePayout(payoutId, amount, date);
+      return;
+    }
     return this.makeRequest('/payouts', { method: 'PUT', body: JSON.stringify({ payoutId, amount, date }) })
   }
   async removePayout(payoutId: string) {
+    if (this.useLocal()) {
+      await tempStorage.removePayout(payoutId);
+      return;
+    }
     return this.makeRequest('/payouts', { method: 'DELETE', body: JSON.stringify({ payoutId }) })
   }
   async bulkUpdateStatus(ids: string[], status: string) {
+    if (this.useLocal()) {
+      return;
+    }
     return this.makeRequest('/challenges/bulk-status', { method: 'POST', body: JSON.stringify({ ids, status }) })
   }
   

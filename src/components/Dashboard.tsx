@@ -1219,7 +1219,7 @@ const Dashboard: React.FC = () => {
             <div className="bg-[#0a0e17] border border-red-500/50 rounded-xl p-6 max-w-md w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]">
               <h3 className="text-xl font-bold text-red-300 mb-4">Mark Live Account as Failed</h3>
               <p className="text-white/70 mb-6">
-                Are you sure you want to mark this live account as failed?
+                Are you sure you want to mark this live account as failed? This will lock the challenge and its phases will become uneditable.
               </p>
               
               <div className="mb-6">

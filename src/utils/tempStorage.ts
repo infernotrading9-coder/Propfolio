@@ -290,3 +290,30 @@ export async function firstChallengeMonth(): Promise<string | undefined> {
 export async function bulkUpdateChallengeStatus(): Promise<void> {
   // Placeholder - will implement later
 }
+
+export async function updatePayout(payoutId: string, amount: number, date: string): Promise<void> {
+  const user = localStorage.getItem('user');
+  if (!user) throw new Error('User not authenticated');
+  
+  const userData = JSON.parse(user);
+  const userId = userData.id;
+  
+  const data = getStorageData();
+  
+  if (!data[userId]) {
+    data[userId] = { firms: [], challenges: [], selectedFirmId: null };
+  }
+  
+  for (const challenge of data[userId].challenges) {
+    if (Array.isArray(challenge.payouts)) {
+      const idx = challenge.payouts.findIndex(p => p.id === payoutId);
+      if (idx !== -1) {
+        challenge.payouts[idx] = { ...challenge.payouts[idx], amount, date };
+        setStorageData(data);
+        return;
+      }
+    }
+  }
+  
+  throw new Error('Payout not found');
+}

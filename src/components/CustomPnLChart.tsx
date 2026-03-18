@@ -79,7 +79,7 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[]; selectedYear: s
   const [isMobile, setIsMobile] = React.useState(false);
   
   // On mobile, force card mode and disable display mode toggle
-  const [displayMode, setDisplayMode] = useState<'bar' | 'card'>('bar');
+  const [displayMode, setDisplayMode] = useState<'bar' | 'card'>('card');
   const [timeMode, setTimeMode] = useState<'monthly' | 'weekly'>('monthly');
   const [tooltip, setTooltip] = useState<TooltipState>({ visible: false, x: 0, y: 0, data: null });
 

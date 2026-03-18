@@ -366,9 +366,9 @@ export const ChallengeForm: React.FC<{
         </div>
         
         {/* Cost, Phases, Firm Type - responsive grid (never overlaps) */}
-        <div className="grid grid-cols-1 md:grid-cols-3 md:[grid-template-columns:8rem_6rem_1fr] gap-4 items-end">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
           {/* Cost */}
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 min-w-[160px]">
             <label className="text-xs text-white/60">Cost</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -400,7 +400,7 @@ export const ChallengeForm: React.FC<{
                     setCostCleared(true);
                   }
                 }}
-                className={`pl-8 ${inputClasses('cost')}`}
+                className={`pl-8 w-full ${inputClasses('cost')}`}
                 disabled={loading}
                 placeholder="100"
               />
@@ -409,7 +409,7 @@ export const ChallengeForm: React.FC<{
           </div>
 
           {/* Phases */}
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 min-w-[140px]">
             <label className="text-xs text-white/60">Phases</label>
             <input 
               type="text" 
@@ -438,7 +438,7 @@ export const ChallengeForm: React.FC<{
                   setTotalPhasesCleared(true);
                 }
               }}
-              className={inputClasses('totalPhases')}
+              className={`w-full ${inputClasses('totalPhases')}`}
               disabled={loading}
               placeholder="3"
             />
@@ -450,7 +450,7 @@ export const ChallengeForm: React.FC<{
           </div>
 
           {/* Firm Type */}
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 min-w-[180px]">
             <label className="text-xs text-white/60">Firm Type</label>
             <div className="flex gap-2">
               <button

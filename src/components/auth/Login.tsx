@@ -137,6 +137,23 @@ const Login: React.FC = () => {
             text="Sign in with Google"
           />
 
+          {import.meta.env.DEV && (
+            <div className="mt-4">
+              <button
+                onClick={() => {
+                  try {
+                    const devUser = { id: 'dev-user', email: 'dev@example.com', name: 'Dev User' };
+                    localStorage.setItem('user', JSON.stringify(devUser));
+                    window.location.href = '/dashboard';
+                  } catch {}
+                }}
+                className="w-full px-4 py-3 border border-cyan-400/40 rounded-lg text-cyan-200 hover:text-white hover:bg-cyan-500/10 transition-all duration-300 font-medium"
+              >
+                Continue in Dev Mode
+              </button>
+            </div>
+          )}
+
           <div className="mt-6 text-center">
             <p className="text-gray-400">
               Don't have an account?{' '}

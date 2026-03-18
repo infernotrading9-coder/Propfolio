@@ -4,6 +4,7 @@ import { Button } from './ui/Button';
 import { CheckCircle2, Circle, XCircle, Pencil, ChevronLeft, ChevronRight, Settings, Flame } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PhaseOutcomePrompt } from './PhaseOutcomePrompt';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 import { apiClient } from '../utils/apiClient';
 import { archiveFailedChallenge } from '../utils/calendarStorage';
 
@@ -23,6 +24,8 @@ export const ChallengeList: React.FC<{
   const [currentPage, setCurrentPage] = React.useState(1);
   const [itemsPerPage, setItemsPerPage] = React.useState(5);
   const [showPageSizeSelector, setShowPageSizeSelector] = React.useState(false);
+  const [failConfirm, setFailConfirm] = React.useState<{ id: string; phase: 'phase1'|'phase2'|'phase3'; date: string } | null>(null);
+  const [loadingFailConfirm, setLoadingFailConfirm] = React.useState(false);
   
   // Phase outcome prompt state
   const [phasePromptOpen, setPhasePromptOpen] = React.useState(false);
@@ -84,20 +87,7 @@ export const ChallengeList: React.FC<{
     }
   };
 
-  if (challenges.length === 0) {
-    return (
-      <div className="relative bg-gradient-to-br from-gray-900/80 to-gray-800/50 backdrop-blur-sm rounded-2xl p-12 border border-white/10">
-        <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 to-purple-500/5 rounded-2xl"></div>
-        <div className="relative text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500/20 to-purple-500/20 border border-cyan-400/30 mb-4">
-            <Circle className="w-8 h-8 text-cyan-400" />
-          </div>
-          <div className="text-xl font-bold text-white/80 mb-2">No challenges yet</div>
-          <div className="text-sm text-white/50">Add your first trading challenge above to get started!</div>
-        </div>
-      </div>
-    );
-  }
+  
 
   // Normalize challenges to avoid undefined entries and missing IDs
   const validChallenges = React.useMemo(() => (
@@ -122,14 +112,23 @@ export const ChallengeList: React.FC<{
   // Sort for display (newest first for display order)
   // Use startDate first, then createdAt for same-day challenges
   const sortedForDisplay = React.useMemo(() => {
+    const isLiveChallenge = (c: Challenge): boolean => {
+      if (!c || c.status === 'failed') return false;
+      const totalPhases = c.totalPhases || 3;
+      if (totalPhases === 1) return !!c.phases.phase1?.completed;
+      if (totalPhases === 2) return !!c.phases.phase1?.completed && !!c.phases.phase2?.completed;
+      return !!c.phases.phase1?.completed && !!c.phases.phase2?.completed && !!c.phases.phase3?.completed;
+    };
     return [...validChallenges].sort((a, b) => {
+      const liveA = isLiveChallenge(a) ? 1 : 0;
+      const liveB = isLiveChallenge(b) ? 1 : 0;
+      if (liveA !== liveB) return liveB - liveA; // Pin LIVE accounts to top
       const aStart = a?.startDate ? new Date(a.startDate).getTime() : 0;
       const bStart = b?.startDate ? new Date(b.startDate).getTime() : 0;
       const dateCompare = bStart - aStart;
       if (dateCompare !== 0) return dateCompare;
       const aCreated = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
       const bCreated = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
-      // If same startDate, sort by createdAt (newest first for display)
       return bCreated - aCreated;
     });
   }, [validChallenges]);
@@ -174,6 +173,18 @@ export const ChallengeList: React.FC<{
   
   return (
     <>
+      {validChallenges.length === 0 ? (
+        <div className="relative bg-gradient-to-br from-gray-900/80 to-gray-800/50 backdrop-blur-sm rounded-2xl p-12 border border-white/10">
+          <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 to-purple-500/5 rounded-2xl"></div>
+          <div className="relative text-center">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500/20 to-purple-500/20 border border-cyan-400/30 mb-4">
+              <Circle className="w-8 h-8 text-cyan-400" />
+            </div>
+            <div className="text-xl font-bold text-white/80 mb-2">No challenges yet</div>
+            <div className="text-sm text-white/50">Add your first trading challenge above to get started!</div>
+          </div>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 gap-3">
         <AnimatePresence mode="popLayout">
           {paginatedChallenges.map((c) => {
@@ -292,13 +303,17 @@ export const ChallengeList: React.FC<{
                         disabledDueToProgression = true;
                       }
                       
-                      const isDisabled = isLoading || disabledDueToFailure || disabledDueToProgression;
+                      const isDisabled = isLoading || disabledDueToFailure || disabledDueToProgression || c.status === 'failed';
 
                       return (
                         <Button
                           key={p}
                           size="sm"
-                          variant={isFailedThisPhase ? 'danger' : (phase.completed ? 'success' : (isActiveNext ? 'primary' : 'ghost'))}
+                          variant={
+                            c.status === 'failed'
+                              ? (isFailedThisPhase ? 'danger' : 'secondary')
+                              : (phase.completed ? 'success' : (isActiveNext ? 'primary' : 'ghost'))
+                          }
                           onClick={() => handlePhaseToggle(c.id, p)}
                           loading={isLoading}
                           disabled={isDisabled}
@@ -348,7 +363,8 @@ export const ChallengeList: React.FC<{
                       onClick={() => onEdit(c)}
                       leftIcon={<Pencil className="w-4 h-4"/>}
                       className="px-3 !bg-white/5 hover:!bg-white/10 border-white/10 hover:border-white/20"
-                      title="Edit Challenge"
+                      title={c.status === 'failed' ? 'Challenge is failed and cannot be edited' : 'Edit Challenge'}
+                      disabled={c.status === 'failed'}
                     >
                       Edit
                     </Button>
@@ -360,6 +376,7 @@ export const ChallengeList: React.FC<{
           })}
         </AnimatePresence>
       </div>
+      )}
       
       {/* Pagination Controls */}
       {challenges.length > 0 && (
@@ -478,36 +495,11 @@ export const ChallengeList: React.FC<{
             const ch = challenges.find(c => c.id === phasePromptChallengeId);
             if (!ch) return;
 
-            // Persist phase completion with selected date
-            await apiClient.markPhase(ch.id, phasePromptPhase, true, date);
-
             if (outcome === 'failed') {
-              // Ensure phase is not marked completed
-              const failedChallenge = {
-                ...ch,
-                status: 'failed' as const,
-                phases: {
-                  ...ch.phases,
-                  [phasePromptPhase]: { ...ch.phases[phasePromptPhase], completed: false, completedAt: undefined }
-                }
-              };
-              onChallengeUpdate(failedChallenge);
-
-              // Mark challenge as failed
-              await apiClient.bulkUpdateStatus([ch.id], 'failed');
-
-              // Archive from calendar across all accounts
-              if (setCalendar && calendar) {
-                setCalendar((prev: any) => ({
-                  ...prev,
-                  accountData: prev.accountData.map((ad: any) => {
-                    const copy = { ...ad, challengePhases: [...ad.challengePhases] };
-                    try { archiveFailedChallenge(copy, ch.id); } catch {}
-                    return copy;
-                  })
-                }));
-              }
+              setFailConfirm({ id: ch.id, phase: phasePromptPhase, date });
             } else {
+              // Persist phase completion with selected date
+              await apiClient.markPhase(ch.id, phasePromptPhase, true, date);
               // Passed: persist completion with selected date
               const passedChallenge = {
                 ...ch,
@@ -532,6 +524,58 @@ export const ChallengeList: React.FC<{
             setPhasePromptChallengeId(null);
           }
         }}
+      />
+      
+      {/* Confirm fail (phase -> failed) */}
+      <ConfirmDialog
+        isOpen={!!failConfirm}
+        title="Mark Challenge as Failed"
+        message="Are you sure you want to mark this challenge as failed? This will lock the challenge and its phases will become uneditable."
+        confirmText="Mark as Failed"
+        cancelText="Cancel"
+        variant="danger"
+        loading={loadingFailConfirm}
+        onConfirm={async () => {
+          if (!failConfirm) return;
+          const { id, phase } = failConfirm;
+          const ch = challenges.find(c => c.id === id);
+          if (!ch) { setFailConfirm(null); return; }
+          try {
+            setLoadingFailConfirm(true);
+            // Ensure phase is not marked completed in backend
+            await apiClient.markPhase(id, phase, false);
+            // Update UI: set failed and clear phase completion
+            const failedChallenge = {
+              ...ch,
+              status: 'failed' as const,
+              phases: {
+                ...ch.phases,
+                [phase]: { ...ch.phases[phase], completed: false, completedAt: undefined }
+              }
+            };
+            onChallengeUpdate(failedChallenge);
+            // Persist status failed
+            await apiClient.bulkUpdateStatus([id], 'failed');
+            // Archive from calendar across all accounts
+            if (setCalendar && calendar) {
+              setCalendar((prev: any) => ({
+                ...prev,
+                accountData: prev.accountData.map((ad: any) => {
+                  const copy = { ...ad, challengePhases: [...ad.challengePhases] };
+                  try { archiveFailedChallenge(copy, id); } catch {}
+                  return copy;
+                })
+              }));
+            }
+          } catch (e) {
+            console.error('Confirm fail error:', e);
+            alert('Failed to mark as failed. Please try again.');
+          } finally {
+            setLoadingFailConfirm(false);
+            setFailConfirm(null);
+          }
+        }}
+        onCancel={() => setFailConfirm(null)}
       />
     </>
   );
