@@ -769,6 +769,37 @@ const Dashboard: React.FC = () => {
                 setCalendar={setCalendar}
                 buildingMode={buildingMode}
                 onAutomaticCalendarIntegration={handleAutomaticCalendarIntegration}
+                onResetChallenge={async (orig, reset) => {
+                  if (!currentUser?.id) return;
+                  try {
+                    const group = state.challenges.filter(c => c.propFirmId === orig.propFirmId && c.accountSize === orig.accountSize);
+                    const attemptNumber = group.length + 1;
+                    const brokerName = `Trading Account (Reset #${attemptNumber})`;
+                    const input = {
+                      propFirmId: orig.propFirmId,
+                      brokerName,
+                      accountSize: orig.accountSize,
+                      startDate: reset.date,
+                      cost: reset.cost,
+                      totalPhases: orig.totalPhases,
+                      status: 'active' as const,
+                      strategy: orig.strategy,
+                      firmType: orig.firmType,
+                    } as any;
+                    const result = await apiClient.addChallenge(currentUser.id, input);
+                    setState(prev => ({
+                      ...prev,
+                      challenges: [result.challenge, ...prev.challenges]
+                    }));
+                    if (result.challenge && !buildingMode) {
+                      await handleAutomaticNewChallengeCalendar(result.challenge);
+                    }
+                    refreshState();
+                  } catch (e) {
+                    console.error('Reset attempt creation failed:', e);
+                    alert('Failed to create reset attempt. Please try again.');
+                  }
+                }}
                 onFailLiveAccount={(challengeId) => {
                   const challenge = visibleChallenges.find(c => c.id === challengeId);
                   if (challenge) {
