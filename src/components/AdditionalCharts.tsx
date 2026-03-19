@@ -565,6 +565,7 @@ export const AdditionalCharts: React.FC<{
                         e.currentTarget.style.filter = `drop-shadow(0 0 8px ${colors[index % colors.length]}40) drop-shadow(0 2px 4px rgba(0,0,0,0.3))`;
                       }}
                     >
+                      <title>{item.name}</title>
                       {!isMobile && (
                         <animate
                           attributeName="opacity"
@@ -588,9 +589,7 @@ export const AdditionalCharts: React.FC<{
                         className="pointer-events-none"
                         opacity="0"
                       >
-                        {firmView === 'roi'
-                          ? `${(item as any).roi.toFixed(1)}%`
-                          : `${item.percentage.toFixed(1)}%`}
+                        {item.percentage.toFixed(1)}%
                         {!isMobile && (
                           <animate
                             attributeName="opacity"
