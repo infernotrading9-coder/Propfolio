@@ -433,20 +433,19 @@ export const AdditionalCharts: React.FC<{
                   <span className="text-lg font-bold" style={{
                     color: firmView === 'exposure' ? '#fb923c' : '#3b82f6'
                   }}>
-                    {item.percentage.toFixed(1)}%
+                    {firmView === 'roi'
+                      ? `${(item as any).roi.toFixed(1)}%`
+                      : `${item.percentage.toFixed(1)}%`}
                   </span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-white/60">
-                    {firmView === 'exposure' ? 'Cost:' : 'ROI:'}
-                  </span>
-                  <span className="text-white font-medium">
-                    {firmView === 'exposure' 
-                      ? `$${item.cost.toLocaleString()}`
-                      : `${(item as any).roi.toFixed(1)}%`
-                    }
-                  </span>
-                </div>
+                {firmView === 'exposure' && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-white/60">Cost:</span>
+                    <span className="text-white font-medium">
+                      ${item.cost.toLocaleString()}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-white/60">Challenges:</span>
                   <span className="text-white/60">{item.count}</span>
@@ -589,7 +588,9 @@ export const AdditionalCharts: React.FC<{
                         className="pointer-events-none"
                         opacity="0"
                       >
-                        {item.percentage.toFixed(1)}%
+                        {firmView === 'roi'
+                          ? `${(item as any).roi.toFixed(1)}%`
+                          : `${item.percentage.toFixed(1)}%`}
                         {!isMobile && (
                           <animate
                             attributeName="opacity"
@@ -783,7 +784,9 @@ export const AdditionalCharts: React.FC<{
                       className="absolute -inset-1 rounded-xl animate-pulse opacity-30 group-hover:opacity-60 transition-opacity"
                       style={{ 
                         border: `2px solid ${colors[index % colors.length]}`,
-                        animation: item.percentage > 40 ? 'spin 8s linear infinite' : 'pulse 2s ease-in-out infinite'
+                        animation: (firmView === 'roi' ? ((item as any).roi) : item.percentage) > 40 
+                          ? 'spin 8s linear infinite' 
+                          : 'pulse 2s ease-in-out infinite'
                       }}
                     />
                     
@@ -803,10 +806,10 @@ export const AdditionalCharts: React.FC<{
                       </div>
                       {/* Trending indicator */}
                       <div className="flex items-center space-x-1 opacity-70 group-hover:opacity-100 transition-opacity">
-                        {item.percentage > 30 && (
+                        {(firmView === 'roi' ? ((item as any).roi) : item.percentage) > 30 && (
                           <span className="text-green-400 text-xs animate-pulse">🚀</span>
                         )}
-                        {item.percentage > 50 && (
+                        {(firmView === 'roi' ? ((item as any).roi) : item.percentage) > 50 && (
                           <span className="text-yellow-400 text-xs animate-bounce">👑</span>
                         )}
                       </div>
@@ -828,29 +831,6 @@ export const AdditionalCharts: React.FC<{
                         </div>
                       ) : (
                         <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-blue-400">📊</span>
-                            <span className={`font-bold ${
-                              (() => {
-                                const firmExposure = firmExposureData.find(f => f.name === item.name);
-                                const totalCost = firmExposure ? firmExposure.cost : (item as any).cost;
-                                const roi = totalCost > 0 ? (((item as any).profit / totalCost) * 100) : 0;
-                                return roi >= 0 ? 'text-green-400' : 'text-red-400';
-                              })()
-                            }`}>
-                              {(() => {
-                                const firmExposure = firmExposureData.find(f => f.name === item.name);
-                                const totalCost = firmExposure ? firmExposure.cost : (item as any).cost;
-                                const roi = totalCost > 0 ? (((item as any).profit / totalCost) * 100) : 0;
-                                return roi >= 0 ? '+' : '';
-                              })()}{(() => {
-                                const firmExposure = firmExposureData.find(f => f.name === item.name);
-                                const totalCost = firmExposure ? firmExposure.cost : (item as any).cost;
-                                const roi = totalCost > 0 ? (((item as any).profit / totalCost) * 100) : 0;
-                                return roi.toFixed(1);
-                              })()}% ROI
-                            </span>
-                          </div>
                           <div className="flex items-center gap-2 text-xs">
                             <span className="text-orange-400">💰</span>
                             <span>${(() => {
@@ -891,7 +871,9 @@ export const AdditionalCharts: React.FC<{
                           : '#3b82f6'}60)`
                       }}
                     >
-                      {item.percentage.toFixed(1)}%
+                      {firmView === 'roi'
+                        ? `${(item as any).roi.toFixed(1)}%`
+                        : `${item.percentage.toFixed(1)}%`}
                     </div>
                     
                     {/* Performance indicator */}
@@ -905,9 +887,9 @@ export const AdditionalCharts: React.FC<{
                           <div className="text-purple-400 text-xs font-medium">🔸 Diversified</div>
                         )
                       ) : (
-                        item.percentage > 40 ? (
+                        (item as any).roi > 40 ? (
                           <div className="text-green-400 text-xs font-medium animate-pulse">📈 Dominant</div>
-                        ) : item.percentage > 20 ? (
+                        ) : (item as any).roi > 20 ? (
                           <div className="text-yellow-400 text-xs font-medium">⚡ Strong</div>
                         ) : (
                           <div className="text-blue-400 text-xs font-medium">💪 Active</div>
