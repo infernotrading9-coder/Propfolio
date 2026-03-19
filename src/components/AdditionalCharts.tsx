@@ -205,7 +205,7 @@ export const AdditionalCharts: React.FC<{
           ? (Math.max(0, firm.profit) / totalProfit) * 100 
           : (100 / dataToUse.length) // Equal distribution if no profits
       }))
-      .sort((a, b) => b.profit - a.profit); // Sort by profit descending
+      .sort((a, b) => b.roi - a.roi); // Sort by ROI % descending
     
     return result;
   }, [challenges, firms, firmExposureData]);
