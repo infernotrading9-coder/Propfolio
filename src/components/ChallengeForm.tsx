@@ -11,7 +11,8 @@ export const ChallengeForm: React.FC<{
   onSubmit: (input: NewChallengeInput | Challenge) => void;
   buildingMode?: boolean;
   onAddFirm?: (input: NewFirmInput) => Promise<PropFirm>;
-}> = ({ firms, defaultFirmId = null, initial, onSubmit, buildingMode = false, onAddFirm }) => {
+  readOnly?: boolean;
+}> = ({ firms, defaultFirmId = null, initial, onSubmit, buildingMode = false, onAddFirm, readOnly = false }) => {
   
   // Get previous account sizes from localStorage
   const getPreviousAccountSizes = (): number[] => {
@@ -100,6 +101,7 @@ export const ChallengeForm: React.FC<{
   const [costStr, setCostStr] = React.useState(String(initial?.cost ?? 0));
   const [status] = React.useState<ChallengeStatus>(initial?.status ?? 'active');
   const [loading, setLoading] = React.useState(false);
+  const formDisabled = loading || readOnly;
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [accountSizeCleared, setAccountSizeCleared] = React.useState(false);
   const [costCleared, setCostCleared] = React.useState(false);
@@ -267,7 +269,7 @@ export const ChallengeForm: React.FC<{
                 setErrors(prev => ({ ...prev, propFirmId: '' })); 
               }}
               className={inputClasses('propFirmId')}
-              disabled={loading || firmCreating}
+              disabled={formDisabled || firmCreating}
               placeholder={firms.length > 0 ? "e.g., FTMO, MyForexFunds" : "e.g., FTMO, MyForexFunds (new firm will be created)"}
             />
             <datalist id="prop-firms">
@@ -316,7 +318,7 @@ export const ChallengeForm: React.FC<{
                 }
               }}
                 className={`pl-8 ${inputClasses('accountSize')}`}
-                disabled={loading}
+                disabled={formDisabled}
                 placeholder="100,000"
               />
               <datalist id="account-sizes">
@@ -336,7 +338,7 @@ export const ChallengeForm: React.FC<{
               value={startDate} 
               onChange={e => { setStartDate(e.target.value); setErrors(prev => ({ ...prev, startDate: '' })); }}
               className={inputClasses('startDate')}
-              disabled={loading}
+              disabled={formDisabled}
             />
             {errors.startDate && <span className="text-xs text-red-400">{errors.startDate}</span>}
           </div>
@@ -353,7 +355,7 @@ export const ChallengeForm: React.FC<{
                 setErrors(prev => ({ ...prev, strategy: '' })); 
               }}
               className={inputClasses('strategy')}
-              disabled={loading}
+              disabled={formDisabled}
               placeholder="e.g., Scalping, Swing Trading, ICT"
             />
             <datalist id="strategies">
@@ -401,7 +403,7 @@ export const ChallengeForm: React.FC<{
                   }
                 }}
                 className={`pl-8 w-full ${inputClasses('cost')}`}
-                disabled={loading}
+                disabled={formDisabled}
                 placeholder="100"
               />
             </div>
@@ -439,7 +441,7 @@ export const ChallengeForm: React.FC<{
                 }
               }}
               className={`w-full ${inputClasses('totalPhases')}`}
-              disabled={loading}
+              disabled={formDisabled}
               placeholder="3"
             />
             <datalist id="total-phases">
@@ -456,7 +458,7 @@ export const ChallengeForm: React.FC<{
               <button
                 type="button"
                 onClick={() => setFirmType('futures')}
-                disabled={loading}
+                disabled={formDisabled}
                 className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
                   firmType === 'futures'
                     ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
@@ -468,7 +470,7 @@ export const ChallengeForm: React.FC<{
               <button
                 type="button"
                 onClick={() => setFirmType('cfd')}
-                disabled={loading}
+                disabled={formDisabled}
                 className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
                   firmType === 'cfd'
                     ? 'bg-purple-500/20 border-purple-400/50 text-purple-200'
@@ -486,7 +488,7 @@ export const ChallengeForm: React.FC<{
             type="submit"
             variant="primary"
             loading={loading}
-            disabled={loading || (firms.length === 0 && !propFirmName.trim())}
+            disabled={formDisabled || (firms.length === 0 && !propFirmName.trim())}
             leftIcon={initial ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
             className="px-6"
             glow

@@ -9,9 +9,16 @@ import { apiClient } from '../utils/apiClient';
 interface PayoutManagerProps {
   challenge: Challenge;
   onUpdate: (challenge: Challenge) => void;
+  disabled?: boolean;
+  showClaimBogo?: boolean;
+  showReset?: boolean;
+  onClaimBogo?: () => void;
+  onOpenReset?: () => void;
+  onDeleteChallenge?: () => void;
+  onCloseEdit?: () => void;
 }
 
-export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdate }) => {
+export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdate, disabled = false, showClaimBogo = false, showReset = false, onClaimBogo, onOpenReset, onDeleteChallenge, onCloseEdit }) => {
   const [amount, setAmount] = React.useState('');
   const [date, setDate] = React.useState(new Date().toISOString().slice(0, 10));
   const [loading, setLoading] = React.useState(false);
@@ -31,6 +38,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
   }, [challenge.id, challenge.payouts]);
   
   const totalPayouts = payouts.reduce((sum, p) => sum + p.amount, 0);
+  const isDisabled = disabled || loading;
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -51,6 +59,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
     
     if (!validateForm()) return;
     
+    if (disabled) return;
     setLoading(true);
     
     try {
@@ -84,6 +93,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
   };
 
   const handleRemovePayout = async (payoutId: string) => {
+    if (disabled) return;
     setLoading(true);
 
     // Optimistic UI: remove locally first
@@ -181,6 +191,8 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
             </div>
           </div>
         </div>
+        
+        
 
         {/* Add Payout Form */}
         <form onSubmit={handleAddPayout} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -206,7 +218,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
                 }}
                 className={`pl-8 ${inputClasses('amount')}`}
                 placeholder="1,000"
-                disabled={loading}
+                disabled={isDisabled}
               />
             </div>
             {errors.amount && <span className="text-xs text-red-400">{errors.amount}</span>}
@@ -219,7 +231,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
               value={date}
               onChange={e => { setDate(e.target.value); setErrors(prev => ({ ...prev, date: '' })); }}
               className={inputClasses('date')}
-              disabled={loading}
+              disabled={isDisabled}
             />
             {errors.date && <span className="text-xs text-red-400">{errors.date}</span>}
           </div>
@@ -228,8 +240,8 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
             <Button
               type="submit"
               variant="success"
-              loading={loading}
-              disabled={loading}
+              loading={isDisabled}
+              disabled={isDisabled}
               leftIcon={<Plus className="w-4 h-4" />}
               className="w-full"
               glow
@@ -292,7 +304,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
                               }}
                               className="pl-8 w-full px-3 py-2 rounded-md bg-white/5 border border-white/10 focus:border-lime-400/50 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-lime-500/30"
                               placeholder="1,000"
-                              disabled={loading}
+                              disabled={isDisabled}
                             />
                           </div>
                         </div>
@@ -303,7 +315,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
                             value={editDate}
                             onChange={e => setEditDate(e.target.value)}
                             className="w-full px-3 py-2 rounded-md bg-white/5 border border-white/10 focus:border-lime-400/50 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-lime-500/30"
-                            disabled={loading}
+                            disabled={isDisabled}
                           />
                         </div>
                       </div>
@@ -312,7 +324,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
                           size="sm"
                           variant="ghost"
                           onClick={handleCancelEdit}
-                          disabled={loading}
+                          disabled={isDisabled}
                           className="px-3"
                         >
                           Cancel
@@ -321,7 +333,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
                           size="sm"
                           variant="success"
                           onClick={() => handleSaveEdit(payout.id)}
-                          disabled={loading}
+                          disabled={isDisabled}
                           className="px-3"
                         >
                           Save
@@ -350,7 +362,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
                           size="sm"
                           variant="secondary"
                           onClick={() => handleEditPayout(payout)}
-                          disabled={loading}
+                          disabled={isDisabled}
                           leftIcon={<Edit2 className="w-4 h-4" />}
                           className="px-3"
                         >
@@ -360,7 +372,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
                           size="sm"
                           variant="danger"
                           onClick={() => handleRemovePayout(payout.id)}
-                          disabled={loading}
+                          disabled={isDisabled}
                           leftIcon={<Trash2 className="w-4 h-4" />}
                           className="px-3"
                         >
@@ -381,6 +393,46 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
             <div className="text-sm">Add your first payout above!</div>
           </div>
         )}
+        
+        <div className="pt-2 flex flex-wrap items-center justify-end gap-2">
+          {showClaimBogo && (
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={onClaimBogo}
+              className="px-4"
+            >
+              Claim BOGO
+            </Button>
+          )}
+          {showReset && (
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={onOpenReset}
+              className="px-4"
+            >
+              Reset
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={onDeleteChallenge}
+            className="px-4"
+            disabled={disabled}
+          >
+            Delete Challenge
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onCloseEdit}
+            className="px-4"
+          >
+            Close
+          </Button>
+        </div>
       </div>
     </NeonCard>
   );

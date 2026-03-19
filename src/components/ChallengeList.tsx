@@ -19,18 +19,13 @@ export const ChallengeList: React.FC<{
   buildingMode?: boolean;
   onAutomaticCalendarIntegration?: (challenge: Challenge, completedPhase: 'phase1'|'phase2'|'phase3') => Promise<void>;
   onFailLiveAccount?: (challengeId: string) => void;
-  onResetChallenge?: (challenge: Challenge, reset: { cost: number; date: string }) => void;
-}> = ({ challenges, firms, onEdit, onChallengeUpdate, calendar, setCalendar, buildingMode = false, onAutomaticCalendarIntegration, onFailLiveAccount, onResetChallenge }) => {
+}> = ({ challenges, firms, onEdit, onChallengeUpdate, calendar, setCalendar, buildingMode = false, onAutomaticCalendarIntegration, onFailLiveAccount }) => {
   const [loadingPhase] = React.useState<string | null>(null);
   const [currentPage, setCurrentPage] = React.useState(1);
   const [itemsPerPage, setItemsPerPage] = React.useState(5);
   const [showPageSizeSelector, setShowPageSizeSelector] = React.useState(false);
   const [failConfirm, setFailConfirm] = React.useState<{ id: string; phase: 'phase1'|'phase2'|'phase3'; date: string } | null>(null);
   const [loadingFailConfirm, setLoadingFailConfirm] = React.useState(false);
-  const [resetChallengeId, setResetChallengeId] = React.useState<string | null>(null);
-  const [resetCostStr, setResetCostStr] = React.useState<string>('0');
-  const [resetDate, setResetDate] = React.useState<string>(new Date().toISOString().slice(0,10));
-  const [resetLoading, setResetLoading] = React.useState(false);
   
   // Phase outcome prompt state
   const [phasePromptOpen, setPhasePromptOpen] = React.useState(false);
@@ -114,8 +109,7 @@ export const ChallengeList: React.FC<{
     });
   }, [validChallenges]);
   
-  // Sort for display (newest first for display order)
-  // Use startDate first, then createdAt for same-day challenges
+  // Sort for display (active first, then LIVE within active, newest first by dates)
   const sortedForDisplay = React.useMemo(() => {
     const isLiveChallenge = (c: Challenge): boolean => {
       if (!c || c.status === 'failed') return false;
@@ -125,9 +119,12 @@ export const ChallengeList: React.FC<{
       return !!c.phases.phase1?.completed && !!c.phases.phase2?.completed && !!c.phases.phase3?.completed;
     };
     return [...validChallenges].sort((a, b) => {
+      const activeA = a?.status !== 'failed' ? 1 : 0;
+      const activeB = b?.status !== 'failed' ? 1 : 0;
+      if (activeA !== activeB) return activeB - activeA; // Active first, failed later
       const liveA = isLiveChallenge(a) ? 1 : 0;
       const liveB = isLiveChallenge(b) ? 1 : 0;
-      if (liveA !== liveB) return liveB - liveA; // Pin LIVE accounts to top
+      if (liveA !== liveB) return liveB - liveA; // Within active, pin LIVE to top
       const aStart = a?.startDate ? new Date(a.startDate).getTime() : 0;
       const bStart = b?.startDate ? new Date(b.startDate).getTime() : 0;
       const dateCompare = bStart - aStart;
@@ -138,10 +135,13 @@ export const ChallengeList: React.FC<{
     });
   }, [validChallenges]);
   
-  // Pagination calculations (use display order)
-  const totalPages = Math.ceil(sortedForDisplay.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
+  // Pagination calculations (ensure all Active appear on first page by expanding the first page size if needed)
+  const activeCount = React.useMemo(() => sortedForDisplay.filter(c => c.status !== 'failed').length, [sortedForDisplay]);
+  const firstPageSize = Math.max(itemsPerPage, activeCount);
+  const totalPages = sortedForDisplay.length <= firstPageSize ? 1 : 1 + Math.ceil((sortedForDisplay.length - firstPageSize) / itemsPerPage);
+  const startIndex = currentPage === 1 ? 0 : firstPageSize + (currentPage - 2) * itemsPerPage;
+  const pageSize = currentPage === 1 ? firstPageSize : itemsPerPage;
+  const endIndex = startIndex + pageSize;
   const paginatedChallenges = sortedForDisplay.slice(startIndex, endIndex);
   
   // Reset to page 1 if current page exceeds total pages
@@ -362,22 +362,7 @@ export const ChallengeList: React.FC<{
                       </Button>
                     )}
                     
-                    {/* Reset button for failed challenges */}
-                    {c.status === 'failed' && (
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        onClick={() => {
-                          setResetChallengeId(c.id);
-                          setResetDate(new Date().toISOString().slice(0,10));
-                          setResetCostStr('0');
-                        }}
-                        className="px-3"
-                        title="Create a new attempt (reset)"
-                      >
-                        Reset
-                      </Button>
-                    )}
+                    {/* Reset button removed (now handled in Edit modal) */}
                     
                     <Button
                       size="sm"
@@ -385,8 +370,7 @@ export const ChallengeList: React.FC<{
                       onClick={() => onEdit(c)}
                       leftIcon={<Pencil className="w-4 h-4"/>}
                       className="px-3 !bg-white/5 hover:!bg-white/10 border-white/10 hover:border-white/20"
-                      title={c.status === 'failed' ? 'Challenge is failed and cannot be edited' : 'Edit Challenge'}
-                      disabled={c.status === 'failed'}
+                      title="Edit Challenge"
                     >
                       Edit
                     </Button>
@@ -404,7 +388,7 @@ export const ChallengeList: React.FC<{
       {challenges.length > 0 && (
         <div className="flex flex-col sm:flex-row items-center justify-between mt-6 gap-4 bg-gradient-to-br from-gray-900/60 to-gray-800/40 backdrop-blur-sm rounded-xl p-4 border border-white/10">
           <div className="flex items-center gap-3 text-sm">
-            <span className="text-white/60">Showing <span className="text-cyan-300 font-semibold">{startIndex + 1}-{Math.min(endIndex, challenges.length)}</span> of <span className="text-cyan-300 font-semibold">{challenges.length}</span> challenges</span>
+            <span className="text-white/60">Showing <span className="text-cyan-300 font-semibold">{startIndex + 1}-{Math.min(endIndex, sortedForDisplay.length)}</span> of <span className="text-cyan-300 font-semibold">{sortedForDisplay.length}</span> challenges</span>
             <div className="relative page-size-selector">
               <button
                 onClick={() => setShowPageSizeSelector(!showPageSizeSelector)}
@@ -600,87 +584,9 @@ export const ChallengeList: React.FC<{
         onCancel={() => setFailConfirm(null)}
       />
       
-      {/* Reset Modal */}
-      {resetChallengeId && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !resetLoading && setResetChallengeId(null)}>
-          <div className="bg-[#0a0e17] border border-cyan-500/40 rounded-xl p-6 max-w-md w-full shadow-[0_0_30px_rgba(6,182,212,0.3)]" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-xl font-bold text-white mb-2">Reset Challenge</h3>
-            <p className="text-white/70 mb-4 text-sm">
-              Create a new attempt starting from Phase 1. You can set a reset cost (supports $0 for free resets).
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-white/60">Reset Cost</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <span className="text-white/60 sm:text-sm">$</span>
-                  </div>
-                  <input
-                    type="text"
-                    value={resetCostStr}
-                    onChange={e => {
-                      const raw = e.target.value.replace(/[^\d.-]/g, '');
-                      const parts = raw.split('.');
-                      let formatted = parts[0];
-                      if (parts.length > 1) formatted += '.' + parts[1].slice(0, 2);
-                      setResetCostStr(formatted);
-                    }}
-                    className="pl-8 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400/50"
-                    placeholder="0"
-                    disabled={resetLoading}
-                  />
-                </div>
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-white/60">Start Date</label>
-                <input
-                  type="date"
-                  value={resetDate}
-                  onChange={e => setResetDate(e.target.value)}
-                  className="px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400/50"
-                  disabled={resetLoading}
-                />
-              </div>
-            </div>
-            <div className="flex gap-3 mt-4">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setResetChallengeId(null)}
-                disabled={resetLoading}
-                className="px-3"
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={async () => {
-                  if (!onResetChallenge) { setResetChallengeId(null); return; }
-                  try {
-                    setResetLoading(true);
-                    const chall = challenges.find(c => c.id === resetChallengeId);
-                    if (!chall) { setResetChallengeId(null); return; }
-                    const costNum = resetCostStr.trim() === '' ? 0 : parseFloat(resetCostStr) || 0;
-                    await onResetChallenge(chall, { cost: costNum, date: resetDate });
-                    setResetChallengeId(null);
-                  } catch (e) {
-                    console.error('Reset failed:', e);
-                    alert('Failed to create reset attempt. Please try again.');
-                  } finally {
-                    setResetLoading(false);
-                  }
-                }}
-                loading={resetLoading}
-                glow
-                className="px-3"
-              >
-                Create New Attempt
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Claim BOGO Modal removed (now handled in Edit modal) */}
+      
+      {/* Reset Modal removed (now handled in Edit modal) */}
     </>
   );
 };

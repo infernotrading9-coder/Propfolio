@@ -43,7 +43,7 @@ export const AdditionalCharts: React.FC<{
     }
   }, []);
   const [activeView, setActiveView] = useState<ChartView>('firmAnalysis');
-  const [firmView, setFirmView] = useState<FirmView>('exposure');
+  const [firmView, setFirmView] = useState<FirmView>('roi');
   const [isMobile, setIsMobile] = useState(false);
   
   useEffect(() => {
@@ -188,7 +188,8 @@ export const AdditionalCharts: React.FC<{
     
     // Filter out firms with 0 ROI for better visualization, or include all if no positive ROI
     const firmsWithROI = allFirms.filter(firm => Math.abs(firm.roi) > 0.01);
-    const dataToUse = firmsWithROI.length > 0 ? firmsWithROI : allFirms;
+    const dataToUse = (firmsWithROI.length > 0 ? firmsWithROI : allFirms)
+      .sort((a, b) => b.roi - a.roi); // Rank by ROI % (descending)
     
     if (dataToUse.length === 0) {
       return [];

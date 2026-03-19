@@ -56,6 +56,13 @@ const Dashboard: React.FC = () => {
   
   // Bulk actions state for build mode
   const [selectedChallengeIds, setSelectedChallengeIds] = React.useState<Set<string>>(new Set());
+  const [showResetModal, setShowResetModal] = React.useState(false);
+  const [resetCostStr, setResetCostStr] = React.useState('0');
+  const [resetDate, setResetDate] = React.useState<string>(new Date().toISOString().slice(0,10));
+  const [resetLoading, setResetLoading] = React.useState(false);
+  const [showBogoModal, setShowBogoModal] = React.useState(false);
+  const [bogoDate, setBogoDate] = React.useState<string>(new Date().toISOString().slice(0,10));
+  const [bogoLoading, setBogoLoading] = React.useState(false);
   
 
   // Load data from database when user changes
@@ -605,6 +612,12 @@ const Dashboard: React.FC = () => {
   const handleDeleteConfirm = async () => {
     if (!deleteConfirm) return;
     
+    const target = state.challenges.find(c => c.id === deleteConfirm.id);
+    if (target?.status === 'failed') {
+      alert('Failed challenges cannot be deleted.');
+      setDeleteConfirm(null);
+      return;
+    }
     setLoadingDelete(true);
     try {
       // Simulate network delay
@@ -769,37 +782,6 @@ const Dashboard: React.FC = () => {
                 setCalendar={setCalendar}
                 buildingMode={buildingMode}
                 onAutomaticCalendarIntegration={handleAutomaticCalendarIntegration}
-                onResetChallenge={async (orig, reset) => {
-                  if (!currentUser?.id) return;
-                  try {
-                    const group = state.challenges.filter(c => c.propFirmId === orig.propFirmId && c.accountSize === orig.accountSize);
-                    const attemptNumber = group.length + 1;
-                    const brokerName = `Trading Account (Reset #${attemptNumber})`;
-                    const input = {
-                      propFirmId: orig.propFirmId,
-                      brokerName,
-                      accountSize: orig.accountSize,
-                      startDate: reset.date,
-                      cost: reset.cost,
-                      totalPhases: orig.totalPhases,
-                      status: 'active' as const,
-                      strategy: orig.strategy,
-                      firmType: orig.firmType,
-                    } as any;
-                    const result = await apiClient.addChallenge(currentUser.id, input);
-                    setState(prev => ({
-                      ...prev,
-                      challenges: [result.challenge, ...prev.challenges]
-                    }));
-                    if (result.challenge && !buildingMode) {
-                      await handleAutomaticNewChallengeCalendar(result.challenge);
-                    }
-                    refreshState();
-                  } catch (e) {
-                    console.error('Reset attempt creation failed:', e);
-                    alert('Failed to create reset attempt. Please try again.');
-                  }
-                }}
                 onFailLiveAccount={(challengeId) => {
                   const challenge = visibleChallenges.find(c => c.id === challengeId);
                   if (challenge) {
@@ -1050,6 +1032,7 @@ const Dashboard: React.FC = () => {
                 <ChallengeForm
                   firms={state.firms}
                   initial={editing}
+                  readOnly={editing.status === 'failed'}
                   onSubmit={async (updated) => {
                     const updatedChallenge = updated as Challenge;
                     const originalChallenge = editing;
@@ -1098,6 +1081,32 @@ const Dashboard: React.FC = () => {
                 <PayoutManager
                   key={`${editing.id}-${Array.isArray(editing.payouts) ? editing.payouts.length : 0}`}
                   challenge={editing}
+                  disabled={editing.status === 'failed'}
+                  showClaimBogo={
+                    ((editing.totalPhases || 3) === 1
+                      ? !!editing.phases.phase1?.completed
+                      : (editing.totalPhases || 3) === 2
+                        ? !!editing.phases.phase1?.completed && !!editing.phases.phase2?.completed
+                        : !!editing.phases.phase1?.completed && !!editing.phases.phase2?.completed && !!editing.phases.phase3?.completed) && editing.status !== 'failed'
+                  }
+                  showReset={editing.status === 'failed'}
+                  onClaimBogo={() => {
+                    setBogoDate(new Date().toISOString().slice(0,10));
+                    setShowBogoModal(true);
+                  }}
+                  onOpenReset={() => {
+                    setResetCostStr('0');
+                    setResetDate(new Date().toISOString().slice(0,10));
+                    setShowResetModal(true);
+                  }}
+                  onDeleteChallenge={() => {
+                    const selectedFirm = state.firms.find(f => f.id === editing!.propFirmId);
+                    setDeleteConfirm({ 
+                      id: editing!.id, 
+                      name: `${selectedFirm?.name || 'Unknown'} - $${editing!.accountSize.toLocaleString()} Account` 
+                    });
+                  }}
+                  onCloseEdit={() => setEditing(null)}
                   onUpdate={async (updated) => {
                     // Update the editing modal state immediately
                     setEditing({ ...updated, payouts: Array.isArray(updated.payouts) ? [...updated.payouts] : [] });
@@ -1115,27 +1124,6 @@ const Dashboard: React.FC = () => {
                   }}
                 />
               </div>
-              
-              <div className="mt-4 flex justify-center gap-3">
-                <button 
-                  className="px-4 py-2 rounded-md bg-red-600/20 hover:bg-red-600/30 border border-red-500/50 text-red-200 transition-colors"
-                  onClick={() => {
-                    const selectedFirm = state.firms.find(f => f.id === editing!.propFirmId);
-                    setDeleteConfirm({ 
-                      id: editing!.id, 
-                      name: `${selectedFirm?.name || 'Unknown'} - $${editing!.accountSize.toLocaleString()} Account` 
-                    });
-                  }}
-                >
-                  Delete Challenge
-                </button>
-                <button 
-                  className="px-4 py-2 rounded-md bg-white/10 hover:bg-white/15 transition-colors" 
-                  onClick={() => setEditing(null)}
-                >
-                  Close
-                </button>
-              </div>
             </div>
           </div>
         )}
@@ -1152,6 +1140,161 @@ const Dashboard: React.FC = () => {
           onCancel={() => setDeleteConfirm(null)}
           loading={loadingDelete}
         />
+        
+        {/* Edit Modal: Claim BOGO */}
+        {showBogoModal && editing && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !bogoLoading && setShowBogoModal(false)}>
+            <div className="bg-[#0a0e17] border border-cyan-500/40 rounded-xl p-6 max-w-md w-full shadow-[0_0_30px_rgba(6,182,212,0.3)]" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-xl font-bold text-white mb-2">Claim BOGO Challenge</h3>
+              <p className="text-white/70 mb-4 text-sm">Create a free new challenge of the same size. Set the start date below.</p>
+              <div className="grid grid-cols-1 gap-3">
+                <div className="flex flex-col gap-1 min-w-[160px]">
+                  <label className="text-xs text-white/60">Start Date</label>
+                  <input
+                    type="date"
+                    value={bogoDate}
+                    onChange={e => setBogoDate(e.target.value)}
+                    className="px-3 py-2 w-full rounded-md bg-white/5 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400/50"
+                    disabled={bogoLoading}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-4">
+                <button
+                  className="px-4 py-2 rounded-md bg-white/10 hover:bg-white/15 transition-colors"
+                  onClick={() => setShowBogoModal(false)}
+                  disabled={bogoLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="px-4 py-2 rounded-md bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/50 text-cyan-200 transition-colors"
+                  onClick={async () => {
+                    try {
+                      setBogoLoading(true);
+                      const group = state.challenges.filter(c => c.propFirmId === editing.propFirmId && c.accountSize === editing.accountSize);
+                      const bogoNumber = group.filter(c => (c.brokerName || '').includes('BOGO')).length + 1;
+                      const brokerName = `Trading Account (BOGO #${bogoNumber})`;
+                      const input = {
+                        propFirmId: editing.propFirmId,
+                        brokerName,
+                        accountSize: editing.accountSize,
+                        startDate: bogoDate,
+                        cost: 0,
+                        totalPhases: editing.totalPhases,
+                        status: 'active' as const,
+                        strategy: editing.strategy,
+                        firmType: editing.firmType,
+                      } as any;
+                      const result = await apiClient.addChallenge(currentUser!.id, input);
+                      setState(prev => ({ ...prev, challenges: [result.challenge, ...prev.challenges] }));
+                      await handleAutomaticNewChallengeCalendar(result.challenge);
+                      refreshState();
+                      setShowBogoModal(false);
+                    } catch (e) {
+                      console.error('BOGO creation failed:', e);
+                      alert('Failed to create BOGO challenge. Please try again.');
+                    } finally {
+                      setBogoLoading(false);
+                    }
+                  }}
+                  disabled={bogoLoading}
+                >
+                  Create BOGO Challenge
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Edit Modal: Reset */}
+        {showResetModal && editing && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !resetLoading && setShowResetModal(false)}>
+            <div className="bg-[#0a0e17] border border-purple-500/40 rounded-xl p-6 max-w-md w-full shadow-[0_0_30px_rgba(168,85,247,0.3)]" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-xl font-bold text-white mb-2">Reset Challenge</h3>
+              <p className="text-white/70 mb-4 text-sm">Create a new attempt starting from Phase 1. Set a reset cost (supports $0) and start date.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                <div className="flex flex-col gap-1 min-w-[160px]">
+                  <label className="text-xs text-white/60">Reset Cost</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <span className="text-white/60 sm:text-sm">$</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={resetCostStr}
+                      onChange={e => {
+                        const raw = e.target.value.replace(/[^\d.-]/g, '');
+                        const parts = raw.split('.');
+                        let formatted = parts[0];
+                        if (parts.length > 1) formatted += '.' + parts[1].slice(0, 2);
+                        setResetCostStr(formatted);
+                      }}
+                      className="pl-8 px-3 py-2 w-full rounded-md bg-white/5 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400/50"
+                      placeholder="0"
+                      disabled={resetLoading}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1 min-w-[160px]">
+                  <label className="text-xs text-white/60">Start Date</label>
+                  <input
+                    type="date"
+                    value={resetDate}
+                    onChange={e => setResetDate(e.target.value)}
+                    className="px-3 py-2 w-full rounded-md bg-white/5 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400/50"
+                    disabled={resetLoading}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-4">
+                <button
+                  className="px-4 py-2 rounded-md bg-white/10 hover:bg-white/15 transition-colors"
+                  onClick={() => setShowResetModal(false)}
+                  disabled={resetLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="px-4 py-2 rounded-md bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/50 text-purple-200 transition-colors"
+                  onClick={async () => {
+                    try {
+                      setResetLoading(true);
+                      const group = state.challenges.filter(c => c.propFirmId === editing.propFirmId && c.accountSize === editing.accountSize);
+                      const attemptNumber = group.length + 1;
+                      const brokerName = `Trading Account (Reset #${attemptNumber})`;
+                      const costNum = resetCostStr.trim() === '' ? 0 : parseFloat(resetCostStr) || 0;
+                      const input = {
+                        propFirmId: editing.propFirmId,
+                        brokerName,
+                        accountSize: editing.accountSize,
+                        startDate: resetDate,
+                        cost: costNum,
+                        totalPhases: editing.totalPhases,
+                        status: 'active' as const,
+                        strategy: editing.strategy,
+                        firmType: editing.firmType,
+                      } as any;
+                      const result = await apiClient.addChallenge(currentUser!.id, input);
+                      setState(prev => ({ ...prev, challenges: [result.challenge, ...prev.challenges] }));
+                      await handleAutomaticNewChallengeCalendar(result.challenge);
+                      refreshState();
+                      setShowResetModal(false);
+                    } catch (e) {
+                      console.error('Reset attempt creation failed:', e);
+                      alert('Failed to create reset attempt. Please try again.');
+                    } finally {
+                      setResetLoading(false);
+                    }
+                  }}
+                  disabled={resetLoading}
+                >
+                  Create New Attempt
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* Add Challenge Modal */}
         <AddChallengeModal

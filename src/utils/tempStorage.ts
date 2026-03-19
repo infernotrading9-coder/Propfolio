@@ -135,6 +135,10 @@ export async function removeChallenge(challengeId: string): Promise<void> {
   
   if (!data[userId]) return;
 
+  const challenge = data[userId].challenges.find(c => c.id === challengeId);
+  if (challenge?.status === 'failed') {
+    throw new Error('Cannot delete failed challenge');
+  }
   data[userId].challenges = data[userId].challenges.filter(c => c.id !== challengeId);
   setStorageData(data);
 }
