@@ -268,19 +268,24 @@ export async function removePayout(payoutId: string): Promise<void> {
     data[userId] = { firms: [], challenges: [], selectedFirmId: null };
   }
 
-  // Find and remove the payout from any challenge
-  for (const challenge of data[userId].challenges) {
-    if (Array.isArray(challenge.payouts)) {
-      const index = challenge.payouts.findIndex(p => p.id === payoutId);
-      if (index !== -1) {
-        challenge.payouts.splice(index, 1);
-        setStorageData(data);
-        return;
+  // Find and remove the payout from any challenge (search across users for resilience)
+  let found = false;
+  for (const [, udata] of Object.entries(data)) {
+    for (const challenge of udata.challenges) {
+      if (Array.isArray(challenge.payouts)) {
+        const index = challenge.payouts.findIndex(p => p.id === payoutId);
+        if (index !== -1) {
+          challenge.payouts.splice(index, 1);
+          setStorageData(data);
+          found = true;
+          break;
+        }
       }
     }
+    if (found) break;
   }
   
-  throw new Error('Payout not found');
+  if (!found) throw new Error('Payout not found');
 }
 
 export async function upsertMonthlyPnL(): Promise<void> {
@@ -308,13 +313,16 @@ export async function updatePayout(payoutId: string, amount: number, date: strin
     data[userId] = { firms: [], challenges: [], selectedFirmId: null };
   }
   
-  for (const challenge of data[userId].challenges) {
-    if (Array.isArray(challenge.payouts)) {
-      const idx = challenge.payouts.findIndex(p => p.id === payoutId);
-      if (idx !== -1) {
-        challenge.payouts[idx] = { ...challenge.payouts[idx], amount, date };
-        setStorageData(data);
-        return;
+  // Search across users to locate payout and update in-place
+  for (const [, udata] of Object.entries(data)) {
+    for (const challenge of udata.challenges) {
+      if (Array.isArray(challenge.payouts)) {
+        const idx = challenge.payouts.findIndex(p => p.id === payoutId);
+        if (idx !== -1) {
+          challenge.payouts[idx] = { ...challenge.payouts[idx], amount, date };
+          setStorageData(data);
+          return;
+        }
       }
     }
   }
