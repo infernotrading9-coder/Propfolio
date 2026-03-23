@@ -101,7 +101,15 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const visibleChallenges = React.useMemo(() => state.selectedFirmId ? state.challenges.filter(c => c.propFirmId === state.selectedFirmId) : state.challenges, [state]);
+  const visibleChallenges = React.useMemo(() => {
+    const base = state.selectedFirmId 
+      ? state.challenges.filter(c => c.propFirmId === state.selectedFirmId) 
+      : state.challenges;
+    return base.filter(c => {
+      const d = c?.startDate;
+      return typeof d === 'string' && d.slice(0, 4) === selectedYear;
+    });
+  }, [state, selectedYear]);
 
   // Rule calendar state and actions
   const [calendar, setCalendar] = React.useState(() => {
@@ -186,12 +194,16 @@ const Dashboard: React.FC = () => {
       
       const accountData = getCalAccountData(phaseAccount.id, calendar.accountData);
       const challengePhases = getChallengePhasesByChallenge(accountData, selectedChallengeId);
-      return { entries: accountData.entries, challengePhases, phaseAccountId: phaseAccount.id };
+      const yearEntries = (accountData.entries || []).filter(e => {
+        const d = e?.date;
+        return typeof d === 'string' && d.slice(0, 4) === selectedYear;
+      });
+      return { entries: yearEntries, challengePhases, phaseAccountId: phaseAccount.id };
     } catch (error) {
       console.error('Error in selectedChallengeCalendarData:', error);
       return { entries: [], challengePhases: [], phaseAccountId: null };
     }
-  }, [selectedChallengeId, selectedChallenge, selectedPhase, calendar, state.firms]);
+  }, [selectedChallengeId, selectedChallenge, selectedPhase, calendar, state.firms, selectedYear]);
 
   // Account management now handled automatically by challenge selection
   
@@ -805,14 +817,14 @@ const Dashboard: React.FC = () => {
               />
               
               <ChallengeCards 
-                challenges={state.challenges}
+                challenges={visibleChallenges}
                 firms={state.firms}
                 onChallengeClick={handleChallengeClick}
                 buildingMode={buildingMode}
                 selectedChallengeIds={selectedChallengeIds}
                 onToggleSelection={handleToggleSelection}
                 onFailLiveAccount={(challengeId) => {
-                  const challenge = state.challenges.find(c => c.id === challengeId);
+                  const challenge = visibleChallenges.find(c => c.id === challengeId);
                   if (challenge) {
                     setSelectedChallengeId(challengeId);
                     setIsFailLiveModalOpen(true);
@@ -986,6 +998,7 @@ const Dashboard: React.FC = () => {
                       
                       <Calendar 
                         entries={selectedChallengeCalendarData.entries} 
+                        selectedYear={selectedYear}
                         onDayUpdate={selectedChallenge?.status !== 'failed' ? handleDayUpdate : undefined}
                         isArchived={selectedChallenge?.status === 'failed'}
                       />

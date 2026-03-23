@@ -35,7 +35,8 @@ export const Calendar: React.FC<{
   entries: DayEntry[];
   onDayUpdate?: (date: string, followedRules: boolean | null) => void;
   isArchived?: boolean;
-}> = ({ entries, onDayUpdate, isArchived = false }) => {
+  selectedYear?: string;
+}> = ({ entries, onDayUpdate, isArchived = false, selectedYear }) => {
   const [cursor, setCursor] = React.useState(() => new Date());
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -72,6 +73,14 @@ export const Calendar: React.FC<{
       document.head.appendChild(style);
     }
   }, []);
+
+  // Snap calendar to selectedYear (January) when provided
+  React.useEffect(() => {
+    if (selectedYear && /^\d{4}$/.test(selectedYear)) {
+      const jan = new Date(Number(selectedYear), 0, 1);
+      setCursor(jan);
+    }
+  }, [selectedYear]);
 
   // Handle day click - cycle through: null -> true -> false -> null
   const handleDayClick = (date: string, currentStatus: boolean | null) => {
