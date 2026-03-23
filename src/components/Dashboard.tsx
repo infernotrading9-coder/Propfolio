@@ -106,8 +106,12 @@ const Dashboard: React.FC = () => {
       ? state.challenges.filter(c => c.propFirmId === state.selectedFirmId) 
       : state.challenges;
     return base.filter(c => {
-      const d = c?.startDate;
-      return typeof d === 'string' && d.slice(0, 4) === selectedYear;
+      const startYear = typeof c?.startDate === 'string' ? c.startDate.slice(0, 4) : '';
+      const hasPayoutInYear = Array.isArray(c?.payouts) && c.payouts.some(p => {
+        const d = p?.date;
+        return typeof d === 'string' && d.slice(0, 4) === selectedYear;
+      });
+      return startYear === selectedYear || hasPayoutInYear;
     });
   }, [state, selectedYear]);
 
