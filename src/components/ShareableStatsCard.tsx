@@ -255,10 +255,10 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
       const roi = monthlyData.costs > 0 ? (monthlyData.payouts - monthlyData.costs) / monthlyData.costs : 0;
       const avgTimeToLive = calculateAvgTimeToLive(monthlyData.challengesInPeriod);
       
-      // For monthly view, use eligible-based denominators for success rates
-      const eligible1m = challenges.filter(c => (c.totalPhases || 3) >= 1);
-      const eligible2m = challenges.filter(c => (c.totalPhases || 3) >= 2);
-      const eligible3m = challenges.filter(c => (c.totalPhases || 3) >= 3);
+      // For monthly view, use timeframe-filtered eligible denominators (by start month)
+      const eligible1m = challenges.filter(c => c.startDate.slice(0,7) === selectedMonth && (c.totalPhases || 3) >= 1);
+      const eligible2m = challenges.filter(c => c.startDate.slice(0,7) === selectedMonth && (c.totalPhases || 3) >= 2);
+      const eligible3m = challenges.filter(c => c.startDate.slice(0,7) === selectedMonth && (c.totalPhases || 3) >= 3);
       const liveAccountsm = eligible1m.filter(c => {
         const totalPhases = c.totalPhases || 3;
         if (totalPhases === 1) return c.phases.phase1.completed;
@@ -295,10 +295,28 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
       const roi = weeklyData.costs > 0 ? (weeklyData.payouts - weeklyData.costs) / weeklyData.costs : 0;
       const avgTimeToLive = calculateAvgTimeToLive(weeklyData.challengesInPeriod);
       
-      // For weekly view, use eligible-based denominators for success rates
-      const eligible1w = challenges.filter(c => (c.totalPhases || 3) >= 1);
-      const eligible2w = challenges.filter(c => (c.totalPhases || 3) >= 2);
-      const eligible3w = challenges.filter(c => (c.totalPhases || 3) >= 3);
+      // For weekly view, use timeframe-filtered eligible denominators (by start week)
+      const eligible1w = challenges.filter(c => {
+        const d = new Date(c.startDate);
+        const y = d.getFullYear();
+        const w = getWeekOfYear(d);
+        const cw = `${y}-W${String(w).padStart(2, '0')}`;
+        return cw === selectedWeek && (c.totalPhases || 3) >= 1;
+      });
+      const eligible2w = challenges.filter(c => {
+        const d = new Date(c.startDate);
+        const y = d.getFullYear();
+        const w = getWeekOfYear(d);
+        const cw = `${y}-W${String(w).padStart(2, '0')}`;
+        return cw === selectedWeek && (c.totalPhases || 3) >= 2;
+      });
+      const eligible3w = challenges.filter(c => {
+        const d = new Date(c.startDate);
+        const y = d.getFullYear();
+        const w = getWeekOfYear(d);
+        const cw = `${y}-W${String(w).padStart(2, '0')}`;
+        return cw === selectedWeek && (c.totalPhases || 3) >= 3;
+      });
       const liveAccountsw = eligible1w.filter(c => {
         const totalPhases = c.totalPhases || 3;
         if (totalPhases === 1) return c.phases.phase1.completed;
@@ -335,10 +353,11 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
       const roi = yearlyData.costs > 0 ? (yearlyData.payouts - yearlyData.costs) / yearlyData.costs : 0;
       const avgTimeToLive = calculateAvgTimeToLive(yearlyData.challengesInPeriod);
       
-      // For yearly view, use eligible-based denominators for success rates
-      const eligible1y = challenges.filter(c => (c.totalPhases || 3) >= 1);
-      const eligible2y = challenges.filter(c => (c.totalPhases || 3) >= 2);
-      const eligible3y = challenges.filter(c => (c.totalPhases || 3) >= 3);
+      // For yearly view, use eligible-based denominators scoped to this year
+      const baseYear = yearlyData.challengesInPeriod;
+      const eligible1y = baseYear.filter(c => (c.totalPhases || 3) >= 1);
+      const eligible2y = baseYear.filter(c => (c.totalPhases || 3) >= 2);
+      const eligible3y = baseYear.filter(c => (c.totalPhases || 3) >= 3);
       const liveAccountsy = eligible1y.filter(c => {
         const totalPhases = c.totalPhases || 3;
         if (totalPhases === 1) return c.phases.phase1.completed;
@@ -606,36 +625,6 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
 
           {/* Stats Grid */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6 flex-1">
-            {/* Capital Invested - RED (Cost) */}
-            <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-red-500/30 relative">
-              <div className="absolute top-2 right-2">
-                <DollarSign className="w-5 h-5 text-red-400/60" />
-              </div>
-              <div className="text-red-300/80 text-xs font-bold uppercase tracking-wider mb-2">
-                Capital Invested
-              </div>
-              <div className="text-red-400 text-2xl font-black" style={{
-                textShadow: '0 0 10px rgba(248, 113, 113, 0.5)'
-              }}>
-                ${formatMoney(stats.totalSpent)}
-              </div>
-            </div>
-            
-            {/* Total Payouts - GREEN (Income) */}
-            <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-green-500/30 relative">
-              <div className="absolute top-2 right-2">
-                <Trophy className="w-5 h-5 text-green-400/60" />
-              </div>
-              <div className="text-green-300/80 text-xs font-bold uppercase tracking-wider mb-2">
-                Total Payouts
-              </div>
-              <div className="text-green-400 text-2xl font-black" style={{
-                textShadow: '0 0 10px rgba(34, 197, 94, 0.5)'
-              }}>
-                ${formatMoney(stats.totalPayouts)}
-              </div>
-            </div>
-            
             {/* Success Rate - Color coded */}
             <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-cyan-500/30 relative">
               <div className="absolute top-2 right-2">
@@ -706,6 +695,36 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
                 </div>
               </div>
             )}
+            
+            {/* Capital Invested - RED (Cost) */}
+            <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-red-500/30 relative">
+              <div className="absolute top-2 right-2">
+                <DollarSign className="w-5 h-5 text-red-400/60" />
+              </div>
+              <div className="text-red-300/80 text-xs font-bold uppercase tracking-wider mb-2">
+                Capital Invested
+              </div>
+              <div className="text-red-400 text-2xl font-black" style={{
+                textShadow: '0 0 10px rgba(248, 113, 113, 0.5)'
+              }}>
+                ${formatMoney(stats.totalSpent)}
+              </div>
+            </div>
+            
+            {/* Total Payouts - GREEN (Income) */}
+            <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-green-500/30 relative">
+              <div className="absolute top-2 right-2">
+                <Trophy className="w-5 h-5 text-green-400/60" />
+              </div>
+              <div className="text-green-300/80 text-xs font-bold uppercase tracking-wider mb-2">
+                Total Payouts
+              </div>
+              <div className="text-green-400 text-2xl font-black" style={{
+                textShadow: '0 0 10px rgba(34, 197, 94, 0.5)'
+              }}>
+                ${formatMoney(stats.totalPayouts)}
+              </div>
+            </div>
             
             {/* Avg Time to Live */}
             <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-purple-500/30 relative">
