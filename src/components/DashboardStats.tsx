@@ -1,9 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { NeonCard } from './NeonCard';
 import { StatsSummary, Challenge } from '../types';
 import { Trophy, DollarSign, Percent, Wallet, Calculator, Clock } from 'lucide-react';
 
-function computeYearStats(challenges: Challenge[], year: string): StatsSummary {
+type PassBasis = 'start' | 'completion';
+
+function computeYearStats(challenges: Challenge[], year: string, basis: PassBasis): StatsSummary {
   const validChallenges = challenges.filter(challenge => challenge);
   
   // Challenges that started in the selected year (used for costs and success rates)
@@ -30,20 +32,47 @@ function computeYearStats(challenges: Challenge[], year: string): StatsSummary {
   }, 0);
   
   const roi = spent > 0 ? (payouts - spent) / spent : 0;
-  const eligible1 = challengesStartedThisYear.filter(c => (c?.totalPhases || 3) >= 1);
-  const eligible2 = challengesStartedThisYear.filter(c => (c?.totalPhases || 3) >= 2);
-  const eligible3 = challengesStartedThisYear.filter(c => (c?.totalPhases || 3) >= 3);
-  const liveAccounts = eligible1.filter(c => {
-    if (!c?.phases) return false;
-    const totalPhases = c.totalPhases || 3;
-    if (totalPhases === 1) return c.phases?.phase1?.completed;
-    if (totalPhases === 2) return c.phases?.phase1?.completed && c.phases?.phase2?.completed;
-    return c.phases?.phase1?.completed && c.phases?.phase2?.completed && c.phases?.phase3?.completed;
-  }).length;
+  const isInYear = (d?: string) => typeof d === 'string' && d.slice(0,4) === year;
+  const eligibleByStart = {
+    e1: challengesStartedThisYear.filter(c => (c?.totalPhases || 3) >= 1),
+    e2: challengesStartedThisYear.filter(c => (c?.totalPhases || 3) >= 2),
+    e3: challengesStartedThisYear.filter(c => (c?.totalPhases || 3) >= 3),
+  };
+  const eligibleByCompletion = {
+    e1: validChallenges.filter(c => (c?.totalPhases || 3) >= 1 && (isInYear(c?.startDate) || isInYear(c?.phases?.phase1?.completedAt))),
+    e2: validChallenges.filter(c => (c?.totalPhases || 3) >= 2 && (isInYear(c?.startDate) || isInYear(c?.phases?.phase2?.completedAt))),
+    e3: validChallenges.filter(c => (c?.totalPhases || 3) >= 3 && (isInYear(c?.startDate) || isInYear(c?.phases?.phase3?.completedAt))),
+  };
+  const eligible1 = basis === 'completion' ? eligibleByCompletion.e1 : eligibleByStart.e1;
+  const eligible2 = basis === 'completion' ? eligibleByCompletion.e2 : eligibleByStart.e2;
+  const eligible3 = basis === 'completion' ? eligibleByCompletion.e3 : eligibleByStart.e3;
+  const liveAccounts = (basis === 'completion'
+    ? eligible1.filter(c => {
+        const tp = c.totalPhases || 3;
+        if (tp === 1) return !!c.phases?.phase1?.completed && isInYear(c.phases?.phase1?.completedAt);
+        if (tp === 2) return !!c.phases?.phase1?.completed && !!c.phases?.phase2?.completed && isInYear(c.phases?.phase2?.completedAt);
+        return !!c.phases?.phase1?.completed && !!c.phases?.phase2?.completed && !!c.phases?.phase3?.completed && isInYear(c.phases?.phase3?.completedAt);
+      })
+    : eligible1.filter(c => {
+        const tp = c.totalPhases || 3;
+        if (tp === 1) return c.phases?.phase1?.completed;
+        if (tp === 2) return c.phases?.phase1?.completed && c.phases?.phase2?.completed;
+        return c.phases?.phase1?.completed && c.phases?.phase2?.completed && c.phases?.phase3?.completed;
+      })
+  ).length;
   
-  const phase1Passed = eligible1.filter(c => c?.phases?.phase1?.completed).length;
-  const phase2Passed = eligible2.filter(c => c?.phases?.phase2?.completed).length;
-  const phase3Passed = eligible3.filter(c => c?.phases?.phase3?.completed).length;
+  const phase1Passed = (basis === 'completion'
+    ? eligible1.filter(c => !!c?.phases?.phase1?.completed && isInYear(c?.phases?.phase1?.completedAt))
+    : eligible1.filter(c => !!c?.phases?.phase1?.completed)
+  ).length;
+  const phase2Passed = (basis === 'completion'
+    ? eligible2.filter(c => !!c?.phases?.phase2?.completed && isInYear(c?.phases?.phase2?.completedAt))
+    : eligible2.filter(c => !!c?.phases?.phase2?.completed)
+  ).length;
+  const phase3Passed = (basis === 'completion'
+    ? eligible3.filter(c => !!c?.phases?.phase3?.completed && isInYear(c?.phases?.phase3?.completedAt))
+    : eligible3.filter(c => !!c?.phases?.phase3?.completed)
+  ).length;
   const phase1Pass = eligible1.length > 0 ? (phase1Passed / eligible1.length) : 0;
   const phase2Pass = eligible2.length > 0 ? (phase2Passed / eligible2.length) : 0;
   const phase3Pass = eligible3.length > 0 ? (phase3Passed / eligible3.length) : 0;
@@ -156,6 +185,8 @@ function computeYearStats(challenges: Challenge[], year: string): StatsSummary {
 
 export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: string; onChangeYear: (y: string) => void }> = ({ challenges, selectedYear, onChangeYear }) => {
   
+  const [basis, setBasis] = useState<PassBasis>('start');
+  
   const availableYears = useMemo(() => {
     const years = new Set<string>();
     years.add(new Date().getFullYear().toString());
@@ -175,14 +206,18 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
     return Array.from(years).sort((a, b) => parseInt(b) - parseInt(a));
   }, [challenges]);
   
-  const stats = useMemo(() => computeYearStats(challenges, selectedYear), [challenges, selectedYear]);
+  const stats = useMemo(() => computeYearStats(challenges, selectedYear, basis), [challenges, selectedYear, basis]);
   const eligible2Count = useMemo(
-    () => challenges.filter(c => c?.startDate?.slice(0,4) === selectedYear && (c?.totalPhases || 3) >= 2).length,
-    [challenges, selectedYear]
+    () => (basis === 'completion'
+      ? challenges.filter(c => (c?.totalPhases || 3) >= 2 && ((c?.startDate?.slice(0,4) === selectedYear) || (c?.phases?.phase2?.completedAt?.slice(0,4) === selectedYear))).length
+      : challenges.filter(c => c?.startDate?.slice(0,4) === selectedYear && (c?.totalPhases || 3) >= 2).length),
+    [challenges, selectedYear, basis]
   );
   const eligible3Count = useMemo(
-    () => challenges.filter(c => c?.startDate?.slice(0,4) === selectedYear && (c?.totalPhases || 3) >= 3).length,
-    [challenges, selectedYear]
+    () => (basis === 'completion'
+      ? challenges.filter(c => (c?.totalPhases || 3) >= 3 && ((c?.startDate?.slice(0,4) === selectedYear) || (c?.phases?.phase3?.completedAt?.slice(0,4) === selectedYear))).length
+      : challenges.filter(c => c?.startDate?.slice(0,4) === selectedYear && (c?.totalPhases || 3) >= 3).length),
+    [challenges, selectedYear, basis]
   );
   const roiIsPositive = stats.roi >= 0;
   
@@ -265,7 +300,7 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
 
   return (
     <div>
-      <div className="flex items-center justify-end mb-4">
+      <div className="flex items-center justify-end mb-4 gap-3">
         <label className="mr-3 text-sm font-medium text-white/80">Year</label>
         <select
           value={selectedYear}
@@ -277,6 +312,16 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
               {year}
             </option>
           ))}
+        </select>
+        <label className="ml-4 mr-2 text-sm font-medium text-white/80">Pass Basis</label>
+        <select
+          value={basis}
+          onChange={(e) => setBasis(e.target.value as PassBasis)}
+          className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400/50 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+          title="Choose whether yearly pass rates use Start Year or Completion Year"
+        >
+          <option value="start" className="bg-gray-800">Start Year</option>
+          <option value="completion" className="bg-gray-800">Completion Year</option>
         </select>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6">
