@@ -30,9 +30,10 @@ function computeYearStats(challenges: Challenge[], year: string): StatsSummary {
   }, 0);
   
   const roi = spent > 0 ? (payouts - spent) / spent : 0;
-
-  const total = challengesStartedThisYear.length || 1;
-  const liveAccounts = challengesStartedThisYear.filter(c => {
+  const eligible1 = challengesStartedThisYear.filter(c => (c?.totalPhases || 3) >= 1);
+  const eligible2 = challengesStartedThisYear.filter(c => (c?.totalPhases || 3) >= 2);
+  const eligible3 = challengesStartedThisYear.filter(c => (c?.totalPhases || 3) >= 3);
+  const liveAccounts = eligible1.filter(c => {
     if (!c?.phases) return false;
     const totalPhases = c.totalPhases || 3;
     if (totalPhases === 1) return c.phases?.phase1?.completed;
@@ -40,8 +41,13 @@ function computeYearStats(challenges: Challenge[], year: string): StatsSummary {
     return c.phases?.phase1?.completed && c.phases?.phase2?.completed && c.phases?.phase3?.completed;
   }).length;
   
-  const phase1Pass = challengesStartedThisYear.filter(c => c?.phases?.phase1?.completed).length / total;
-  const phase2Pass = challengesStartedThisYear.filter(c => c?.phases?.phase2?.completed).length / total;
+  const phase1Passed = eligible1.filter(c => c?.phases?.phase1?.completed).length;
+  const phase2Passed = eligible2.filter(c => c?.phases?.phase2?.completed).length;
+  const phase3Passed = eligible3.filter(c => c?.phases?.phase3?.completed).length;
+  const phase1Pass = eligible1.length > 0 ? (phase1Passed / eligible1.length) : 0;
+  const phase2Pass = eligible2.length > 0 ? (phase2Passed / eligible2.length) : 0;
+  const phase3Pass = eligible3.length > 0 ? (phase3Passed / eligible3.length) : 0;
+  const liveAccountsRate = eligible1.length > 0 ? (liveAccounts / eligible1.length) : 0;
   
   const costPerLiveAccount = liveAccounts > 0 ? spent / liveAccounts : 0;
   
@@ -132,9 +138,10 @@ function computeYearStats(challenges: Challenge[], year: string): StatsSummary {
     totalSpent: spent,
     totalPayouts: payouts,
     roi,
-    liveAccountsRate: liveAccounts / total,
+    liveAccountsRate,
     phase1PassRate: phase1Pass,
     phase2PassRate: phase2Pass,
+    phase3PassRate: phase3Pass,
     costPerLiveAccount,
     averageTimeToLive,
     firstChallengeMonth,
@@ -169,9 +176,17 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
   }, [challenges]);
   
   const stats = useMemo(() => computeYearStats(challenges, selectedYear), [challenges, selectedYear]);
+  const eligible2Count = useMemo(
+    () => challenges.filter(c => c?.startDate?.slice(0,4) === selectedYear && (c?.totalPhases || 3) >= 2).length,
+    [challenges, selectedYear]
+  );
+  const eligible3Count = useMemo(
+    () => challenges.filter(c => c?.startDate?.slice(0,4) === selectedYear && (c?.totalPhases || 3) >= 3).length,
+    [challenges, selectedYear]
+  );
   const roiIsPositive = stats.roi >= 0;
   
-  const statItems = [
+  const baseItems = [
     {
       title: 'Total Spent',
       value: `$${stats.totalSpent.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
@@ -208,13 +223,6 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
       textColor: 'text-cyan-300',
     },
     {
-      title: 'Phase 2 Pass Rate',
-      value: `${(stats.phase2PassRate * 100).toFixed(1)}%`,
-      icon: <Trophy className="w-8 h-8 text-lime-300 drop-shadow-neon-lime" />,
-      glow: 'lime',
-      textColor: 'text-lime-300',
-    },
-    {
       title: 'Cost Per Live Account',
       value: stats.costPerLiveAccount > 0 ? `$${stats.costPerLiveAccount.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'No live accounts',
       icon: <Calculator className="w-8 h-8 text-orange-300 drop-shadow-neon-orange" />,
@@ -228,7 +236,32 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
       glow: 'amber',
       textColor: 'text-amber-300',
     },
-  ];
+  ] as {
+    title: string;
+    value: string;
+    icon: React.ReactNode;
+    glow: 'red' | 'green' | 'pink' | 'cyan' | 'lime' | 'orange' | 'purple' | 'amber';
+    textColor: string;
+  }[];
+  const statItems = [...baseItems];
+  if (eligible2Count > 0) {
+    statItems.splice(3, 0, {
+      title: 'Phase 2 Pass Rate',
+      value: `${(stats.phase2PassRate * 100).toFixed(1)}%`,
+      icon: <Trophy className="w-8 h-8 text-lime-300 drop-shadow-neon-lime" />,
+      glow: 'lime',
+      textColor: 'text-lime-300',
+    });
+  }
+  if (eligible3Count > 0 && typeof stats.phase3PassRate === 'number') {
+    statItems.splice(4, 0, {
+      title: 'Phase 3 Pass Rate',
+      value: `${(stats.phase3PassRate * 100).toFixed(1)}%`,
+      icon: <Trophy className="w-8 h-8 text-green-300 drop-shadow-neon-green" />,
+      glow: 'green',
+      textColor: 'text-green-300',
+    });
+  }
 
   return (
     <div>

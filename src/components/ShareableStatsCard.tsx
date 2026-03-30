@@ -14,16 +14,17 @@ function computeStats(challenges: Challenge[]): StatsSummary {
   }, 0);
   const roi = spent > 0 ? (payouts - spent) / spent : 0;
 
-  const total = challenges.length || 1;
-  const liveAccounts = challenges.filter(c => {
+  const eligible1 = challenges.filter(c => (c.totalPhases || 3) >= 1);
+  const eligible2 = challenges.filter(c => (c.totalPhases || 3) >= 2);
+  const liveAccounts = eligible1.filter(c => {
     const totalPhases = c.totalPhases || 3;
     if (totalPhases === 1) return c.phases.phase1.completed;
     if (totalPhases === 2) return c.phases.phase1.completed && c.phases.phase2.completed;
     return c.phases.phase1.completed && c.phases.phase2.completed && c.phases.phase3.completed;
   }).length;
   
-  const phase1Pass = challenges.filter(c => c.phases.phase1.completed).length / total;
-  const phase2Pass = challenges.filter(c => c.phases.phase2.completed).length / total;
+  const phase1Pass = eligible1.length > 0 ? (eligible1.filter(c => c.phases.phase1.completed).length / eligible1.length) : 0;
+  const phase2Pass = eligible2.length > 0 ? (eligible2.filter(c => c.phases.phase2.completed).length / eligible2.length) : 0;
   const costPerLiveAccount = liveAccounts > 0 ? spent / liveAccounts : 0;
   
   const liveAccountChallenges = challenges.filter(c => {
@@ -62,7 +63,7 @@ function computeStats(challenges: Challenge[]): StatsSummary {
     totalSpent: spent,
     totalPayouts: payouts,
     roi,
-    liveAccountsRate: liveAccounts / total,
+    liveAccountsRate: eligible1.length > 0 ? (liveAccounts / eligible1.length) : 0,
     phase1PassRate: phase1Pass,
     phase2PassRate: phase2Pass,
     costPerLiveAccount,
@@ -254,26 +255,29 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
       const roi = monthlyData.costs > 0 ? (monthlyData.payouts - monthlyData.costs) / monthlyData.costs : 0;
       const avgTimeToLive = calculateAvgTimeToLive(monthlyData.challengesInPeriod);
       
-      // For monthly view, use overall challenge stats for success rates
-      const totalChallenges = challenges.length || 1;
-      const liveAccounts = challenges.filter(c => {
+      // For monthly view, use eligible-based denominators for success rates
+      const eligible1m = challenges.filter(c => (c.totalPhases || 3) >= 1);
+      const eligible2m = challenges.filter(c => (c.totalPhases || 3) >= 2);
+      const eligible3m = challenges.filter(c => (c.totalPhases || 3) >= 3);
+      const liveAccountsm = eligible1m.filter(c => {
         const totalPhases = c.totalPhases || 3;
         if (totalPhases === 1) return c.phases.phase1.completed;
         if (totalPhases === 2) return c.phases.phase1.completed && c.phases.phase2.completed;
         return c.phases.phase1.completed && c.phases.phase2.completed && c.phases.phase3.completed;
       }).length;
-      
-      const phase1Pass = challenges.filter(c => c.phases.phase1.completed).length / totalChallenges;
-      const phase2Pass = challenges.filter(c => c.phases.phase2.completed).length / totalChallenges;
-      const costPerLiveAccount = liveAccounts > 0 ? monthlyData.costs / liveAccounts : 0;
+      const phase1Passm = eligible1m.length > 0 ? (eligible1m.filter(c => c.phases.phase1.completed).length / eligible1m.length) : 0;
+      const phase2Passm = eligible2m.length > 0 ? (eligible2m.filter(c => c.phases.phase2.completed).length / eligible2m.length) : 0;
+      const phase3Passm = eligible3m.length > 0 ? (eligible3m.filter(c => c.phases.phase3.completed).length / eligible3m.length) : 0;
+      const costPerLiveAccount = liveAccountsm > 0 ? monthlyData.costs / liveAccountsm : 0;
       
       return {
         totalSpent: monthlyData.costs,
         totalPayouts: monthlyData.payouts,
         roi,
-        liveAccountsRate: liveAccounts / totalChallenges,
-        phase1PassRate: phase1Pass,
-        phase2PassRate: phase2Pass,
+        liveAccountsRate: eligible1m.length > 0 ? (liveAccountsm / eligible1m.length) : 0,
+        phase1PassRate: phase1Passm,
+        phase2PassRate: phase2Passm,
+        phase3PassRate: phase3Passm,
         costPerLiveAccount,
         averageTimeToLive: avgTimeToLive,
         firstChallengeMonth: selectedMonth,
@@ -291,26 +295,29 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
       const roi = weeklyData.costs > 0 ? (weeklyData.payouts - weeklyData.costs) / weeklyData.costs : 0;
       const avgTimeToLive = calculateAvgTimeToLive(weeklyData.challengesInPeriod);
       
-      // For weekly view, use overall challenge stats for success rates
-      const totalChallenges = challenges.length || 1;
-      const liveAccounts = challenges.filter(c => {
+      // For weekly view, use eligible-based denominators for success rates
+      const eligible1w = challenges.filter(c => (c.totalPhases || 3) >= 1);
+      const eligible2w = challenges.filter(c => (c.totalPhases || 3) >= 2);
+      const eligible3w = challenges.filter(c => (c.totalPhases || 3) >= 3);
+      const liveAccountsw = eligible1w.filter(c => {
         const totalPhases = c.totalPhases || 3;
         if (totalPhases === 1) return c.phases.phase1.completed;
         if (totalPhases === 2) return c.phases.phase1.completed && c.phases.phase2.completed;
         return c.phases.phase1.completed && c.phases.phase2.completed && c.phases.phase3.completed;
       }).length;
-      
-      const phase1Pass = challenges.filter(c => c.phases.phase1.completed).length / totalChallenges;
-      const phase2Pass = challenges.filter(c => c.phases.phase2.completed).length / totalChallenges;
-      const costPerLiveAccount = liveAccounts > 0 ? weeklyData.costs / liveAccounts : 0;
+      const phase1Passw = eligible1w.length > 0 ? (eligible1w.filter(c => c.phases.phase1.completed).length / eligible1w.length) : 0;
+      const phase2Passw = eligible2w.length > 0 ? (eligible2w.filter(c => c.phases.phase2.completed).length / eligible2w.length) : 0;
+      const phase3Passw = eligible3w.length > 0 ? (eligible3w.filter(c => c.phases.phase3.completed).length / eligible3w.length) : 0;
+      const costPerLiveAccount = liveAccountsw > 0 ? weeklyData.costs / liveAccountsw : 0;
       
       return {
         totalSpent: weeklyData.costs,
         totalPayouts: weeklyData.payouts,
         roi,
-        liveAccountsRate: liveAccounts / totalChallenges,
-        phase1PassRate: phase1Pass,
-        phase2PassRate: phase2Pass,
+        liveAccountsRate: eligible1w.length > 0 ? (liveAccountsw / eligible1w.length) : 0,
+        phase1PassRate: phase1Passw,
+        phase2PassRate: phase2Passw,
+        phase3PassRate: phase3Passw,
         costPerLiveAccount,
         averageTimeToLive: avgTimeToLive,
         firstChallengeMonth: selectedWeek,
@@ -328,26 +335,29 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
       const roi = yearlyData.costs > 0 ? (yearlyData.payouts - yearlyData.costs) / yearlyData.costs : 0;
       const avgTimeToLive = calculateAvgTimeToLive(yearlyData.challengesInPeriod);
       
-      // For yearly view, use overall challenge stats for success rates
-      const totalChallenges = challenges.length || 1;
-      const liveAccounts = challenges.filter(c => {
+      // For yearly view, use eligible-based denominators for success rates
+      const eligible1y = challenges.filter(c => (c.totalPhases || 3) >= 1);
+      const eligible2y = challenges.filter(c => (c.totalPhases || 3) >= 2);
+      const eligible3y = challenges.filter(c => (c.totalPhases || 3) >= 3);
+      const liveAccountsy = eligible1y.filter(c => {
         const totalPhases = c.totalPhases || 3;
         if (totalPhases === 1) return c.phases.phase1.completed;
         if (totalPhases === 2) return c.phases.phase1.completed && c.phases.phase2.completed;
         return c.phases.phase1.completed && c.phases.phase2.completed && c.phases.phase3.completed;
       }).length;
-      
-      const phase1Pass = challenges.filter(c => c.phases.phase1.completed).length / totalChallenges;
-      const phase2Pass = challenges.filter(c => c.phases.phase2.completed).length / totalChallenges;
-      const costPerLiveAccount = liveAccounts > 0 ? yearlyData.costs / liveAccounts : 0;
+      const phase1Passy = eligible1y.length > 0 ? (eligible1y.filter(c => c.phases.phase1.completed).length / eligible1y.length) : 0;
+      const phase2Passy = eligible2y.length > 0 ? (eligible2y.filter(c => c.phases.phase2.completed).length / eligible2y.length) : 0;
+      const phase3Passy = eligible3y.length > 0 ? (eligible3y.filter(c => c.phases.phase3.completed).length / eligible3y.length) : 0;
+      const costPerLiveAccount = liveAccountsy > 0 ? yearlyData.costs / liveAccountsy : 0;
       
       return {
         totalSpent: yearlyData.costs,
         totalPayouts: yearlyData.payouts,
         roi,
-        liveAccountsRate: liveAccounts / totalChallenges,
-        phase1PassRate: phase1Pass,
-        phase2PassRate: phase2Pass,
+        liveAccountsRate: eligible1y.length > 0 ? (liveAccountsy / eligible1y.length) : 0,
+        phase1PassRate: phase1Passy,
+        phase2PassRate: phase2Passy,
+        phase3PassRate: phase3Passy,
         costPerLiveAccount,
         averageTimeToLive: avgTimeToLive,
         firstChallengeMonth: selectedYear,
@@ -366,6 +376,14 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
   }, [challenges, timeframe, selectedMonth, selectedWeek, selectedYear]);
 
   const isPositive = stats.roi >= 0;
+  const eligible2Count = useMemo(
+    () => challenges.filter(c => (c.totalPhases || 3) >= 2).length,
+    [challenges]
+  );
+  const eligible3Count = useMemo(
+    () => challenges.filter(c => (c.totalPhases || 3) >= 3).length,
+    [challenges]
+  );
   const profit = stats.totalPayouts - stats.totalSpent;
   
   // Format date manually to avoid timezone issues
@@ -587,7 +605,7 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
           </div>
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-2 gap-4 mb-6 flex-1">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6 flex-1">
             {/* Capital Invested - RED (Cost) */}
             <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-red-500/30 relative">
               <div className="absolute top-2 right-2">
@@ -639,6 +657,55 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
                 {(stats.liveAccountsRate * 100).toFixed(0)}%
               </div>
             </div>
+            
+            {/* Phase 1 Pass */}
+            <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-cyan-500/30 relative">
+              <div className="absolute top-2 right-2">
+                <Trophy className="w-5 h-5 text-cyan-400/60" />
+              </div>
+              <div className="text-cyan-300/80 text-xs font-bold uppercase tracking-wider mb-2">
+                Phase 1 Pass
+              </div>
+              <div className="text-cyan-300 text-2xl font-black" style={{
+                textShadow: '0 0 10px rgba(34, 211, 238, 0.4)'
+              }}>
+                {(stats.phase1PassRate * 100).toFixed(0)}%
+              </div>
+            </div>
+            
+            {/* Phase 2 Pass (conditional) */}
+            {eligible2Count > 0 && (
+              <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-lime-500/30 relative">
+                <div className="absolute top-2 right-2">
+                  <Trophy className="w-5 h-5 text-lime-400/60" />
+                </div>
+                <div className="text-lime-300/80 text-xs font-bold uppercase tracking-wider mb-2">
+                  Phase 2 Pass
+                </div>
+                <div className="text-lime-300 text-2xl font-black" style={{
+                  textShadow: '0 0 10px rgba(163, 230, 53, 0.4)'
+                }}>
+                  {(stats.phase2PassRate * 100).toFixed(0)}%
+                </div>
+              </div>
+            )}
+            
+            {/* Phase 3 Pass (conditional) */}
+            {eligible3Count > 0 && typeof stats.phase3PassRate === 'number' && (
+              <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-green-500/30 relative">
+                <div className="absolute top-2 right-2">
+                  <Trophy className="w-5 h-5 text-green-400/60" />
+                </div>
+                <div className="text-green-300/80 text-xs font-bold uppercase tracking-wider mb-2">
+                  Phase 3 Pass
+                </div>
+                <div className="text-green-300 text-2xl font-black" style={{
+                  textShadow: '0 0 10px rgba(34, 197, 94, 0.4)'
+                }}>
+                  {((stats.phase3PassRate ?? 0) * 100).toFixed(0)}%
+                </div>
+              </div>
+            )}
             
             {/* Avg Time to Live */}
             <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-purple-500/30 relative">

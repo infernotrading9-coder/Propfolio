@@ -67,6 +67,7 @@ export interface StatsSummary {
   liveAccountsRate: number; // % of challenges that reached live trading
   phase1PassRate: number; // % of challenges where phase1 is complete
   phase2PassRate: number; // % of challenges where phase2 is complete
+  phase3PassRate?: number; // % of challenges where phase3 is complete (if applicable)
   costPerLiveAccount: number; // total spent divided by number of live accounts
   averageTimeToLive: number; // average days from start to live account
   firstChallengeMonth?: string; // YYYY-MM
