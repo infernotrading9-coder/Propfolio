@@ -219,6 +219,29 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
       : challenges.filter(c => c?.startDate?.slice(0,4) === selectedYear && (c?.totalPhases || 3) >= 3).length),
     [challenges, selectedYear, basis]
   );
+  const eligible1Count = useMemo(
+    () => (basis === 'completion'
+      ? challenges.filter(c => (c?.totalPhases || 3) >= 1 && ((c?.startDate?.slice(0,4) === selectedYear) || (c?.phases?.phase1?.completedAt?.slice(0,4) === selectedYear))).length
+      : challenges.filter(c => c?.startDate?.slice(0,4) === selectedYear && (c?.totalPhases || 3) >= 1).length),
+    [challenges, selectedYear, basis]
+  );
+  const liveCount = useMemo(() => {
+    return challenges.filter(c => {
+      const tp = c?.totalPhases || 3;
+      const ph = c?.phases;
+      if (!ph) return false;
+      if (basis === 'completion') {
+        if (tp === 1) return !!ph.phase1?.completed && ph.phase1?.completedAt?.slice(0,4) === selectedYear;
+        if (tp === 2) return !!ph.phase1?.completed && !!ph.phase2?.completed && ph.phase2?.completedAt?.slice(0,4) === selectedYear;
+        return !!ph.phase1?.completed && !!ph.phase2?.completed && !!ph.phase3?.completed && ph.phase3?.completedAt?.slice(0,4) === selectedYear;
+      } else {
+        if (c?.startDate?.slice(0,4) !== selectedYear) return false;
+        if (tp === 1) return !!ph.phase1?.completed;
+        if (tp === 2) return !!ph.phase1?.completed && !!ph.phase2?.completed;
+        return !!ph.phase1?.completed && !!ph.phase2?.completed && !!ph.phase3?.completed;
+      }
+    }).length;
+  }, [challenges, selectedYear, basis]);
   const roiIsPositive = stats.roi >= 0;
   
   const baseItems = [
@@ -297,6 +320,13 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
       textColor: 'text-green-300',
     });
   }
+  statItems.push({
+    title: 'Live Accounts',
+    value: `${liveCount} / ${eligible1Count}`,
+    icon: <Trophy className="w-8 h-8 text-pink-300 drop-shadow-neon-pink" />,
+    glow: 'pink',
+    textColor: 'text-pink-300',
+  });
 
   return (
     <div>
