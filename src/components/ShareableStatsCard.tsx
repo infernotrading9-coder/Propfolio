@@ -1,6 +1,6 @@
 import React, { useRef, useMemo } from 'react';
 import { Challenge, StatsSummary } from '../types';
-import { TrendingUp, TrendingDown, Download, Trophy, DollarSign, Zap } from 'lucide-react';
+import { TrendingUp, TrendingDown, Download, Zap } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 
 // Import the stats computation logic from DashboardStats
@@ -431,125 +431,148 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
     [timeframeBaseChallenges]
   );
   const profit = stats.totalPayouts - stats.totalSpent;
+  const glassTileClass = "group relative perspective-1000";
+  const glassTileStyle: React.CSSProperties = {
+    background: `linear-gradient(135deg, 
+      rgba(255, 255, 255, 0.1) 0%, 
+      rgba(255, 255, 255, 0.05) 50%, 
+      rgba(255, 255, 255, 0.02) 100%
+    )`,
+    border: `1px solid rgba(255, 255, 255, 0.2)`,
+    boxShadow: `
+      0 8px 32px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(255, 255, 255, 0.05),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.1)
+    `
+  };
+  const renderMetricTile = (
+    key: ShareStatKey,
+    title: string,
+    value: string,
+    accentSoft: string,
+    gradient: string,
+    textClass: string,
+    orbShadow: string
+  ) => (
+    <div key={key} className={glassTileClass}>
+      <div className="relative transform-gpu transition-all duration-700">
+        <div className="relative overflow-hidden rounded-3xl backdrop-blur-xl transition-all duration-500" style={glassTileStyle}>
+          <div
+            className="absolute inset-0 opacity-30"
+            style={{
+              background: `radial-gradient(ellipse at center, ${accentSoft} 0%, transparent 70%)`,
+              filter: 'blur(18px)'
+            }}
+          />
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            {[...Array(4)].map((_, i) => (
+              <div
+                key={i}
+                className="absolute w-1 h-1 rounded-full opacity-40"
+                style={{
+                  left: `${15 + i * 20}%`,
+                  top: `${20 + (i % 2) * 35}%`,
+                  background: accentSoft.replace('0.25', '0.8'),
+                  boxShadow: `0 0 10px ${accentSoft.replace('0.25', '0.5')}`
+                }}
+              />
+            ))}
+          </div>
+
+          <div className="relative p-6 z-10">
+            <div className="relative mb-6">
+              <div
+                className="absolute -inset-2 rounded-2xl opacity-30"
+                style={{
+                  background: `radial-gradient(ellipse at center, ${accentSoft} 0%, transparent 70%)`,
+                  filter: 'blur(20px)'
+                }}
+              />
+              <div className="relative flex items-center justify-between">
+                <div className="flex-1">
+                  <h3
+                    className="text-xl font-black text-transparent bg-clip-text mb-1"
+                    style={{
+                      backgroundImage: gradient,
+                      backgroundSize: '200% 200%',
+                      filter: 'drop-shadow(0 0 8px rgba(255,255,255,0.25))'
+                    }}
+                  >
+                    {title}
+                  </h3>
+                  <div
+                    className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium backdrop-blur-md"
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)'
+                    }}
+                  >
+                    <span className="text-white/70">
+                      {timeframe === 'month' ? 'Monthly' : timeframe === 'week' ? 'Weekly' : timeframe === 'year' ? 'Yearly' : 'All-Time'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <div className="w-14 h-14 relative">
+                    <div
+                      className="absolute inset-0 rounded-full blur-md"
+                      style={{ background: `radial-gradient(circle, ${accentSoft} 0%, transparent 70%)` }}
+                    />
+                    <div
+                      className="relative w-full h-full rounded-full flex items-center justify-center backdrop-blur-lg"
+                      style={{
+                        background: `linear-gradient(135deg, 
+                          rgba(255, 255, 255, 0.2) 0%,
+                          rgba(255, 255, 255, 0.1) 50%,
+                          rgba(255, 255, 255, 0.05) 100%
+                        )`,
+                        border: '2px solid rgba(255, 255, 255, 0.3)',
+                        boxShadow: `0 8px 32px ${accentSoft}, inset 0 1px 0 rgba(255, 255, 255, 0.3)`
+                      }}
+                    >
+                      <div className="w-3 h-3 rounded-full" style={{ background: accentSoft.replace('0.25', '1'), boxShadow: orbShadow }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="relative text-center py-6 px-2">
+              <div
+                className="absolute inset-0 rounded-2xl opacity-20"
+                style={{
+                  background: `radial-gradient(ellipse at center, ${accentSoft} 0%, transparent 60%)`,
+                  filter: 'blur(15px)'
+                }}
+              />
+              <div className="relative">
+                <p className="text-sm text-white/60 font-medium uppercase tracking-[0.2em] mb-2">Metric</p>
+                <div className="relative overflow-visible px-1">
+                  <h2 className={`text-3xl sm:text-4xl font-black leading-tight break-all ${textClass}`} style={{ filter: `drop-shadow(0 0 18px ${accentSoft.replace('0.25', '0.8')})` }}>
+                    {value}
+                  </h2>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
   const statDefinitions = useMemo(() => {
     const defs: Record<ShareStatKey, JSX.Element> = {
-      live: (
-        <div key="live" className={glassTileClass} style={glassTileStyle}>
-          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
-            background: 'radial-gradient(ellipse at center, rgba(34, 211, 238, 0.25) 0%, transparent 70%)',
-            filter: 'blur(18px)'
-          }} />
-          <div className="absolute top-3 right-3">
-            <Trophy className="w-5 h-5 text-cyan-300/70" />
-          </div>
-          <div className="relative text-cyan-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Live Rate</div>
-          <div className={`text-2xl font-black ${
-            stats.liveAccountsRate > 0.5 ? 'text-green-400' :
-            stats.liveAccountsRate > 0.3 ? 'text-yellow-400' : 'text-red-400'
-          }`} style={{
-            textShadow: stats.liveAccountsRate > 0.5
-              ? '0 0 10px rgba(34, 197, 94, 0.5)'
-              : stats.liveAccountsRate > 0.3
-              ? '0 0 10px rgba(234, 179, 8, 0.5)'
-              : '0 0 10px rgba(248, 113, 113, 0.5)'
-          }}>
-            {(stats.liveAccountsRate * 100).toFixed(0)}%
-          </div>
-        </div>
-      ),
-      phase1: (
-        <div key="phase1" className={glassTileClass} style={glassTileStyle}>
-          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
-            background: 'radial-gradient(ellipse at center, rgba(34, 211, 238, 0.25) 0%, transparent 70%)',
-            filter: 'blur(18px)'
-          }} />
-          <div className="absolute top-3 right-3">
-            <Trophy className="w-5 h-5 text-cyan-300/70" />
-          </div>
-          <div className="relative text-cyan-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Phase 1 Pass</div>
-          <div className="text-cyan-300 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(34, 211, 238, 0.4)' }}>
-            {(stats.phase1PassRate * 100).toFixed(0)}%
-          </div>
-        </div>
-      ),
-      phase2: (
-        <div key="phase2" className={glassTileClass} style={glassTileStyle}>
-          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
-            background: 'radial-gradient(ellipse at center, rgba(163, 230, 53, 0.25) 0%, transparent 70%)',
-            filter: 'blur(18px)'
-          }} />
-          <div className="absolute top-3 right-3">
-            <Trophy className="w-5 h-5 text-lime-300/70" />
-          </div>
-          <div className="relative text-lime-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Phase 2 Pass</div>
-          <div className="text-lime-300 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(163, 230, 53, 0.4)' }}>
-            {(stats.phase2PassRate * 100).toFixed(0)}%
-          </div>
-        </div>
-      ),
-      phase3: (
-        <div key="phase3" className={glassTileClass} style={glassTileStyle}>
-          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
-            background: 'radial-gradient(ellipse at center, rgba(34, 197, 94, 0.25) 0%, transparent 70%)',
-            filter: 'blur(18px)'
-          }} />
-          <div className="absolute top-3 right-3">
-            <Trophy className="w-5 h-5 text-green-300/70" />
-          </div>
-          <div className="relative text-green-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Phase 3 Pass</div>
-          <div className="text-green-300 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(34, 197, 94, 0.4)' }}>
-            {((stats.phase3PassRate ?? 0) * 100).toFixed(0)}%
-          </div>
-        </div>
-      ),
-      capital: (
-        <div key="capital" className={glassTileClass} style={glassTileStyle}>
-          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
-            background: 'radial-gradient(ellipse at center, rgba(248, 113, 113, 0.25) 0%, transparent 70%)',
-            filter: 'blur(18px)'
-          }} />
-          <div className="absolute top-3 right-3">
-            <DollarSign className="w-5 h-5 text-red-300/70" />
-          </div>
-          <div className="relative text-red-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Capital Invested</div>
-          <div className="text-red-400 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(248, 113, 113, 0.5)' }}>
-            ${formatMoney(stats.totalSpent)}
-          </div>
-        </div>
-      ),
-      payouts: (
-        <div key="payouts" className={glassTileClass} style={glassTileStyle}>
-          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
-            background: 'radial-gradient(ellipse at center, rgba(34, 197, 94, 0.25) 0%, transparent 70%)',
-            filter: 'blur(18px)'
-          }} />
-          <div className="absolute top-3 right-3">
-            <Trophy className="w-5 h-5 text-green-300/70" />
-          </div>
-          <div className="relative text-green-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Total Payouts</div>
-          <div className="text-green-400 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(34, 197, 94, 0.5)' }}>
-            ${formatMoney(stats.totalPayouts)}
-          </div>
-        </div>
-      ),
-      avgTime: (
-        <div key="avgTime" className={glassTileClass} style={glassTileStyle}>
-          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
-            background: 'radial-gradient(ellipse at center, rgba(168, 85, 247, 0.25) 0%, transparent 70%)',
-            filter: 'blur(18px)'
-          }} />
-          <div className="absolute top-3 right-3">
-            <Trophy className="w-5 h-5 text-purple-300/70" />
-          </div>
-          <div className="relative text-purple-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Avg Time to Live</div>
-          <div className="text-purple-400 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(168, 85, 247, 0.5)' }}>
-            {stats.averageTimeToLive > 0 ? `${Math.round(stats.averageTimeToLive)}d` : 'N/A'}
-          </div>
-        </div>
-      ),
+      live: renderMetricTile('live', 'Live Rate', `${(stats.liveAccountsRate * 100).toFixed(0)}%`, 'rgba(34, 211, 238, 0.25)', 'linear-gradient(45deg, #22d3ee, #67e8f9, #a5f3fc, #22d3ee)', stats.liveAccountsRate > 0.5 ? 'text-green-400' : stats.liveAccountsRate > 0.3 ? 'text-yellow-400' : 'text-red-400', stats.liveAccountsRate > 0.5 ? '0 0 10px rgba(34, 197, 94, 0.8)' : stats.liveAccountsRate > 0.3 ? '0 0 10px rgba(234, 179, 8, 0.8)' : '0 0 10px rgba(248, 113, 113, 0.8)'),
+      phase1: renderMetricTile('phase1', 'Phase 1 Pass', `${(stats.phase1PassRate * 100).toFixed(0)}%`, 'rgba(34, 211, 238, 0.25)', 'linear-gradient(45deg, #22d3ee, #67e8f9, #a5f3fc, #22d3ee)', 'text-cyan-300', '0 0 10px rgba(34, 211, 238, 0.8)'),
+      phase2: renderMetricTile('phase2', 'Phase 2 Pass', `${(stats.phase2PassRate * 100).toFixed(0)}%`, 'rgba(163, 230, 53, 0.25)', 'linear-gradient(45deg, #84cc16, #a3e635, #d9f99d, #84cc16)', 'text-lime-300', '0 0 10px rgba(163, 230, 53, 0.8)'),
+      phase3: renderMetricTile('phase3', 'Phase 3 Pass', `${((stats.phase3PassRate ?? 0) * 100).toFixed(0)}%`, 'rgba(34, 197, 94, 0.25)', 'linear-gradient(45deg, #22c55e, #4ade80, #86efac, #22c55e)', 'text-green-300', '0 0 10px rgba(34, 197, 94, 0.8)'),
+      capital: renderMetricTile('capital', 'Capital Invested', `$${formatMoney(stats.totalSpent)}`, 'rgba(248, 113, 113, 0.25)', 'linear-gradient(45deg, #ef4444, #f87171, #fca5a5, #ef4444)', 'text-red-400', '0 0 10px rgba(248, 113, 113, 0.8)'),
+      payouts: renderMetricTile('payouts', 'Total Payouts', `$${formatMoney(stats.totalPayouts)}`, 'rgba(34, 197, 94, 0.25)', 'linear-gradient(45deg, #10b981, #34d399, #6ee7b7, #10b981)', 'text-green-400', '0 0 10px rgba(34, 197, 94, 0.8)'),
+      avgTime: renderMetricTile('avgTime', 'Avg Time to Live', `${stats.averageTimeToLive > 0 ? `${Math.round(stats.averageTimeToLive)}d` : 'N/A'}`, 'rgba(168, 85, 247, 0.25)', 'linear-gradient(45deg, #a855f7, #c084fc, #e9d5ff, #a855f7)', 'text-purple-400', '0 0 10px rgba(168, 85, 247, 0.8)'),
     };
     return defs;
-  }, [stats]);
+  }, [stats, timeframe]);
   const visibleStatKeys = useMemo(
     () => selectedStats.filter(key => {
       if (key === 'phase2') return eligible2Count > 0;
@@ -558,21 +581,6 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
     }),
     [selectedStats, eligible2Count, eligible3Count, stats.phase3PassRate]
   );
-  const glassTileClass = "relative overflow-hidden rounded-3xl backdrop-blur-xl p-4 border border-white/20";
-  const glassTileStyle: React.CSSProperties = {
-    background: `linear-gradient(135deg,
-      rgba(255, 255, 255, 0.1) 0%,
-      rgba(255, 255, 255, 0.05) 50%,
-      rgba(255, 255, 255, 0.02) 100%
-    )`,
-    boxShadow: `
-      0 8px 32px rgba(0, 0, 0, 0.3),
-      0 0 0 1px rgba(255, 255, 255, 0.05),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1),
-      inset 0 -1px 0 rgba(0, 0, 0, 0.1)
-    `
-  };
-  
   // Format date manually to avoid timezone issues
   const formatDate = (() => {
     if (timeframe === 'month' && selectedMonth) {
