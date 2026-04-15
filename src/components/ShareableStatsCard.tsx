@@ -434,11 +434,15 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
   const statDefinitions = useMemo(() => {
     const defs: Record<ShareStatKey, JSX.Element> = {
       live: (
-        <div key="live" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-cyan-500/30 relative">
-          <div className="absolute top-2 right-2">
-            <Trophy className="w-5 h-5 text-cyan-400/60" />
+        <div key="live" className={glassTileClass} style={glassTileStyle}>
+          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
+            background: 'radial-gradient(ellipse at center, rgba(34, 211, 238, 0.25) 0%, transparent 70%)',
+            filter: 'blur(18px)'
+          }} />
+          <div className="absolute top-3 right-3">
+            <Trophy className="w-5 h-5 text-cyan-300/70" />
           </div>
-          <div className="text-cyan-300/80 text-xs font-bold uppercase tracking-wider mb-2">Live Rate</div>
+          <div className="relative text-cyan-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Live Rate</div>
           <div className={`text-2xl font-black ${
             stats.liveAccountsRate > 0.5 ? 'text-green-400' :
             stats.liveAccountsRate > 0.3 ? 'text-yellow-400' : 'text-red-400'
@@ -454,66 +458,90 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
         </div>
       ),
       phase1: (
-        <div key="phase1" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-cyan-500/30 relative">
-          <div className="absolute top-2 right-2">
-            <Trophy className="w-5 h-5 text-cyan-400/60" />
+        <div key="phase1" className={glassTileClass} style={glassTileStyle}>
+          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
+            background: 'radial-gradient(ellipse at center, rgba(34, 211, 238, 0.25) 0%, transparent 70%)',
+            filter: 'blur(18px)'
+          }} />
+          <div className="absolute top-3 right-3">
+            <Trophy className="w-5 h-5 text-cyan-300/70" />
           </div>
-          <div className="text-cyan-300/80 text-xs font-bold uppercase tracking-wider mb-2">Phase 1 Pass</div>
+          <div className="relative text-cyan-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Phase 1 Pass</div>
           <div className="text-cyan-300 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(34, 211, 238, 0.4)' }}>
             {(stats.phase1PassRate * 100).toFixed(0)}%
           </div>
         </div>
       ),
       phase2: (
-        <div key="phase2" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-lime-500/30 relative">
-          <div className="absolute top-2 right-2">
-            <Trophy className="w-5 h-5 text-lime-400/60" />
+        <div key="phase2" className={glassTileClass} style={glassTileStyle}>
+          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
+            background: 'radial-gradient(ellipse at center, rgba(163, 230, 53, 0.25) 0%, transparent 70%)',
+            filter: 'blur(18px)'
+          }} />
+          <div className="absolute top-3 right-3">
+            <Trophy className="w-5 h-5 text-lime-300/70" />
           </div>
-          <div className="text-lime-300/80 text-xs font-bold uppercase tracking-wider mb-2">Phase 2 Pass</div>
+          <div className="relative text-lime-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Phase 2 Pass</div>
           <div className="text-lime-300 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(163, 230, 53, 0.4)' }}>
             {(stats.phase2PassRate * 100).toFixed(0)}%
           </div>
         </div>
       ),
       phase3: (
-        <div key="phase3" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-green-500/30 relative">
-          <div className="absolute top-2 right-2">
-            <Trophy className="w-5 h-5 text-green-400/60" />
+        <div key="phase3" className={glassTileClass} style={glassTileStyle}>
+          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
+            background: 'radial-gradient(ellipse at center, rgba(34, 197, 94, 0.25) 0%, transparent 70%)',
+            filter: 'blur(18px)'
+          }} />
+          <div className="absolute top-3 right-3">
+            <Trophy className="w-5 h-5 text-green-300/70" />
           </div>
-          <div className="text-green-300/80 text-xs font-bold uppercase tracking-wider mb-2">Phase 3 Pass</div>
+          <div className="relative text-green-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Phase 3 Pass</div>
           <div className="text-green-300 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(34, 197, 94, 0.4)' }}>
             {((stats.phase3PassRate ?? 0) * 100).toFixed(0)}%
           </div>
         </div>
       ),
       capital: (
-        <div key="capital" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-red-500/30 relative">
-          <div className="absolute top-2 right-2">
-            <DollarSign className="w-5 h-5 text-red-400/60" />
+        <div key="capital" className={glassTileClass} style={glassTileStyle}>
+          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
+            background: 'radial-gradient(ellipse at center, rgba(248, 113, 113, 0.25) 0%, transparent 70%)',
+            filter: 'blur(18px)'
+          }} />
+          <div className="absolute top-3 right-3">
+            <DollarSign className="w-5 h-5 text-red-300/70" />
           </div>
-          <div className="text-red-300/80 text-xs font-bold uppercase tracking-wider mb-2">Capital Invested</div>
+          <div className="relative text-red-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Capital Invested</div>
           <div className="text-red-400 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(248, 113, 113, 0.5)' }}>
             ${formatMoney(stats.totalSpent)}
           </div>
         </div>
       ),
       payouts: (
-        <div key="payouts" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-green-500/30 relative">
-          <div className="absolute top-2 right-2">
-            <Trophy className="w-5 h-5 text-green-400/60" />
+        <div key="payouts" className={glassTileClass} style={glassTileStyle}>
+          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
+            background: 'radial-gradient(ellipse at center, rgba(34, 197, 94, 0.25) 0%, transparent 70%)',
+            filter: 'blur(18px)'
+          }} />
+          <div className="absolute top-3 right-3">
+            <Trophy className="w-5 h-5 text-green-300/70" />
           </div>
-          <div className="text-green-300/80 text-xs font-bold uppercase tracking-wider mb-2">Total Payouts</div>
+          <div className="relative text-green-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Total Payouts</div>
           <div className="text-green-400 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(34, 197, 94, 0.5)' }}>
             ${formatMoney(stats.totalPayouts)}
           </div>
         </div>
       ),
       avgTime: (
-        <div key="avgTime" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-purple-500/30 relative">
-          <div className="absolute top-2 right-2">
-            <Trophy className="w-5 h-5 text-purple-400/60" />
+        <div key="avgTime" className={glassTileClass} style={glassTileStyle}>
+          <div className="absolute -inset-2 opacity-25 rounded-2xl" style={{
+            background: 'radial-gradient(ellipse at center, rgba(168, 85, 247, 0.25) 0%, transparent 70%)',
+            filter: 'blur(18px)'
+          }} />
+          <div className="absolute top-3 right-3">
+            <Trophy className="w-5 h-5 text-purple-300/70" />
           </div>
-          <div className="text-purple-300/80 text-xs font-bold uppercase tracking-wider mb-2">Avg Time to Live</div>
+          <div className="relative text-purple-300/80 text-xs font-bold uppercase tracking-[0.18em] mb-2">Avg Time to Live</div>
           <div className="text-purple-400 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(168, 85, 247, 0.5)' }}>
             {stats.averageTimeToLive > 0 ? `${Math.round(stats.averageTimeToLive)}d` : 'N/A'}
           </div>
@@ -530,6 +558,20 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
     }),
     [selectedStats, eligible2Count, eligible3Count, stats.phase3PassRate]
   );
+  const glassTileClass = "relative overflow-hidden rounded-3xl backdrop-blur-xl p-4 border border-white/20";
+  const glassTileStyle: React.CSSProperties = {
+    background: `linear-gradient(135deg,
+      rgba(255, 255, 255, 0.1) 0%,
+      rgba(255, 255, 255, 0.05) 50%,
+      rgba(255, 255, 255, 0.02) 100%
+    )`,
+    boxShadow: `
+      0 8px 32px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(255, 255, 255, 0.05),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.1)
+    `
+  };
   
   // Format date manually to avoid timezone issues
   const formatDate = (() => {
@@ -663,55 +705,97 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
 
   return (
     <div className="flex flex-col items-center space-y-6">
-      {/* Dark Neon Trading Card */}
+      {/* Dashboard-style glass card */}
       <div 
         ref={cardRef}
         data-card-ref="true"
-        className="relative w-[450px] h-[650px] bg-gray-900 overflow-hidden rounded-2xl border border-cyan-500/30"
+        className="relative w-[520px] min-h-[650px] overflow-hidden rounded-3xl backdrop-blur-xl border border-white/20"
         style={{
-          background: 'linear-gradient(145deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%)',
-          boxShadow: '0 0 40px rgba(6, 182, 212, 0.3), 0 0 80px rgba(139, 69, 19, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+          background: `linear-gradient(135deg,
+            rgba(255, 255, 255, 0.1) 0%,
+            rgba(255, 255, 255, 0.05) 50%,
+            rgba(255, 255, 255, 0.02) 100%
+          ), linear-gradient(145deg, #0a0a0a 0%, #111827 55%, #0f172a 100%)`,
+          boxShadow: `
+            0 8px 32px rgba(0, 0, 0, 0.35),
+            0 0 0 1px rgba(255, 255, 255, 0.05),
+            inset 0 1px 0 rgba(255, 255, 255, 0.12),
+            inset 0 -1px 0 rgba(0, 0, 0, 0.15)
+          `
         }}
       >
-        {/* Static border glow */}
-        <div className="absolute inset-0 rounded-2xl" style={{
-          background: 'rgba(6, 182, 212, 0.05)'
+        <div className="absolute inset-0 opacity-20" style={{
+          background: 'conic-gradient(from 180deg at 50% 50%, rgba(34,211,238,0.15), rgba(168,85,247,0.1), rgba(16,185,129,0.12), rgba(34,211,238,0.15))'
         }} />
         
         {/* Content */}
         <div className="relative p-8 h-full flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center space-x-2">
-              <div className="w-3 h-3 rounded-full bg-green-400" style={{
-                boxShadow: '0 0 10px rgba(34, 197, 94, 0.7)'
-              }}></div>
-              <span className="text-green-400 text-sm font-bold tracking-wider">LIVE</span>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full" style={{
+              background: 'rgba(255, 255, 255, 0.08)',
+              border: '1px solid rgba(255,255,255,0.14)'
+            }}>
+              <div className="w-2.5 h-2.5 rounded-full bg-green-400" style={{ boxShadow: '0 0 10px rgba(34, 197, 94, 0.7)' }} />
+              <span className="text-white/80 text-xs font-semibold tracking-[0.18em]">DASHBOARD</span>
             </div>
-            <div className="text-cyan-300 text-sm font-mono">
+            <div className="text-white/70 text-sm font-mono">
               {currentTime}
             </div>
           </div>
           
 
           {/* Main Title */}
-          <div className="text-center mb-8">
-            <div className="flex items-center justify-center mb-4">
-              <Zap className="w-8 h-8 text-yellow-400 mr-3" style={{
-                filter: 'drop-shadow(0 0 10px rgba(234, 179, 8, 0.7))'
-              }} />
-              <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-yellow-300 to-pink-300">
-                PROP TRADER
-              </h1>
+          <div className="relative mb-8">
+            <div className="absolute -inset-3 rounded-3xl opacity-30" style={{
+              background: isPositive
+                ? 'radial-gradient(ellipse at center, rgba(16, 185, 129, 0.25) 0%, transparent 70%)'
+                : 'radial-gradient(ellipse at center, rgba(239, 68, 68, 0.25) 0%, transparent 70%)',
+              filter: 'blur(22px)'
+            }} />
+            <div className="relative flex items-start justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium mb-3" style={{
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255,255,255,0.14)'
+                }}>
+                  <span className="text-white/70">{currentDate}</span>
+                </div>
+                <h1 className="text-3xl font-black text-transparent bg-clip-text"
+                  style={{
+                    backgroundImage: isPositive
+                      ? 'linear-gradient(45deg, #10b981, #34d399, #6ee7b7)'
+                      : 'linear-gradient(45deg, #ef4444, #f87171, #fca5a5)',
+                    filter: 'drop-shadow(0 0 8px rgba(255,255,255,0.2))'
+                  }}>
+                  {timeframe === 'month' ? 'Monthly Stats' : timeframe === 'week' ? 'Weekly Stats' : timeframe === 'year' ? 'Yearly Stats' : 'All-Time Stats'}
+                </h1>
+                <p className="text-white/65 text-sm font-semibold tracking-[0.18em] mt-2">
+                  {timeframe === 'month' || timeframe === 'week' || timeframe === 'year' ? formatDate.toUpperCase() : 'ALL-TIME PERFORMANCE'}
+                </p>
+              </div>
+              <div className="relative shrink-0">
+                <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{
+                  background: `linear-gradient(135deg,
+                    rgba(255,255,255,0.18) 0%,
+                    rgba(255,255,255,0.08) 100%
+                  )`,
+                  border: '1px solid rgba(255,255,255,0.24)',
+                  boxShadow: `0 8px 32px ${isPositive ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`
+                }}>
+                  <Zap className={`w-8 h-8 ${isPositive ? 'text-emerald-300' : 'text-rose-300'}`} />
+                </div>
+              </div>
             </div>
-            <p className="text-cyan-400/80 text-sm font-semibold tracking-wide">
-              {timeframe === 'month' || timeframe === 'week' || timeframe === 'year' ? formatDate.toUpperCase() : 'ALL-TIME PERFORMANCE'}
-            </p>
           </div>
 
           {/* Main ROI Display */}
-          <div className="bg-black/40 backdrop-blur-sm rounded-xl p-6 mb-6 border border-cyan-500/30 relative overflow-visible">
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-500/5 to-transparent"></div>
+          <div className="relative overflow-hidden rounded-3xl p-6 mb-6 border border-white/20" style={glassTileStyle}>
+            <div className="absolute inset-0 opacity-25" style={{
+              background: isPositive
+                ? 'radial-gradient(ellipse at center, rgba(16, 185, 129, 0.25) 0%, transparent 65%)'
+                : 'radial-gradient(ellipse at center, rgba(239, 68, 68, 0.25) 0%, transparent 65%)'
+            }} />
             <div className="relative text-center">
               <div className="flex items-center justify-center mb-2">
                 {isPositive ? (
@@ -719,14 +803,14 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
                     <TrendingUp className="w-7 h-7 text-green-400" style={{
                       filter: 'drop-shadow(0 0 15px rgba(34, 197, 94, 0.8))'
                     }} />
-                    <span className="text-green-400 font-black text-lg tracking-wide">PROFITABLE</span>
+                    <span className="text-green-400 font-black text-lg tracking-[0.18em]">PROFITABLE</span>
                   </div>
                 ) : (
                   <div className="flex items-center space-x-2">
                     <TrendingDown className="w-7 h-7 text-red-400" style={{
                       filter: 'drop-shadow(0 0 15px rgba(239, 68, 68, 0.8))'
                     }} />
-                    <span className="text-red-400 font-black text-lg tracking-wide">LOSS</span>
+                    <span className="text-red-400 font-black text-lg tracking-[0.18em]">LOSS</span>
                   </div>
                 )}
               </div>
@@ -750,18 +834,18 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
           </div>
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6 flex-1">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-5 mb-6 flex-1">
             {visibleStatKeys.map(key => statDefinitions[key])}
           </div>
 
           {/* Footer */}
           <div className="text-center mt-auto">
-            <div className="w-24 h-px bg-gradient-to-r from-transparent via-cyan-500 to-transparent mx-auto mb-3"></div>
-            <div className="text-cyan-400/80 text-sm font-bold tracking-wider">
+            <div className="w-24 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent mx-auto mb-3"></div>
+            <div className="text-white/75 text-sm font-bold tracking-[0.18em]">
               TRADING DASHBOARD
             </div>
-            <div className="text-gray-500 text-xs mt-1 font-mono">
-              {currentDate}
+            <div className="text-white/45 text-xs mt-1 font-mono">
+              Snapshot Export
             </div>
           </div>
         </div>
