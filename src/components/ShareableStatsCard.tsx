@@ -453,7 +453,8 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
     accentSoft: string,
     gradient: string,
     textClass: string,
-    orbShadow: string
+    orbShadow: string,
+    compactValue = false
   ) => (
     <div key={key} className={glassTileClass}>
       <div className="relative transform-gpu transition-all duration-700">
@@ -550,7 +551,10 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
               <div className="relative">
                 <p className="text-sm text-white/60 font-medium uppercase tracking-[0.2em] mb-2">Metric</p>
                 <div className="relative overflow-visible px-1">
-                  <h2 className={`text-3xl sm:text-4xl font-black leading-tight break-all ${textClass}`} style={{ filter: `drop-shadow(0 0 18px ${accentSoft.replace('0.25', '0.8')})` }}>
+                  <h2
+                    className={`font-black leading-none ${compactValue ? 'text-[2rem] sm:text-[2.35rem] tracking-tight whitespace-nowrap' : 'text-3xl sm:text-4xl'} ${textClass}`}
+                    style={{ filter: `drop-shadow(0 0 18px ${accentSoft.replace('0.25', '0.8')})` }}
+                  >
                     {value}
                   </h2>
                 </div>
@@ -567,8 +571,8 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
       phase1: renderMetricTile('phase1', 'Phase 1 Pass', `${(stats.phase1PassRate * 100).toFixed(0)}%`, 'rgba(34, 211, 238, 0.25)', 'linear-gradient(45deg, #22d3ee, #67e8f9, #a5f3fc, #22d3ee)', 'text-cyan-300', '0 0 10px rgba(34, 211, 238, 0.8)'),
       phase2: renderMetricTile('phase2', 'Phase 2 Pass', `${(stats.phase2PassRate * 100).toFixed(0)}%`, 'rgba(163, 230, 53, 0.25)', 'linear-gradient(45deg, #84cc16, #a3e635, #d9f99d, #84cc16)', 'text-lime-300', '0 0 10px rgba(163, 230, 53, 0.8)'),
       phase3: renderMetricTile('phase3', 'Phase 3 Pass', `${((stats.phase3PassRate ?? 0) * 100).toFixed(0)}%`, 'rgba(34, 197, 94, 0.25)', 'linear-gradient(45deg, #22c55e, #4ade80, #86efac, #22c55e)', 'text-green-300', '0 0 10px rgba(34, 197, 94, 0.8)'),
-      capital: renderMetricTile('capital', 'Capital Invested', `$${formatMoney(stats.totalSpent)}`, 'rgba(248, 113, 113, 0.25)', 'linear-gradient(45deg, #ef4444, #f87171, #fca5a5, #ef4444)', 'text-red-400', '0 0 10px rgba(248, 113, 113, 0.8)'),
-      payouts: renderMetricTile('payouts', 'Total Payouts', `$${formatMoney(stats.totalPayouts)}`, 'rgba(34, 197, 94, 0.25)', 'linear-gradient(45deg, #10b981, #34d399, #6ee7b7, #10b981)', 'text-green-400', '0 0 10px rgba(34, 197, 94, 0.8)'),
+      capital: renderMetricTile('capital', 'Capital Invested', `$${formatMoney(stats.totalSpent)}`, 'rgba(248, 113, 113, 0.25)', 'linear-gradient(45deg, #ef4444, #f87171, #fca5a5, #ef4444)', 'text-red-400', '0 0 10px rgba(248, 113, 113, 0.8)', true),
+      payouts: renderMetricTile('payouts', 'Total Payouts', `$${formatMoney(stats.totalPayouts)}`, 'rgba(34, 197, 94, 0.25)', 'linear-gradient(45deg, #10b981, #34d399, #6ee7b7, #10b981)', 'text-green-400', '0 0 10px rgba(34, 197, 94, 0.8)', true),
       avgTime: renderMetricTile('avgTime', 'Avg Time to Live', `${stats.averageTimeToLive > 0 ? `${Math.round(stats.averageTimeToLive)}d` : 'N/A'}`, 'rgba(168, 85, 247, 0.25)', 'linear-gradient(45deg, #a855f7, #c084fc, #e9d5ff, #a855f7)', 'text-purple-400', '0 0 10px rgba(168, 85, 247, 0.8)'),
     };
     return defs;
@@ -717,7 +721,7 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
       <div 
         ref={cardRef}
         data-card-ref="true"
-        className="relative w-[520px] min-h-[650px] overflow-hidden rounded-3xl backdrop-blur-xl border border-white/20"
+        className="relative w-[580px] min-h-[650px] overflow-hidden rounded-3xl backdrop-blur-xl border border-white/20"
         style={{
           background: `linear-gradient(135deg,
             rgba(255, 255, 255, 0.1) 0%,
