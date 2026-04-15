@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Challenge } from '../types';
-import { ShareableStatsCard } from './ShareableStatsCard';
+import { ShareableStatsCard, type ShareStatKey } from './ShareableStatsCard';
 import { X, Calendar, BarChart3 } from 'lucide-react';
 
 interface ShareStatsModalProps {
@@ -21,7 +21,17 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({
   isOpen, 
   onClose 
 }) => {
+  const statOptions: { key: ShareStatKey; label: string }[] = [
+    { key: 'capital', label: 'Capital Invested' },
+    { key: 'payouts', label: 'Total Payouts' },
+    { key: 'live', label: 'Live Rate' },
+    { key: 'phase1', label: 'Phase 1 Pass' },
+    { key: 'phase2', label: 'Phase 2 Pass' },
+    { key: 'phase3', label: 'Phase 3 Pass' },
+    { key: 'avgTime', label: 'Avg Time to Live' },
+  ];
   const [timeframe, setTimeframe] = useState<'month' | 'week' | 'year' | 'all-time'>('month');
+  const [selectedStats, setSelectedStats] = useState<ShareStatKey[]>(['capital', 'payouts']);
   const [selectedMonth, setSelectedMonth] = useState(() => {
     // Default to current month
     const now = new Date();
@@ -237,6 +247,38 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({
           </div>
         )}
 
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-white/80 mb-3">
+            Choose Stats To Share
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {statOptions.map((option) => {
+              const active = selectedStats.includes(option.key);
+              return (
+                <button
+                  key={option.key}
+                  onClick={() => {
+                    setSelectedStats((prev) => {
+                      if (prev.includes(option.key)) {
+                        const next = prev.filter((k) => k !== option.key);
+                        return next.length > 0 ? next : prev;
+                      }
+                      return [...prev, option.key];
+                    });
+                  }}
+                  className={`px-3 py-2 rounded-lg border text-sm transition-all duration-300 ${
+                    active
+                      ? 'bg-gradient-to-r from-cyan-500/20 to-purple-500/20 border-cyan-400/50 text-cyan-200'
+                      : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Preview Card */}
         <div className="flex justify-center">
           <ShareableStatsCard 
@@ -245,6 +287,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({
             selectedMonth={timeframe === 'month' ? selectedMonth : undefined}
             selectedWeek={timeframe === 'week' ? selectedWeek : undefined}
             selectedYear={timeframe === 'year' ? selectedYear : undefined}
+            selectedStats={selectedStats}
           />
         </div>
 

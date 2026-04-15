@@ -85,7 +85,10 @@ interface ShareableStatsCardProps {
   selectedMonth?: string; // YYYY-MM format
   selectedWeek?: string; // YYYY-WXX format
   selectedYear?: string; // YYYY format
+  selectedStats?: ShareStatKey[];
 }
+
+export type ShareStatKey = 'capital' | 'payouts' | 'live' | 'phase1' | 'phase2' | 'phase3' | 'avgTime';
 
 // Smart number formatting for trading stats
 const formatMoney = (amount: number): string => {
@@ -104,12 +107,19 @@ const formatMoney = (amount: number): string => {
   }
 };
 
+const getWeekOfYear = (date: Date): number => {
+  const startOfYear = new Date(date.getFullYear(), 0, 1);
+  const pastDaysOfYear = (date.getTime() - startOfYear.getTime()) / 86400000;
+  return Math.ceil((pastDaysOfYear + startOfYear.getDay() + 1) / 7);
+};
+
 export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({ 
   challenges, 
   timeframe, 
   selectedMonth,
   selectedWeek,
-  selectedYear
+  selectedYear,
+  selectedStats = ['capital', 'payouts']
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   
@@ -395,15 +405,131 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
   }, [challenges, timeframe, selectedMonth, selectedWeek, selectedYear]);
 
   const isPositive = stats.roi >= 0;
+  const timeframeBaseChallenges = useMemo(() => {
+    if (timeframe === 'month' && selectedMonth) {
+      return challenges.filter(c => c.startDate.slice(0, 7) === selectedMonth);
+    }
+    if (timeframe === 'week' && selectedWeek) {
+      return challenges.filter(c => {
+        const d = new Date(c.startDate);
+        const y = d.getFullYear();
+        const w = getWeekOfYear(d);
+        return `${y}-W${String(w).padStart(2, '0')}` === selectedWeek;
+      });
+    }
+    if (timeframe === 'year' && selectedYear) {
+      return challenges.filter(c => c.startDate.slice(0, 4) === selectedYear);
+    }
+    return challenges;
+  }, [challenges, timeframe, selectedMonth, selectedWeek, selectedYear]);
   const eligible2Count = useMemo(
-    () => challenges.filter(c => (c.totalPhases || 3) >= 2).length,
-    [challenges]
+    () => timeframeBaseChallenges.filter(c => (c.totalPhases || 3) >= 2).length,
+    [timeframeBaseChallenges]
   );
   const eligible3Count = useMemo(
-    () => challenges.filter(c => (c.totalPhases || 3) >= 3).length,
-    [challenges]
+    () => timeframeBaseChallenges.filter(c => (c.totalPhases || 3) >= 3).length,
+    [timeframeBaseChallenges]
   );
   const profit = stats.totalPayouts - stats.totalSpent;
+  const statDefinitions = useMemo(() => {
+    const defs: Record<ShareStatKey, JSX.Element> = {
+      live: (
+        <div key="live" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-cyan-500/30 relative">
+          <div className="absolute top-2 right-2">
+            <Trophy className="w-5 h-5 text-cyan-400/60" />
+          </div>
+          <div className="text-cyan-300/80 text-xs font-bold uppercase tracking-wider mb-2">Live Rate</div>
+          <div className={`text-2xl font-black ${
+            stats.liveAccountsRate > 0.5 ? 'text-green-400' :
+            stats.liveAccountsRate > 0.3 ? 'text-yellow-400' : 'text-red-400'
+          }`} style={{
+            textShadow: stats.liveAccountsRate > 0.5
+              ? '0 0 10px rgba(34, 197, 94, 0.5)'
+              : stats.liveAccountsRate > 0.3
+              ? '0 0 10px rgba(234, 179, 8, 0.5)'
+              : '0 0 10px rgba(248, 113, 113, 0.5)'
+          }}>
+            {(stats.liveAccountsRate * 100).toFixed(0)}%
+          </div>
+        </div>
+      ),
+      phase1: (
+        <div key="phase1" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-cyan-500/30 relative">
+          <div className="absolute top-2 right-2">
+            <Trophy className="w-5 h-5 text-cyan-400/60" />
+          </div>
+          <div className="text-cyan-300/80 text-xs font-bold uppercase tracking-wider mb-2">Phase 1 Pass</div>
+          <div className="text-cyan-300 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(34, 211, 238, 0.4)' }}>
+            {(stats.phase1PassRate * 100).toFixed(0)}%
+          </div>
+        </div>
+      ),
+      phase2: (
+        <div key="phase2" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-lime-500/30 relative">
+          <div className="absolute top-2 right-2">
+            <Trophy className="w-5 h-5 text-lime-400/60" />
+          </div>
+          <div className="text-lime-300/80 text-xs font-bold uppercase tracking-wider mb-2">Phase 2 Pass</div>
+          <div className="text-lime-300 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(163, 230, 53, 0.4)' }}>
+            {(stats.phase2PassRate * 100).toFixed(0)}%
+          </div>
+        </div>
+      ),
+      phase3: (
+        <div key="phase3" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-green-500/30 relative">
+          <div className="absolute top-2 right-2">
+            <Trophy className="w-5 h-5 text-green-400/60" />
+          </div>
+          <div className="text-green-300/80 text-xs font-bold uppercase tracking-wider mb-2">Phase 3 Pass</div>
+          <div className="text-green-300 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(34, 197, 94, 0.4)' }}>
+            {((stats.phase3PassRate ?? 0) * 100).toFixed(0)}%
+          </div>
+        </div>
+      ),
+      capital: (
+        <div key="capital" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-red-500/30 relative">
+          <div className="absolute top-2 right-2">
+            <DollarSign className="w-5 h-5 text-red-400/60" />
+          </div>
+          <div className="text-red-300/80 text-xs font-bold uppercase tracking-wider mb-2">Capital Invested</div>
+          <div className="text-red-400 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(248, 113, 113, 0.5)' }}>
+            ${formatMoney(stats.totalSpent)}
+          </div>
+        </div>
+      ),
+      payouts: (
+        <div key="payouts" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-green-500/30 relative">
+          <div className="absolute top-2 right-2">
+            <Trophy className="w-5 h-5 text-green-400/60" />
+          </div>
+          <div className="text-green-300/80 text-xs font-bold uppercase tracking-wider mb-2">Total Payouts</div>
+          <div className="text-green-400 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(34, 197, 94, 0.5)' }}>
+            ${formatMoney(stats.totalPayouts)}
+          </div>
+        </div>
+      ),
+      avgTime: (
+        <div key="avgTime" className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-purple-500/30 relative">
+          <div className="absolute top-2 right-2">
+            <Trophy className="w-5 h-5 text-purple-400/60" />
+          </div>
+          <div className="text-purple-300/80 text-xs font-bold uppercase tracking-wider mb-2">Avg Time to Live</div>
+          <div className="text-purple-400 text-2xl font-black" style={{ textShadow: '0 0 10px rgba(168, 85, 247, 0.5)' }}>
+            {stats.averageTimeToLive > 0 ? `${Math.round(stats.averageTimeToLive)}d` : 'N/A'}
+          </div>
+        </div>
+      ),
+    };
+    return defs;
+  }, [stats]);
+  const visibleStatKeys = useMemo(
+    () => selectedStats.filter(key => {
+      if (key === 'phase2') return eligible2Count > 0;
+      if (key === 'phase3') return eligible3Count > 0 && typeof stats.phase3PassRate === 'number';
+      return true;
+    }),
+    [selectedStats, eligible2Count, eligible3Count, stats.phase3PassRate]
+  );
   
   // Format date manually to avoid timezone issues
   const formatDate = (() => {
@@ -625,121 +751,7 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
 
           {/* Stats Grid */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6 flex-1">
-            {/* Success Rate - Color coded */}
-            <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-cyan-500/30 relative">
-              <div className="absolute top-2 right-2">
-                <Trophy className="w-5 h-5 text-cyan-400/60" />
-              </div>
-              <div className="text-cyan-300/80 text-xs font-bold uppercase tracking-wider mb-2">
-                Success Rate
-              </div>
-              <div className={`text-2xl font-black ${
-                stats.liveAccountsRate > 0.5 ? 'text-green-400' : 
-                stats.liveAccountsRate > 0.3 ? 'text-yellow-400' : 'text-red-400'
-              }`} style={{
-                textShadow: stats.liveAccountsRate > 0.5 
-                  ? '0 0 10px rgba(34, 197, 94, 0.5)'
-                  : stats.liveAccountsRate > 0.3
-                  ? '0 0 10px rgba(234, 179, 8, 0.5)'
-                  : '0 0 10px rgba(248, 113, 113, 0.5)'
-              }}>
-                {(stats.liveAccountsRate * 100).toFixed(0)}%
-              </div>
-            </div>
-            
-            {/* Phase 1 Pass */}
-            <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-cyan-500/30 relative">
-              <div className="absolute top-2 right-2">
-                <Trophy className="w-5 h-5 text-cyan-400/60" />
-              </div>
-              <div className="text-cyan-300/80 text-xs font-bold uppercase tracking-wider mb-2">
-                Phase 1 Pass
-              </div>
-              <div className="text-cyan-300 text-2xl font-black" style={{
-                textShadow: '0 0 10px rgba(34, 211, 238, 0.4)'
-              }}>
-                {(stats.phase1PassRate * 100).toFixed(0)}%
-              </div>
-            </div>
-            
-            {/* Phase 2 Pass (conditional) */}
-            {eligible2Count > 0 && (
-              <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-lime-500/30 relative">
-                <div className="absolute top-2 right-2">
-                  <Trophy className="w-5 h-5 text-lime-400/60" />
-                </div>
-                <div className="text-lime-300/80 text-xs font-bold uppercase tracking-wider mb-2">
-                  Phase 2 Pass
-                </div>
-                <div className="text-lime-300 text-2xl font-black" style={{
-                  textShadow: '0 0 10px rgba(163, 230, 53, 0.4)'
-                }}>
-                  {(stats.phase2PassRate * 100).toFixed(0)}%
-                </div>
-              </div>
-            )}
-            
-            {/* Phase 3 Pass (conditional) */}
-            {eligible3Count > 0 && typeof stats.phase3PassRate === 'number' && (
-              <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-green-500/30 relative">
-                <div className="absolute top-2 right-2">
-                  <Trophy className="w-5 h-5 text-green-400/60" />
-                </div>
-                <div className="text-green-300/80 text-xs font-bold uppercase tracking-wider mb-2">
-                  Phase 3 Pass
-                </div>
-                <div className="text-green-300 text-2xl font-black" style={{
-                  textShadow: '0 0 10px rgba(34, 197, 94, 0.4)'
-                }}>
-                  {((stats.phase3PassRate ?? 0) * 100).toFixed(0)}%
-                </div>
-              </div>
-            )}
-            
-            {/* Capital Invested - RED (Cost) */}
-            <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-red-500/30 relative">
-              <div className="absolute top-2 right-2">
-                <DollarSign className="w-5 h-5 text-red-400/60" />
-              </div>
-              <div className="text-red-300/80 text-xs font-bold uppercase tracking-wider mb-2">
-                Capital Invested
-              </div>
-              <div className="text-red-400 text-2xl font-black" style={{
-                textShadow: '0 0 10px rgba(248, 113, 113, 0.5)'
-              }}>
-                ${formatMoney(stats.totalSpent)}
-              </div>
-            </div>
-            
-            {/* Total Payouts - GREEN (Income) */}
-            <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-green-500/30 relative">
-              <div className="absolute top-2 right-2">
-                <Trophy className="w-5 h-5 text-green-400/60" />
-              </div>
-              <div className="text-green-300/80 text-xs font-bold uppercase tracking-wider mb-2">
-                Total Payouts
-              </div>
-              <div className="text-green-400 text-2xl font-black" style={{
-                textShadow: '0 0 10px rgba(34, 197, 94, 0.5)'
-              }}>
-                ${formatMoney(stats.totalPayouts)}
-              </div>
-            </div>
-            
-            {/* Avg Time to Live */}
-            <div className="bg-black/30 backdrop-blur-sm rounded-xl p-4 border border-purple-500/30 relative">
-              <div className="absolute top-2 right-2">
-                <Trophy className="w-5 h-5 text-purple-400/60" />
-              </div>
-              <div className="text-purple-300/80 text-xs font-bold uppercase tracking-wider mb-2">
-                Avg Time to Live
-              </div>
-              <div className="text-purple-400 text-2xl font-black" style={{
-                textShadow: '0 0 10px rgba(168, 85, 247, 0.5)'
-              }}>
-                {stats.averageTimeToLive > 0 ? `${Math.round(stats.averageTimeToLive)}d` : 'N/A'}
-              </div>
-            </div>
+            {visibleStatKeys.map(key => statDefinitions[key])}
           </div>
 
           {/* Footer */}

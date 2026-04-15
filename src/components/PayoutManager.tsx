@@ -19,8 +19,19 @@ interface PayoutManagerProps {
 }
 
 export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdate, disabled = false, showClaimBogo = false, showReset = false, onClaimBogo, onOpenReset, onDeleteChallenge, onCloseEdit }) => {
+  const getLocalInputDate = React.useCallback(() => {
+    const now = new Date();
+    const offsetMs = now.getTimezoneOffset() * 60000;
+    return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+  }, []);
+  const formatStoredDate = React.useCallback((value: string) => {
+    const parts = value.split('-');
+    if (parts.length !== 3) return value;
+    const [year, month, day] = parts.map(Number);
+    return new Date(year, month - 1, day).toLocaleDateString();
+  }, []);
   const [amount, setAmount] = React.useState('');
-  const [date, setDate] = React.useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = React.useState(getLocalInputDate());
   const [loading, setLoading] = React.useState(false);
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [justAdded, setJustAdded] = React.useState<string | null>(null);
@@ -83,7 +94,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
       
       // Reset form
       setAmount('');
-      setDate(new Date().toISOString().slice(0, 10));
+      setDate(getLocalInputDate());
       setErrors({});
     } catch (error) {
       console.error('Add payout error:', error);
@@ -257,7 +268,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
             <h4 className="text-sm font-medium text-white/80">Payout History</h4>
             <AnimatePresence mode="popLayout">
               {[...payouts]
-                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                .sort((a, b) => b.date.localeCompare(a.date))
                 .map((payout, index) => (
                 <motion.div
                   key={payout.id}
@@ -352,7 +363,7 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
                             ${payout.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                           </div>
                           <div className="text-xs text-white/60">
-                            {new Date(payout.date).toLocaleDateString()}
+                            {formatStoredDate(payout.date)}
                           </div>
                         </div>
                       </div>

@@ -361,6 +361,17 @@ export const ChallengeList: React.FC<{
                         Fail
                       </Button>
                     )}
+                    {isLive && c.status !== 'failed' && (
+                      <Button
+                        size="sm"
+                        variant="success"
+                        onClick={() => onEdit(c)}
+                        className="px-3"
+                        title="Open payout manager"
+                      >
+                        Add Payout
+                      </Button>
+                    )}
                     
                     {/* Reset button removed (now handled in Edit modal) */}
                     
