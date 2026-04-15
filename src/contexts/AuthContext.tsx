@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import netlifyIdentity from 'netlify-identity-widget';
+import { createUser, findUserByEmail, validatePassword } from '../utils/tempAuth';
+import { FREE_ACCESS_MODE } from '../lib/appFlags';
 
 interface User {
   id: string;
@@ -67,11 +69,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const signup = async (_email: string, _password: string, _name?: string): Promise<void> => {
+    if (FREE_ACCESS_MODE) {
+      const created = await createUser(_email.trim().toLowerCase(), _password, (_name || '').trim());
+      setCurrentUser(created);
+      localStorage.setItem('user', JSON.stringify(created));
+      return;
+    }
     netlifyIdentity.open('signup');
     await awaitLoginViaIdentity();
   };
 
   const login = async (_email: string, _password: string): Promise<void> => {
+    if (FREE_ACCESS_MODE) {
+      const normalizedEmail = _email.trim().toLowerCase();
+      const user = await findUserByEmail(normalizedEmail);
+      if (!user) throw new Error('No account found for that email');
+      const valid = await validatePassword(user as any, _password);
+      if (!valid) throw new Error('Incorrect password');
+      const mapped = {
+        id: user.id,
+        email: user.email,
+        name: user.name ?? null,
+      };
+      setCurrentUser(mapped);
+      localStorage.setItem('user', JSON.stringify(mapped));
+      return;
+    }
     netlifyIdentity.open('login');
     await awaitLoginViaIdentity();
   };
