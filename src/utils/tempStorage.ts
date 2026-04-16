@@ -5,13 +5,19 @@ import { v4 as uuidv4 } from 'uuid';
 // This avoids the WebAssembly issues while we set up proper backend
 
 const STORAGE_KEY = 'propfolio_data';
+const STORAGE_ALIAS_KEY = 'propfolio_user_aliases';
 
 interface StorageData {
   [userId: string]: {
     firms: PropFirm[];
     challenges: Challenge[];
     selectedFirmId: string | null;
+    email?: string;
   };
+}
+
+interface StorageAliases {
+  [normalizedEmail: string]: string;
 }
 
 function getStorageData(): StorageData {
@@ -32,9 +38,117 @@ function setStorageData(data: StorageData): void {
   }
 }
 
+function getStorageAliases(): StorageAliases {
+  try {
+    const data = localStorage.getItem(STORAGE_ALIAS_KEY);
+    return data ? JSON.parse(data) : {};
+  } catch (error) {
+    console.error('Error reading storage aliases:', error);
+    return {};
+  }
+}
+
+function setStorageAliases(data: StorageAliases): void {
+  try {
+    localStorage.setItem(STORAGE_ALIAS_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error('Error writing storage aliases:', error);
+  }
+}
+
+function normalizeEmail(email?: string | null): string | null {
+  if (!email || typeof email !== 'string') return null;
+  const value = email.trim().toLowerCase();
+  return value || null;
+}
+
+function getCurrentStoredUser(): { id?: string; email?: string } | null {
+  try {
+    const raw = localStorage.getItem('user');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasMeaningfulData(bucket?: StorageData[string]): boolean {
+  if (!bucket) return false;
+  return bucket.firms.length > 0 || bucket.challenges.length > 0 || bucket.selectedFirmId !== null;
+}
+
+function resolveStorageUserId(userId: string, explicitEmail?: string): string {
+  const data = getStorageData();
+  const aliases = getStorageAliases();
+  const currentStoredUser = getCurrentStoredUser();
+  const normalizedEmail = normalizeEmail(explicitEmail || currentStoredUser?.email);
+
+  if (normalizedEmail) {
+    const aliasedUserId = aliases[normalizedEmail];
+    if (aliasedUserId && data[aliasedUserId]) {
+      if (!data[aliasedUserId].email) {
+        data[aliasedUserId].email = normalizedEmail;
+        setStorageData(data);
+      }
+      return aliasedUserId;
+    }
+
+    const emailMatchEntry = Object.entries(data).find(([, bucket]) => normalizeEmail(bucket.email) === normalizedEmail);
+    if (emailMatchEntry) {
+      const [matchedUserId] = emailMatchEntry;
+      aliases[normalizedEmail] = matchedUserId;
+      setStorageAliases(aliases);
+      return matchedUserId;
+    }
+  }
+
+  if (data[userId]) {
+    if (normalizedEmail) {
+      data[userId].email = normalizedEmail;
+      aliases[normalizedEmail] = userId;
+      setStorageData(data);
+      setStorageAliases(aliases);
+    }
+    return userId;
+  }
+
+  if (normalizedEmail) {
+    const meaningfulBuckets = Object.entries(data).filter(([existingUserId, bucket]) => existingUserId !== userId && hasMeaningfulData(bucket));
+    if (meaningfulBuckets.length === 1) {
+      const [matchedUserId, matchedBucket] = meaningfulBuckets[0];
+      if (!matchedBucket.email || normalizeEmail(matchedBucket.email) === normalizedEmail) {
+        aliases[normalizedEmail] = matchedUserId;
+        if (!matchedBucket.email) {
+          matchedBucket.email = normalizedEmail;
+          setStorageData(data);
+        }
+        setStorageAliases(aliases);
+        console.log(`Resolved storage alias for ${normalizedEmail} to existing bucket ${matchedUserId}`);
+        return matchedUserId;
+      }
+    }
+  }
+
+  if (normalizedEmail) {
+    aliases[normalizedEmail] = userId;
+    setStorageAliases(aliases);
+  }
+  return userId;
+}
+
+function ensureUserBucket(data: StorageData, userId: string, explicitEmail?: string): string {
+  const resolvedUserId = resolveStorageUserId(userId, explicitEmail);
+  if (!data[resolvedUserId]) {
+    data[resolvedUserId] = { firms: [], challenges: [], selectedFirmId: null, email: normalizeEmail(explicitEmail || getCurrentStoredUser()?.email) || undefined };
+  } else if (explicitEmail) {
+    data[resolvedUserId].email = normalizeEmail(explicitEmail) || data[resolvedUserId].email;
+  }
+  return resolvedUserId;
+}
+
 export async function loadState(userId: string): Promise<AppState> {
   const data = getStorageData();
-  const userData = data[userId];
+  const resolvedUserId = ensureUserBucket(data, userId);
+  const userData = data[resolvedUserId];
   
   if (!userData) {
     return {
@@ -44,18 +158,34 @@ export async function loadState(userId: string): Promise<AppState> {
     };
   }
 
+  // Normalize payouts: ensure each payout has an id
+  let mutated = false;
+  userData.challenges = (userData.challenges || []).map(ch => {
+    if (Array.isArray(ch.payouts)) {
+      const newPayouts = ch.payouts.map(p => {
+        if (!p.id) {
+          mutated = true;
+          return { ...p, id: uuidv4() };
+        }
+        return p;
+      });
+      return { ...ch, payouts: newPayouts };
+    }
+    return ch;
+  });
+  if (mutated) {
+    data[resolvedUserId] = userData;
+    setStorageData(data);
+  }
   return userData;
 }
 
 export async function addFirm(userId: string, input: NewFirmInput): Promise<{ firm: PropFirm }> {
   const data = getStorageData();
-  
-  if (!data[userId]) {
-    data[userId] = { firms: [], challenges: [], selectedFirmId: null };
-  }
+  const resolvedUserId = ensureUserBucket(data, userId);
 
   // Check if firm already exists
-  const existingFirm = data[userId].firms.find(f => f.name.toLowerCase() === input.name.toLowerCase().trim());
+  const existingFirm = data[resolvedUserId].firms.find(f => f.name.toLowerCase() === input.name.toLowerCase().trim());
   if (existingFirm) {
     return { firm: existingFirm };
   }
@@ -66,7 +196,7 @@ export async function addFirm(userId: string, input: NewFirmInput): Promise<{ fi
     createdAt: new Date().toISOString(),
   };
 
-  data[userId].firms.unshift(newFirm);
+  data[resolvedUserId].firms.unshift(newFirm);
   setStorageData(data);
 
   return { firm: newFirm };
@@ -74,10 +204,7 @@ export async function addFirm(userId: string, input: NewFirmInput): Promise<{ fi
 
 export async function addChallenge(userId: string, input: NewChallengeInput): Promise<{ challenge: Challenge }> {
   const data = getStorageData();
-  
-  if (!data[userId]) {
-    data[userId] = { firms: [], challenges: [], selectedFirmId: null };
-  }
+  const resolvedUserId = ensureUserBucket(data, userId);
 
   const newChallenge: Challenge = {
     id: uuidv4(),
@@ -100,7 +227,7 @@ export async function addChallenge(userId: string, input: NewChallengeInput): Pr
     },
   };
 
-  data[userId].challenges.unshift(newChallenge);
+  data[resolvedUserId].challenges.unshift(newChallenge);
   setStorageData(data);
 
   return { challenge: newChallenge };
@@ -111,7 +238,7 @@ export async function updateChallenge(challenge: Challenge): Promise<void> {
   if (!user) return;
   
   const userData = JSON.parse(user);
-  const userId = userData.id;
+  const userId = resolveStorageUserId(userData.id, userData.email);
   
   const data = getStorageData();
   
@@ -129,7 +256,7 @@ export async function removeChallenge(challengeId: string): Promise<void> {
   if (!user) return;
   
   const userData = JSON.parse(user);
-  const userId = userData.id;
+  const userId = resolveStorageUserId(userData.id, userData.email);
   
   const data = getStorageData();
   
@@ -145,12 +272,9 @@ export async function removeChallenge(challengeId: string): Promise<void> {
 
 export async function setSelectedFirm(userId: string, firmId: string | null): Promise<void> {
   const data = getStorageData();
-  
-  if (!data[userId]) {
-    data[userId] = { firms: [], challenges: [], selectedFirmId: null };
-  }
+  const resolvedUserId = ensureUserBucket(data, userId);
 
-  data[userId].selectedFirmId = firmId;
+  data[resolvedUserId].selectedFirmId = firmId;
   setStorageData(data);
 }
 
@@ -159,7 +283,7 @@ export async function markPhase(challengeId: string, phase: 'phase1' | 'phase2' 
   if (!user) return;
   
   const userData = JSON.parse(user);
-  const userId = userData.id;
+  const userId = resolveStorageUserId(userData.id, userData.email);
   
   const data = getStorageData();
   
@@ -182,14 +306,12 @@ export async function addPayout(challengeId: string, amount: number, date: strin
   if (!user) throw new Error('User not authenticated');
   
   const userData = JSON.parse(user);
-  const userId = userData.id;
+  const userId = resolveStorageUserId(userData.id, userData.email);
   
   const data = getStorageData();
   
   // Initialize user data if it doesn't exist
-  if (!data[userId]) {
-    data[userId] = { firms: [], challenges: [], selectedFirmId: null };
-  }
+  ensureUserBucket(data, userId, userData.email);
 
   let challenge = data[userId].challenges.find(c => c.id === challengeId);
   let actualUserId = userId;
@@ -255,19 +377,8 @@ export async function addPayout(challengeId: string, amount: number, date: strin
 }
 
 export async function removePayout(payoutId: string): Promise<void> {
-  const user = localStorage.getItem('user');
-  if (!user) throw new Error('User not authenticated');
-  
-  const userData = JSON.parse(user);
-  const userId = userData.id;
-  
   const data = getStorageData();
   
-  // Initialize user data if it doesn't exist
-  if (!data[userId]) {
-    data[userId] = { firms: [], challenges: [], selectedFirmId: null };
-  }
-
   // Find and remove the payout from any challenge (search across users for resilience)
   let found = false;
   for (const [, udata] of Object.entries(data)) {
@@ -301,17 +412,7 @@ export async function bulkUpdateChallengeStatus(): Promise<void> {
 }
 
 export async function updatePayout(payoutId: string, amount: number, date: string): Promise<void> {
-  const user = localStorage.getItem('user');
-  if (!user) throw new Error('User not authenticated');
-  
-  const userData = JSON.parse(user);
-  const userId = userData.id;
-  
   const data = getStorageData();
-  
-  if (!data[userId]) {
-    data[userId] = { firms: [], challenges: [], selectedFirmId: null };
-  }
   
   // Search across users to locate payout and update in-place
   for (const [, udata] of Object.entries(data)) {
