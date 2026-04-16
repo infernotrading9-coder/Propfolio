@@ -8,6 +8,7 @@ import VerifyEmail from './components/auth/VerifyEmail';
 import ForgotPassword from './components/auth/ForgotPassword';
 import ResetPassword from './components/auth/ResetPassword';
 import AuthHashHandler from './components/auth/AuthHashHandler';
+import AuthDebugPanel from './components/auth/AuthDebugPanel';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Dashboard from './components/Dashboard';
 import { PricingPage } from './components/PricingPage';
@@ -21,6 +22,7 @@ function App() {
         <SettingsProvider>
           <Router>
           <AuthHashHandler />
+          <AuthDebugPanel />
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/about" element={<AboutUs />} />

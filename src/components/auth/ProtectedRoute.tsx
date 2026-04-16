@@ -17,6 +17,24 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     }
   })();
   const effectiveUser = currentUser || storedUser;
+  const currentUserEmail = currentUser ? currentUser.email : null;
+  const storedUserEmail = storedUser ? storedUser.email : null;
+  const effectiveUserEmail = effectiveUser ? effectiveUser.email : null;
+
+  React.useEffect(() => {
+    try {
+      window.dispatchEvent(new CustomEvent('authDebug', {
+        detail: {
+          type: 'protected-route:state',
+          timestamp: new Date().toISOString(),
+          loading,
+          currentUserEmail,
+          storedUserEmail,
+          effectiveUserEmail,
+        }
+      }));
+    } catch {}
+  }, [loading, currentUserEmail, storedUserEmail, effectiveUserEmail]);
 
   if (loading) {
     // Show a loading spinner while checking authentication
@@ -31,6 +49,17 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   }
 
   if (!effectiveUser) {
+    try {
+      window.dispatchEvent(new CustomEvent('authDebug', {
+        detail: {
+          type: 'protected-route:redirect-login',
+          timestamp: new Date().toISOString(),
+          loading,
+          currentUserEmail,
+          storedUserEmail,
+        }
+      }));
+    } catch {}
     return <Navigate to="/login" replace />;
   }
 

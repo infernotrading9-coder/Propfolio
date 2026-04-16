@@ -4,6 +4,18 @@ import { useAuth } from '../../contexts/AuthContext';
 import { GoogleOAuthButton } from '../GoogleOAuthButton';
 import { EMAIL_PASSWORD_USE_NETLIFY_IDENTITY } from '../../lib/appFlags';
 
+function emitAuthDebug(type: string, detail: Record<string, unknown> = {}) {
+  try {
+    window.dispatchEvent(new CustomEvent('authDebug', {
+      detail: {
+        type,
+        timestamp: new Date().toISOString(),
+        ...detail,
+      }
+    }));
+  } catch {}
+}
+
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -15,6 +27,9 @@ const Login: React.FC = () => {
   // Redirect to dashboard if already logged in
   useEffect(() => {
     if (currentUser) {
+      emitAuthDebug('login:effect-navigate-dashboard', {
+        email: currentUser.email,
+      });
       navigate('/dashboard', { replace: true });
     }
   }, [currentUser, navigate]);
@@ -25,15 +40,29 @@ const Login: React.FC = () => {
     try {
       setError('');
       setLoading(true);
+      emitAuthDebug('login:submit', {
+        email: email.trim().toLowerCase(),
+        passwordLength: password.length,
+      });
       await login(email, password);
+      emitAuthDebug('login:navigate-dashboard', {
+        email: email.trim().toLowerCase(),
+      });
       navigate('/dashboard', { replace: true });
       setTimeout(() => {
         if (window.location.pathname !== '/dashboard') {
+          emitAuthDebug('login:fallback-hard-redirect', {
+            currentPath: window.location.pathname,
+          });
           window.location.assign('/dashboard');
         }
       }, 150);
     } catch (err: any) {
       const message = err?.message || 'Unknown error';
+      emitAuthDebug('login:catch', {
+        email: email.trim().toLowerCase(),
+        message,
+      });
       if (EMAIL_PASSWORD_USE_NETLIFY_IDENTITY && /confirm|verified|verification/i.test(message)) {
         setError(`Failed to log in: ${message}. Please check your email and confirm your account first.`);
       } else {
