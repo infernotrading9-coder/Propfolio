@@ -4,6 +4,7 @@ import { SettingsProvider } from './contexts/SettingsContext';
 import { SubscriptionProvider } from './contexts/SubscriptionContext';
 import Login from './components/auth/Login';
 import Signup from './components/auth/Signup';
+import VerifyEmail from './components/auth/VerifyEmail';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Dashboard from './components/Dashboard';
 import { PricingPage } from './components/PricingPage';
@@ -21,6 +22,7 @@ function App() {
             <Route path="/about" element={<AboutUs />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
             <Route 
               path="/dashboard" 
               element={

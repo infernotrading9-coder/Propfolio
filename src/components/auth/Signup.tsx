@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { GoogleOAuthButton } from '../GoogleOAuthButton';
+import { EMAIL_PASSWORD_USE_NETLIFY_IDENTITY, FREE_ACCESS_MODE } from '../../lib/appFlags';
 
 const Signup: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -12,6 +13,7 @@ const Signup: React.FC = () => {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [authDebugEvents, setAuthDebugEvents] = useState<any[]>([]);
   const { signup, loginWithGoogle, currentUser } = useAuth();
   const navigate = useNavigate();
 
@@ -21,6 +23,15 @@ const Signup: React.FC = () => {
       navigate('/dashboard', { replace: true });
     }
   }, [currentUser, navigate]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent;
+      setAuthDebugEvents(prev => [custom.detail, ...prev].slice(0, 8));
+    };
+    window.addEventListener('authDebug', handler as EventListener);
+    return () => window.removeEventListener('authDebug', handler as EventListener);
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -43,11 +54,41 @@ const Signup: React.FC = () => {
     try {
       setError('');
       setLoading(true);
+      setAuthDebugEvents(prev => [{
+        type: 'signup:submit',
+        timestamp: new Date().toISOString(),
+        email: formData.email.trim().toLowerCase(),
+        displayNameLength: formData.displayName.trim().length,
+        passwordLength: formData.password.length,
+        mode: FREE_ACCESS_MODE ? 'free-local' : 'identity',
+      }, ...prev].slice(0, 8));
       await signup(formData.email, formData.password, formData.displayName);
-      // Auto-login after successful signup
-      navigate('/dashboard');
+      if (EMAIL_PASSWORD_USE_NETLIFY_IDENTITY) {
+        setAuthDebugEvents(prev => [{
+          type: 'signup:navigate-verify-email',
+          timestamp: new Date().toISOString(),
+        }, ...prev].slice(0, 8));
+        navigate('/verify-email', { replace: true });
+      } else {
+        setAuthDebugEvents(prev => [{
+          type: 'signup:navigate-dashboard',
+          timestamp: new Date().toISOString(),
+        }, ...prev].slice(0, 8));
+        navigate('/dashboard', { replace: true });
+        setTimeout(() => {
+          if (window.location.pathname !== '/dashboard') {
+            window.location.assign('/dashboard');
+          }
+        }, 150);
+      }
     } catch (err: any) {
       setError('Failed to create an account: ' + err.message);
+      setAuthDebugEvents(prev => [{
+        type: 'signup:catch',
+        timestamp: new Date().toISOString(),
+        message: err?.message || String(err),
+        stack: err?.stack || null,
+      }, ...prev].slice(0, 8));
     } finally {
       setLoading(false);
     }
@@ -94,6 +135,39 @@ const Signup: React.FC = () => {
           {error && (
             <div className="bg-red-900/50 border border-red-500 text-red-200 px-4 py-3 rounded-lg mb-4">
               {error}
+            </div>
+          )}
+
+          {import.meta.env.DEV && (
+            <div className="mb-4 rounded-xl border border-amber-400/30 bg-amber-500/10 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-amber-200">Auth Debug</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      navigator.clipboard.writeText(JSON.stringify(authDebugEvents, null, 2));
+                    } catch {}
+                  }}
+                  className="text-xs px-2 py-1 rounded border border-amber-300/30 text-amber-100 hover:bg-amber-500/10"
+                >
+                  Copy
+                </button>
+              </div>
+              <div className="space-y-2 text-xs text-amber-50/90 max-h-48 overflow-auto">
+                <div>Mode: <span className="text-cyan-200">{EMAIL_PASSWORD_USE_NETLIFY_IDENTITY ? 'netlify-identity' : FREE_ACCESS_MODE ? 'free-local' : 'identity'}</span></div>
+                <div>Current User: <span className="text-cyan-200">{currentUser ? currentUser.email : 'none'}</span></div>
+                <div>Stored User: <span className="text-cyan-200">{localStorage.getItem('user') || 'none'}</span></div>
+                {authDebugEvents.length === 0 ? (
+                  <div className="text-white/50">No auth events yet. Try creating an account.</div>
+                ) : (
+                  authDebugEvents.map((event, index) => (
+                    <pre key={index} className="whitespace-pre-wrap break-all rounded-lg bg-black/20 p-2 border border-white/10">
+                      {JSON.stringify(event, null, 2)}
+                    </pre>
+                  ))
+                )}
+              </div>
             </div>
           )}
 

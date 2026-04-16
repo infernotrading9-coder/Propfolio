@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { GoogleOAuthButton } from '../GoogleOAuthButton';
+import { EMAIL_PASSWORD_USE_NETLIFY_IDENTITY } from '../../lib/appFlags';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -27,7 +28,12 @@ const Login: React.FC = () => {
       await login(email, password);
       navigate('/dashboard');
     } catch (err: any) {
-      setError('Failed to log in: ' + err.message);
+      const message = err?.message || 'Unknown error';
+      if (EMAIL_PASSWORD_USE_NETLIFY_IDENTITY && /confirm|verified|verification/i.test(message)) {
+        setError(`Failed to log in: ${message}. Please check your email and confirm your account first.`);
+      } else {
+        setError('Failed to log in: ' + message);
+      }
     } finally {
       setLoading(false);
     }
@@ -161,6 +167,11 @@ const Login: React.FC = () => {
                 Sign up
               </Link>
             </p>
+            {EMAIL_PASSWORD_USE_NETLIFY_IDENTITY && (
+              <p className="text-gray-500 text-sm mt-3">
+                Email/password accounts require email confirmation before sign in.
+              </p>
+            )}
           </div>
 
           <div className="mt-4 text-center">

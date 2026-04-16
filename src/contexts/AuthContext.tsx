@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import netlifyIdentity from 'netlify-identity-widget';
 import { createUser, findUserByEmail, validatePassword } from '../utils/tempAuth';
-import { FREE_ACCESS_MODE } from '../lib/appFlags';
+import { EMAIL_PASSWORD_USE_NETLIFY_IDENTITY, FREE_ACCESS_MODE } from '../lib/appFlags';
 
 interface User {
   id: string;
@@ -12,10 +12,12 @@ interface User {
 interface AuthContextType {
   currentUser: User | null;
   loading: boolean;
+  pendingVerificationEmail: string | null;
   signup: (email: string, password: string, name?: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: (credential?: string) => Promise<void>;
   logout: () => Promise<void>;
+  clearPendingVerification: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -40,9 +42,22 @@ function mapIdentityUser(u: any): User {
   } as User;
 }
 
+function emitAuthDebug(type: string, detail: Record<string, unknown> = {}) {
+  try {
+    window.dispatchEvent(new CustomEvent('authDebug', {
+      detail: {
+        type,
+        timestamp: new Date().toISOString(),
+        ...detail,
+      }
+    }));
+  } catch {}
+}
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
 
   const awaitLoginViaIdentity = (): Promise<any> => {
     return new Promise((resolve, reject) => {
@@ -69,31 +84,148 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const signup = async (_email: string, _password: string, _name?: string): Promise<void> => {
+    if (EMAIL_PASSWORD_USE_NETLIFY_IDENTITY) {
+      const normalizedEmail = _email.trim().toLowerCase();
+      const normalizedName = (_name || '').trim();
+      emitAuthDebug('signup:start', {
+        mode: 'netlify-identity',
+        email: normalizedEmail,
+        nameLength: normalizedName.length,
+        passwordLength: _password.length,
+      });
+      try {
+        const gotrue = (netlifyIdentity as any).gotrue;
+        if (!gotrue?.signup) {
+          throw new Error('Netlify Identity signup is not available');
+        }
+        await gotrue.signup(normalizedEmail, _password, {
+          full_name: normalizedName,
+          name: normalizedName,
+        });
+        setPendingVerificationEmail(normalizedEmail);
+        localStorage.setItem('pendingVerificationEmail', normalizedEmail);
+        emitAuthDebug('signup:confirmation-sent', {
+          email: normalizedEmail,
+        });
+        return;
+      } catch (error: any) {
+        emitAuthDebug('signup:error', {
+          message: error?.message || String(error),
+          stack: error?.stack || null,
+          email: normalizedEmail,
+        });
+        throw error;
+      }
+    }
     if (FREE_ACCESS_MODE) {
-      const created = await createUser(_email.trim().toLowerCase(), _password, (_name || '').trim());
-      setCurrentUser(created);
-      localStorage.setItem('user', JSON.stringify(created));
-      return;
+      const normalizedEmail = _email.trim().toLowerCase();
+      const normalizedName = (_name || '').trim();
+      emitAuthDebug('signup:start', {
+        mode: 'free-local',
+        email: normalizedEmail,
+        nameLength: normalizedName.length,
+        passwordLength: _password.length,
+      });
+      try {
+        const created = await createUser(normalizedEmail, _password, normalizedName);
+        emitAuthDebug('signup:user-created', {
+          userId: created.id,
+          email: created.email,
+        });
+        setCurrentUser(created);
+        localStorage.setItem('user', JSON.stringify(created));
+        emitAuthDebug('signup:success', {
+          userId: created.id,
+          storedUser: true,
+        });
+        return;
+      } catch (error: any) {
+        emitAuthDebug('signup:error', {
+          message: error?.message || String(error),
+          stack: error?.stack || null,
+          email: normalizedEmail,
+        });
+        throw error;
+      }
     }
     netlifyIdentity.open('signup');
     await awaitLoginViaIdentity();
   };
 
   const login = async (_email: string, _password: string): Promise<void> => {
+    if (EMAIL_PASSWORD_USE_NETLIFY_IDENTITY) {
+      const normalizedEmail = _email.trim().toLowerCase();
+      emitAuthDebug('login:start', {
+        mode: 'netlify-identity',
+        email: normalizedEmail,
+        passwordLength: _password.length,
+      });
+      try {
+        const gotrue = (netlifyIdentity as any).gotrue;
+        if (!gotrue?.login) {
+          throw new Error('Netlify Identity login is not available');
+        }
+        const user = await gotrue.login(normalizedEmail, _password, true);
+        const mapped = mapIdentityUser(user);
+        setCurrentUser(mapped);
+        localStorage.setItem('user', JSON.stringify(mapped));
+        setPendingVerificationEmail(null);
+        localStorage.removeItem('pendingVerificationEmail');
+        emitAuthDebug('login:success', {
+          userId: mapped.id,
+          email: mapped.email,
+        });
+        return;
+      } catch (error: any) {
+        const message = error?.message || String(error);
+        if (/confirm|verified|verification/i.test(message)) {
+          setPendingVerificationEmail(normalizedEmail);
+          localStorage.setItem('pendingVerificationEmail', normalizedEmail);
+        }
+        emitAuthDebug('login:error', {
+          message,
+          stack: error?.stack || null,
+          email: normalizedEmail,
+        });
+        throw error;
+      }
+    }
     if (FREE_ACCESS_MODE) {
       const normalizedEmail = _email.trim().toLowerCase();
-      const user = await findUserByEmail(normalizedEmail);
-      if (!user) throw new Error('No account found for that email');
-      const valid = await validatePassword(user as any, _password);
-      if (!valid) throw new Error('Incorrect password');
-      const mapped = {
-        id: user.id,
-        email: user.email,
-        name: user.name ?? null,
-      };
-      setCurrentUser(mapped);
-      localStorage.setItem('user', JSON.stringify(mapped));
-      return;
+      emitAuthDebug('login:start', {
+        mode: 'free-local',
+        email: normalizedEmail,
+        passwordLength: _password.length,
+      });
+      try {
+        const user = await findUserByEmail(normalizedEmail);
+        if (!user) throw new Error('No account found for that email');
+        emitAuthDebug('login:user-found', {
+          userId: user.id,
+          email: user.email,
+        });
+        const valid = await validatePassword(user as any, _password);
+        if (!valid) throw new Error('Incorrect password');
+        const mapped = {
+          id: user.id,
+          email: user.email,
+          name: user.name ?? null,
+        };
+        setCurrentUser(mapped);
+        localStorage.setItem('user', JSON.stringify(mapped));
+        emitAuthDebug('login:success', {
+          userId: mapped.id,
+          storedUser: true,
+        });
+        return;
+      } catch (error: any) {
+        emitAuthDebug('login:error', {
+          message: error?.message || String(error),
+          stack: error?.stack || null,
+          email: normalizedEmail,
+        });
+        throw error;
+      }
     }
     netlifyIdentity.open('login');
     await awaitLoginViaIdentity();
@@ -120,6 +252,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.removeItem('user');
   };
 
+  const clearPendingVerification = () => {
+    setPendingVerificationEmail(null);
+    localStorage.removeItem('pendingVerificationEmail');
+  };
+
   useEffect(() => {
     const apiUrl = (import.meta as any).env?.VITE_IDENTITY_API_URL;
     const config: any = {};
@@ -133,9 +270,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const mapped = mapIdentityUser(user);
         setCurrentUser(mapped);
         localStorage.setItem('user', JSON.stringify(mapped));
+        setPendingVerificationEmail(null);
+        localStorage.removeItem('pendingVerificationEmail');
       } else {
         const storedUser = localStorage.getItem('user');
         if (storedUser) setCurrentUser(JSON.parse(storedUser));
+        const pendingEmail = localStorage.getItem('pendingVerificationEmail');
+        if (pendingEmail) setPendingVerificationEmail(pendingEmail);
       }
       setLoading(false);
     };
@@ -143,6 +284,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const mapped = mapIdentityUser(user);
       setCurrentUser(mapped);
       localStorage.setItem('user', JSON.stringify(mapped));
+      setPendingVerificationEmail(null);
+      localStorage.removeItem('pendingVerificationEmail');
     };
     const onLogout = () => {
       setCurrentUser(null);
@@ -163,10 +306,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const value: AuthContextType = {
     currentUser,
     loading,
+    pendingVerificationEmail,
     signup,
     login,
     loginWithGoogle,
-    logout
+    logout,
+    clearPendingVerification,
   };
 
   return (
