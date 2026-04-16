@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { AUTH_DEBUG_PANEL_ENABLED } from '../../lib/appFlags';
 
 type DebugEvent = Record<string, unknown>;
 
@@ -43,7 +44,7 @@ const AuthDebugPanel: React.FC = () => {
     setEvents(prev => [routeEvent, ...prev].slice(0, 20));
   }, [location.pathname, location.search, location.hash, currentUser?.email, storedUser?.email, loading, pendingVerificationEmail]);
 
-  if (!import.meta.env.DEV) return null;
+  if (!AUTH_DEBUG_PANEL_ENABLED) return null;
 
   if (collapsed) {
     return (
