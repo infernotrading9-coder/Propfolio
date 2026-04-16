@@ -8,6 +8,15 @@ interface ProtectedRouteProps {
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { currentUser, loading } = useAuth();
+  const storedUser = (() => {
+    try {
+      const raw = localStorage.getItem('user');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const effectiveUser = currentUser || storedUser;
 
   if (loading) {
     // Show a loading spinner while checking authentication
@@ -21,7 +30,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     );
   }
 
-  if (!currentUser) {
+  if (!effectiveUser) {
     return <Navigate to="/login" replace />;
   }
 

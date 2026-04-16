@@ -26,7 +26,12 @@ const Login: React.FC = () => {
       setError('');
       setLoading(true);
       await login(email, password);
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
+      setTimeout(() => {
+        if (window.location.pathname !== '/dashboard') {
+          window.location.assign('/dashboard');
+        }
+      }, 150);
     } catch (err: any) {
       const message = err?.message || 'Unknown error';
       if (EMAIL_PASSWORD_USE_NETLIFY_IDENTITY && /confirm|verified|verification/i.test(message)) {
@@ -122,6 +127,12 @@ const Login: React.FC = () => {
               {loading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
+
+          <div className="mt-4 text-center">
+            <Link to="/forgot-password" className="text-cyan-400 hover:text-cyan-300 text-sm font-medium">
+              Forgot your password?
+            </Link>
+          </div>
 
           {/* Divider */}
           <div className="mt-6 mb-6">

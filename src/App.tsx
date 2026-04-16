@@ -5,6 +5,9 @@ import { SubscriptionProvider } from './contexts/SubscriptionContext';
 import Login from './components/auth/Login';
 import Signup from './components/auth/Signup';
 import VerifyEmail from './components/auth/VerifyEmail';
+import ForgotPassword from './components/auth/ForgotPassword';
+import ResetPassword from './components/auth/ResetPassword';
+import AuthHashHandler from './components/auth/AuthHashHandler';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Dashboard from './components/Dashboard';
 import { PricingPage } from './components/PricingPage';
@@ -17,12 +20,15 @@ function App() {
       <SubscriptionProvider>
         <SettingsProvider>
           <Router>
+          <AuthHashHandler />
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/about" element={<AboutUs />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route 
               path="/dashboard" 
               element={

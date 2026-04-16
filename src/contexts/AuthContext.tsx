@@ -18,6 +18,9 @@ interface AuthContextType {
   loginWithGoogle: (credential?: string) => Promise<void>;
   logout: () => Promise<void>;
   clearPendingVerification: () => void;
+  requestPasswordReset: (email: string) => Promise<void>;
+  completePasswordRecovery: (token: string, newPassword: string) => Promise<void>;
+  confirmEmailToken: (token: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -257,6 +260,71 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.removeItem('pendingVerificationEmail');
   };
 
+  const requestPasswordReset = async (email: string): Promise<void> => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const gotrue = (netlifyIdentity as any).gotrue;
+    if (!gotrue?.requestPasswordRecovery) {
+      throw new Error('Password recovery is not available');
+    }
+    emitAuthDebug('password-reset:request-start', { email: normalizedEmail });
+    try {
+      await gotrue.requestPasswordRecovery(normalizedEmail);
+      emitAuthDebug('password-reset:request-success', { email: normalizedEmail });
+    } catch (error: any) {
+      emitAuthDebug('password-reset:request-error', {
+        email: normalizedEmail,
+        message: error?.message || String(error),
+      });
+      throw error;
+    }
+  };
+
+  const completePasswordRecovery = async (token: string, newPassword: string): Promise<void> => {
+    const gotrue = (netlifyIdentity as any).gotrue;
+    if (!gotrue?.recover) {
+      throw new Error('Password recovery is not available');
+    }
+    emitAuthDebug('password-reset:complete-start', { tokenPresent: !!token, passwordLength: newPassword.length });
+    try {
+      const user = await gotrue.recover(token, true);
+      if (!user?.update) {
+        throw new Error('Recovered user session is not available');
+      }
+      await user.update({ password: newPassword });
+      const mapped = mapIdentityUser(user);
+      setCurrentUser(mapped);
+      localStorage.setItem('user', JSON.stringify(mapped));
+      emitAuthDebug('password-reset:complete-success', { userId: mapped.id, email: mapped.email });
+    } catch (error: any) {
+      emitAuthDebug('password-reset:complete-error', {
+        message: error?.message || String(error),
+      });
+      throw error;
+    }
+  };
+
+  const confirmEmailToken = async (token: string): Promise<void> => {
+    const gotrue = (netlifyIdentity as any).gotrue;
+    if (!gotrue?.confirm) {
+      throw new Error('Email confirmation is not available');
+    }
+    emitAuthDebug('confirmation:start', { tokenPresent: !!token });
+    try {
+      const user = await gotrue.confirm(token, true);
+      const mapped = mapIdentityUser(user);
+      setCurrentUser(mapped);
+      localStorage.setItem('user', JSON.stringify(mapped));
+      setPendingVerificationEmail(null);
+      localStorage.removeItem('pendingVerificationEmail');
+      emitAuthDebug('confirmation:success', { userId: mapped.id, email: mapped.email });
+    } catch (error: any) {
+      emitAuthDebug('confirmation:error', {
+        message: error?.message || String(error),
+      });
+      throw error;
+    }
+  };
+
   useEffect(() => {
     const apiUrl = (import.meta as any).env?.VITE_IDENTITY_API_URL;
     const config: any = {};
@@ -312,6 +380,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     loginWithGoogle,
     logout,
     clearPendingVerification,
+    requestPasswordReset,
+    completePasswordRecovery,
+    confirmEmailToken,
   };
 
   return (
