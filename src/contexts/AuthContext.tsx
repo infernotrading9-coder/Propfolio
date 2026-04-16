@@ -67,10 +67,72 @@ function deriveName(u: any, email: string): string | null {
 function deriveProvider(u: any): string | null {
   return (
     u?.app_metadata?.provider ||
+    u?.app_metadata?.providers?.[0] ||
     u?.user_metadata?.provider ||
     u?.profile?.provider ||
     null
   );
+}
+
+function decodeJwtPayload(token?: string | null): Record<string, any> | null {
+  if (!token || typeof token !== 'string' || token.split('.').length < 2) return null;
+  try {
+    const payload = token.split('.')[1];
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const decoded = atob(padded);
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
+async function getIdentityClaims(u: any): Promise<Record<string, any> | null> {
+  const directToken =
+    u?.token?.access_token ||
+    u?.tokenResponse?.access_token ||
+    u?.access_token ||
+    null;
+  const directClaims = decodeJwtPayload(directToken);
+  if (directClaims) return directClaims;
+
+  try {
+    if (typeof u?.jwt === 'function') {
+      const jwt = await u.jwt();
+      const claims = decodeJwtPayload(jwt);
+      if (claims) return claims;
+    }
+  } catch {}
+
+  return null;
+}
+
+async function mapIdentityUserAsync(u: any): Promise<User> {
+  const mapped = mapIdentityUser(u);
+  if (mapped.email && mapped.name && mapped.provider) return mapped;
+
+  const claims = await getIdentityClaims(u);
+  const email = mapped.email || claims?.email || claims?.user_metadata?.email || '';
+  const name =
+    mapped.name ||
+    claims?.name ||
+    claims?.full_name ||
+    claims?.user_metadata?.full_name ||
+    claims?.user_metadata?.name ||
+    (email ? email.split('@')[0] : null);
+  const provider =
+    mapped.provider ||
+    claims?.app_metadata?.provider ||
+    claims?.app_metadata?.providers?.[0] ||
+    claims?.provider ||
+    null;
+
+  return {
+    ...mapped,
+    email,
+    name,
+    provider,
+  };
 }
 
 function mapIdentityUser(u: any): User {
@@ -276,7 +338,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Assume the Identity modal was already used; just sync the current user
     const u = netlifyIdentity.currentUser();
     if (!u) throw new Error('Not logged in');
-    const mapped = mapIdentityUser(u);
+    const mapped = await mapIdentityUserAsync(u);
     emitAuthDebug('google:login-success', {
       userId: mapped.id,
       email: mapped.email,
@@ -381,9 +443,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Don't set APIUrl in production - let it auto-detect from site URL
     netlifyIdentity.init(config);
     const onInit = (user: any) => {
-      if (user) {
-        const mapped = mapIdentityUser(user);
-        emitAuthDebug('identity:init-user', {
+      (async () => {
+        if (user) {
+          const mapped = await mapIdentityUserAsync(user);
+          const claims = await getIdentityClaims(user);
+          emitAuthDebug('identity:init-user', {
+            userId: mapped.id,
+            email: mapped.email,
+            name: mapped.name,
+            provider: mapped.provider,
+            rawKeys: Object.keys(user || {}),
+            rawUserMetadata: user?.user_metadata || null,
+            rawAppMetadata: user?.app_metadata || null,
+            claims,
+          });
+          setCurrentUser(mapped);
+          localStorage.setItem('user', JSON.stringify(mapped));
+          setPendingVerificationEmail(null);
+          localStorage.removeItem('pendingVerificationEmail');
+        } else {
+          const storedUser = localStorage.getItem('user');
+          if (storedUser) setCurrentUser(JSON.parse(storedUser));
+          const pendingEmail = localStorage.getItem('pendingVerificationEmail');
+          if (pendingEmail) setPendingVerificationEmail(pendingEmail);
+        }
+        setLoading(false);
+      })();
+    };
+    const onLogin = (user: any) => {
+      (async () => {
+        const mapped = await mapIdentityUserAsync(user);
+        const claims = await getIdentityClaims(user);
+        emitAuthDebug('identity:on-login', {
           userId: mapped.id,
           email: mapped.email,
           name: mapped.name,
@@ -391,34 +482,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           rawKeys: Object.keys(user || {}),
           rawUserMetadata: user?.user_metadata || null,
           rawAppMetadata: user?.app_metadata || null,
+          claims,
         });
         setCurrentUser(mapped);
         localStorage.setItem('user', JSON.stringify(mapped));
         setPendingVerificationEmail(null);
         localStorage.removeItem('pendingVerificationEmail');
-      } else {
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) setCurrentUser(JSON.parse(storedUser));
-        const pendingEmail = localStorage.getItem('pendingVerificationEmail');
-        if (pendingEmail) setPendingVerificationEmail(pendingEmail);
-      }
-      setLoading(false);
-    };
-    const onLogin = (user: any) => {
-      const mapped = mapIdentityUser(user);
-      emitAuthDebug('identity:on-login', {
-        userId: mapped.id,
-        email: mapped.email,
-        name: mapped.name,
-        provider: mapped.provider,
-        rawKeys: Object.keys(user || {}),
-        rawUserMetadata: user?.user_metadata || null,
-        rawAppMetadata: user?.app_metadata || null,
-      });
-      setCurrentUser(mapped);
-      localStorage.setItem('user', JSON.stringify(mapped));
-      setPendingVerificationEmail(null);
-      localStorage.removeItem('pendingVerificationEmail');
+      })();
     };
     const onLogout = () => {
       setCurrentUser(null);
