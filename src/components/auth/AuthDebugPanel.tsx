@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { AUTH_DEBUG_PANEL_ENABLED } from '../../lib/appFlags';
@@ -10,6 +10,12 @@ const AuthDebugPanel: React.FC = () => {
   const { currentUser, loading, pendingVerificationEmail } = useAuth();
   const [events, setEvents] = useState<DebugEvent[]>([]);
   const [collapsed, setCollapsed] = useState(false);
+  const [position, setPosition] = useState({ x: 16, y: 16 });
+  const dragRef = useRef<{ dragging: boolean; offsetX: number; offsetY: number }>({
+    dragging: false,
+    offsetX: 0,
+    offsetY: 0,
+  });
 
   const storedUser = useMemo(() => {
     try {
@@ -44,27 +50,70 @@ const AuthDebugPanel: React.FC = () => {
     setEvents(prev => [routeEvent, ...prev].slice(0, 20));
   }, [location.pathname, location.search, location.hash, currentUser?.email, storedUser?.email, loading, pendingVerificationEmail]);
 
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!dragRef.current.dragging) return;
+      setPosition({
+        x: Math.max(8, window.innerWidth - event.clientX - dragRef.current.offsetX),
+        y: Math.max(8, event.clientY - dragRef.current.offsetY),
+      });
+    };
+
+    const handleMouseUp = () => {
+      dragRef.current.dragging = false;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  const startDrag = (clientX: number, clientY: number) => {
+    dragRef.current.dragging = true;
+    dragRef.current.offsetX = window.innerWidth - position.x - clientX;
+    dragRef.current.offsetY = clientY - position.y;
+  };
+
   if (!AUTH_DEBUG_PANEL_ENABLED) return null;
 
   if (collapsed) {
     return (
-      <div className="fixed top-4 right-4 z-[100]">
+      <div
+        className="fixed z-[100]"
+        style={{ top: position.y, right: position.x }}
+      >
         <button
           onClick={() => setCollapsed(false)}
-          className="px-3 py-2 rounded-lg bg-black/80 border border-cyan-400/40 text-cyan-200 text-xs shadow-lg"
+          onMouseDown={(event) => {
+            if (event.button !== 0) return;
+            startDrag(event.clientX, event.clientY);
+          }}
+          className="px-3 py-2 rounded-lg bg-black/80 border border-cyan-400/40 text-cyan-200 text-xs shadow-lg cursor-move"
         >
-          Auth Debug
+          Debug Window
         </button>
       </div>
     );
   }
 
   return (
-    <div className="fixed top-4 right-4 z-[100] w-[360px] max-h-[90vh] overflow-hidden rounded-2xl border border-cyan-400/30 bg-[#081018]/95 backdrop-blur-xl shadow-2xl">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+    <div
+      className="fixed z-[100] w-[360px] max-h-[90vh] overflow-hidden rounded-2xl border border-cyan-400/30 bg-[#081018]/95 backdrop-blur-xl shadow-2xl"
+      style={{ top: position.y, right: position.x }}
+    >
+      <div
+        className="flex items-center justify-between px-4 py-3 border-b border-white/10 cursor-move"
+        onMouseDown={(event) => {
+          if (event.button !== 0) return;
+          startDrag(event.clientX, event.clientY);
+        }}
+      >
         <div>
-          <h3 className="text-sm font-semibold text-cyan-200">Auth Debug</h3>
-          <p className="text-[11px] text-white/50">Persistent dev panel</p>
+          <h3 className="text-sm font-semibold text-cyan-200">Debug Window</h3>
+          <p className="text-[11px] text-white/50">Drag by the header</p>
         </div>
         <div className="flex items-center gap-2">
           <button
