@@ -7,6 +7,7 @@ interface User {
   id: string;
   email: string;
   name?: string | null;
+  provider?: string | null;
 }
 
 interface AuthContextType {
@@ -37,11 +38,48 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+function deriveEmail(u: any): string {
+  return (
+    u?.email ||
+    u?.user_metadata?.email ||
+    u?.profile?.email ||
+    u?.token?.email ||
+    u?.tokenResponse?.email ||
+    ''
+  );
+}
+
+function deriveName(u: any, email: string): string | null {
+  const explicit =
+    u?.user_metadata?.full_name ||
+    u?.user_metadata?.name ||
+    u?.full_name ||
+    u?.profile?.name ||
+    u?.profile?.full_name ||
+    u?.app_metadata?.full_name ||
+    null;
+
+  if (explicit) return explicit;
+  if (email) return email.split('@')[0];
+  return null;
+}
+
+function deriveProvider(u: any): string | null {
+  return (
+    u?.app_metadata?.provider ||
+    u?.user_metadata?.provider ||
+    u?.profile?.provider ||
+    null
+  );
+}
+
 function mapIdentityUser(u: any): User {
+  const email = deriveEmail(u);
   return {
     id: u?.id || u?.sub,
-    email: u?.email,
-    name: u?.user_metadata?.full_name || u?.user_metadata?.name || u?.full_name || null,
+    email,
+    name: deriveName(u, email),
+    provider: deriveProvider(u),
   } as User;
 }
 
@@ -239,6 +277,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const u = netlifyIdentity.currentUser();
     if (!u) throw new Error('Not logged in');
     const mapped = mapIdentityUser(u);
+    emitAuthDebug('google:login-success', {
+      userId: mapped.id,
+      email: mapped.email,
+      name: mapped.name,
+      provider: mapped.provider,
+      rawKeys: Object.keys(u || {}),
+      rawUserMetadata: u?.user_metadata || null,
+      rawAppMetadata: u?.app_metadata || null,
+    });
     setCurrentUser(mapped);
     localStorage.setItem('user', JSON.stringify(mapped));
   };
@@ -336,6 +383,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const onInit = (user: any) => {
       if (user) {
         const mapped = mapIdentityUser(user);
+        emitAuthDebug('identity:init-user', {
+          userId: mapped.id,
+          email: mapped.email,
+          name: mapped.name,
+          provider: mapped.provider,
+          rawKeys: Object.keys(user || {}),
+          rawUserMetadata: user?.user_metadata || null,
+          rawAppMetadata: user?.app_metadata || null,
+        });
         setCurrentUser(mapped);
         localStorage.setItem('user', JSON.stringify(mapped));
         setPendingVerificationEmail(null);
@@ -350,6 +406,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
     const onLogin = (user: any) => {
       const mapped = mapIdentityUser(user);
+      emitAuthDebug('identity:on-login', {
+        userId: mapped.id,
+        email: mapped.email,
+        name: mapped.name,
+        provider: mapped.provider,
+        rawKeys: Object.keys(user || {}),
+        rawUserMetadata: user?.user_metadata || null,
+        rawAppMetadata: user?.app_metadata || null,
+      });
       setCurrentUser(mapped);
       localStorage.setItem('user', JSON.stringify(mapped));
       setPendingVerificationEmail(null);

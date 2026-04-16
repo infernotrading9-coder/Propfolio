@@ -7,6 +7,11 @@ const SettingsPanel: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const { currentUser, logout } = useAuth();
   const { buildingMode, setBuildingMode } = useSettings();
+  const displayIdentity =
+    currentUser?.name ||
+    currentUser?.email ||
+    (currentUser as any)?.provider ||
+    'Unknown User';
 
   const handleLogout = async () => {
     try {
@@ -46,7 +51,7 @@ const SettingsPanel: React.FC = () => {
             {/* User Info */}
             <div className="mb-6 p-4 bg-white/5 rounded-lg border border-white/10">
               <div className="text-sm text-gray-400 mb-1">Signed in as</div>
-              <div className="text-white font-medium">{currentUser?.name || currentUser?.email}</div>
+              <div className="text-white font-medium">{displayIdentity}</div>
             </div>
 
             {/* Settings Options */}

@@ -6,4 +6,4 @@ export const FREE_ACCESS_MODE = !BILLING_ENABLED;
 export const EMAIL_PASSWORD_USE_NETLIFY_IDENTITY = true;
 
 // Temporary production auth debugging switch. Turn on when debugging auth/live issues.
-export const AUTH_DEBUG_PANEL_ENABLED = false;
+export const AUTH_DEBUG_PANEL_ENABLED = true;

@@ -62,6 +62,18 @@ function normalizeEmail(email?: string | null): string | null {
   return value || null;
 }
 
+function emitStorageDebug(type: string, detail: Record<string, unknown> = {}) {
+  try {
+    window.dispatchEvent(new CustomEvent('authDebug', {
+      detail: {
+        type,
+        timestamp: new Date().toISOString(),
+        ...detail,
+      }
+    }));
+  } catch {}
+}
+
 function getCurrentStoredUser(): { id?: string; email?: string } | null {
   try {
     const raw = localStorage.getItem('user');
@@ -85,6 +97,11 @@ function resolveStorageUserId(userId: string, explicitEmail?: string): string {
   if (normalizedEmail) {
     const aliasedUserId = aliases[normalizedEmail];
     if (aliasedUserId && data[aliasedUserId]) {
+      emitStorageDebug('storage:alias-hit', {
+        email: normalizedEmail,
+        requestedUserId: userId,
+        resolvedUserId: aliasedUserId,
+      });
       if (!data[aliasedUserId].email) {
         data[aliasedUserId].email = normalizedEmail;
         setStorageData(data);
@@ -97,6 +114,11 @@ function resolveStorageUserId(userId: string, explicitEmail?: string): string {
       const [matchedUserId] = emailMatchEntry;
       aliases[normalizedEmail] = matchedUserId;
       setStorageAliases(aliases);
+      emitStorageDebug('storage:email-bucket-match', {
+        email: normalizedEmail,
+        requestedUserId: userId,
+        resolvedUserId: matchedUserId,
+      });
       return matchedUserId;
     }
   }
@@ -123,6 +145,11 @@ function resolveStorageUserId(userId: string, explicitEmail?: string): string {
         }
         setStorageAliases(aliases);
         console.log(`Resolved storage alias for ${normalizedEmail} to existing bucket ${matchedUserId}`);
+        emitStorageDebug('storage:single-meaningful-bucket-match', {
+          email: normalizedEmail,
+          requestedUserId: userId,
+          resolvedUserId: matchedUserId,
+        });
         return matchedUserId;
       }
     }
@@ -131,6 +158,11 @@ function resolveStorageUserId(userId: string, explicitEmail?: string): string {
   if (normalizedEmail) {
     aliases[normalizedEmail] = userId;
     setStorageAliases(aliases);
+    emitStorageDebug('storage:new-alias-created', {
+      email: normalizedEmail,
+      requestedUserId: userId,
+      resolvedUserId: userId,
+    });
   }
   return userId;
 }

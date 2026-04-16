@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { AUTH_DEBUG_PANEL_ENABLED } from '../../lib/appFlags';
+import netlifyIdentity from 'netlify-identity-widget';
 
 type DebugEvent = Record<string, unknown>;
 
@@ -25,6 +26,48 @@ const AuthDebugPanel: React.FC = () => {
       return null;
     }
   }, [currentUser, location.pathname]);
+
+  const storageSnapshot = useMemo(() => {
+    try {
+      const aliases = JSON.parse(localStorage.getItem('propfolio_user_aliases') || '{}');
+      const buckets = JSON.parse(localStorage.getItem('propfolio_data') || '{}');
+      return {
+        aliases,
+        bucketKeys: Object.keys(buckets),
+        bucketSummary: Object.entries(buckets).map(([id, bucket]: any) => ({
+          id,
+          email: bucket?.email || null,
+          firms: bucket?.firms?.length || 0,
+          challenges: bucket?.challenges?.length || 0,
+          selectedFirmId: bucket?.selectedFirmId || null,
+        })),
+      };
+    } catch {
+      return {
+        aliases: {},
+        bucketKeys: [],
+        bucketSummary: [],
+      };
+    }
+  }, [currentUser, storedUser, location.pathname, events.length]);
+
+  const identitySnapshot = useMemo(() => {
+    try {
+      const user: any = netlifyIdentity.currentUser();
+      if (!user) return null;
+      return {
+        id: user?.id || user?.sub || null,
+        email: user?.email || user?.user_metadata?.email || user?.profile?.email || null,
+        name: user?.user_metadata?.full_name || user?.user_metadata?.name || user?.full_name || user?.profile?.name || null,
+        provider: user?.app_metadata?.provider || user?.user_metadata?.provider || null,
+        userMetadata: user?.user_metadata || null,
+        appMetadata: user?.app_metadata || null,
+        keys: Object.keys(user || {}),
+      };
+    } catch {
+      return null;
+    }
+  }, [currentUser, location.pathname, events.length]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -145,9 +188,26 @@ const AuthDebugPanel: React.FC = () => {
         <div className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-1">
           <div>Path: <span className="text-cyan-200">{location.pathname}</span></div>
           <div>Loading: <span className="text-cyan-200">{String(loading)}</span></div>
+          <div>Current User ID: <span className="text-cyan-200">{(currentUser as any)?.id || 'none'}</span></div>
           <div>Current User: <span className="text-cyan-200">{currentUser?.email || 'none'}</span></div>
+          <div>Current Name: <span className="text-cyan-200">{currentUser?.name || 'none'}</span></div>
+          <div>Current Provider: <span className="text-cyan-200">{(currentUser as any)?.provider || 'none'}</span></div>
           <div>Stored User: <span className="text-cyan-200">{storedUser?.email || 'none'}</span></div>
           <div>Pending Verify: <span className="text-cyan-200">{pendingVerificationEmail || 'none'}</span></div>
+        </div>
+
+        <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div className="text-white/70 font-medium mb-2">Identity Snapshot</div>
+          <pre className="whitespace-pre-wrap break-all rounded-lg bg-white/5 p-2 border border-white/5 text-[11px] text-white/80">
+            {JSON.stringify(identitySnapshot, null, 2)}
+          </pre>
+        </div>
+
+        <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div className="text-white/70 font-medium mb-2">Storage Snapshot</div>
+          <pre className="whitespace-pre-wrap break-all rounded-lg bg-white/5 p-2 border border-white/5 text-[11px] text-white/80">
+            {JSON.stringify(storageSnapshot, null, 2)}
+          </pre>
         </div>
 
         <div className="rounded-xl border border-white/10 bg-black/20 p-3">
