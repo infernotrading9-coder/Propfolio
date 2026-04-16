@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { GoogleOAuthButton } from '../GoogleOAuthButton';
 import { EMAIL_PASSWORD_USE_NETLIFY_IDENTITY } from '../../lib/appFlags';
@@ -23,16 +23,34 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const { login, loginWithGoogle, currentUser } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const loginRedirectAttemptedRef = useRef(false);
 
   // Redirect to dashboard if already logged in
   useEffect(() => {
-    if (currentUser) {
+    if (!currentUser) {
+      loginRedirectAttemptedRef.current = false;
+      return;
+    }
+
+    if (location.pathname === '/login' && !loginRedirectAttemptedRef.current) {
+      loginRedirectAttemptedRef.current = true;
       emitAuthDebug('login:effect-navigate-dashboard', {
         email: currentUser.email,
+        pathname: location.pathname,
       });
       navigate('/dashboard', { replace: true });
+      window.setTimeout(() => {
+        if (window.location.pathname === '/login') {
+          emitAuthDebug('login:effect-hard-redirect-dashboard', {
+            email: currentUser.email,
+            pathname: window.location.pathname,
+          });
+          window.location.replace('/dashboard');
+        }
+      }, 200);
     }
-  }, [currentUser, navigate]);
+  }, [currentUser?.id, currentUser?.email, location.pathname, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
