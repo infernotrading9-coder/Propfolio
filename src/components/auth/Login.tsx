@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { GoogleOAuthButton } from '../GoogleOAuthButton';
 import { EMAIL_PASSWORD_USE_NETLIFY_IDENTITY } from '../../lib/appFlags';
@@ -22,7 +22,6 @@ const Login: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login, loginWithGoogle, currentUser } = useAuth();
-  const navigate = useNavigate();
   const location = useLocation();
   const loginRedirectAttemptedRef = useRef(false);
 
@@ -39,18 +38,9 @@ const Login: React.FC = () => {
         email: currentUser.email,
         pathname: location.pathname,
       });
-      navigate('/dashboard', { replace: true });
-      window.setTimeout(() => {
-        if (window.location.pathname === '/login') {
-          emitAuthDebug('login:effect-hard-redirect-dashboard', {
-            email: currentUser.email,
-            pathname: window.location.pathname,
-          });
-          window.location.replace('/dashboard');
-        }
-      }, 200);
+      window.location.replace('/dashboard');
     }
-  }, [currentUser?.id, currentUser?.email, location.pathname, navigate]);
+  }, [currentUser?.id, currentUser?.email, location.pathname]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,15 +56,7 @@ const Login: React.FC = () => {
       emitAuthDebug('login:navigate-dashboard', {
         email: email.trim().toLowerCase(),
       });
-      navigate('/dashboard', { replace: true });
-      setTimeout(() => {
-        if (window.location.pathname !== '/dashboard') {
-          emitAuthDebug('login:fallback-hard-redirect', {
-            currentPath: window.location.pathname,
-          });
-          window.location.assign('/dashboard');
-        }
-      }, 150);
+      window.location.replace('/dashboard');
     } catch (err: any) {
       const message = err?.message || 'Unknown error';
       emitAuthDebug('login:catch', {
@@ -98,7 +80,7 @@ const Login: React.FC = () => {
       await loginWithGoogle(credential);
       // Navigate after state is updated
       setTimeout(() => {
-        navigate('/dashboard', { replace: true });
+        window.location.replace('/dashboard');
       }, 150);
     } catch (err: any) {
       setError('Google authentication failed: ' + err.message);
