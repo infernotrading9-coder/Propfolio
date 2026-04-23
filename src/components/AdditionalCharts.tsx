@@ -429,8 +429,8 @@ export const AdditionalCharts: React.FC<{
             {currentData.map((item) => (
               <div key={item.name} className="bg-white/5 rounded-lg p-3 border border-white/10">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-white font-medium">{item.name}</span>
-                  <span className="text-lg font-bold" style={{
+                  <span className="min-w-0 pr-3 text-sm font-medium text-white break-words">{item.name}</span>
+                  <span className="shrink-0 text-lg font-bold" style={{
                     color: firmView === 'exposure' ? '#fb923c' : '#3b82f6'
                   }}>
                     {firmView === 'roi'
@@ -946,8 +946,8 @@ export const AdditionalCharts: React.FC<{
                     <span className="text-xs font-bold text-yellow-400 bg-yellow-400/20 px-2 py-1 rounded">
                       #{index + 1}
                     </span>
-                    <div>
-                      <div className="text-white font-medium text-sm">{account.firm}</div>
+                    <div className="min-w-0">
+                      <div className="text-white font-medium text-sm break-words">{account.firm}</div>
                       <div className="text-white/60 text-xs">
                         ${account.accountSize?.toLocaleString()}
                       </div>
@@ -1823,16 +1823,16 @@ export const AdditionalCharts: React.FC<{
   };
 
   return (
-    <NeonCard glow="orange" className="p-4 select-none caret-transparent">
-      <div className="flex items-center justify-between mb-4">
+    <NeonCard glow="orange" className="p-3 sm:p-4 select-none caret-transparent">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="text-lg font-semibold text-white drop-shadow-neon">
           {getChartTitle()}
         </h3>
         
-        <div className="flex gap-1">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
           <button
             onClick={() => setActiveView('firmAnalysis')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
+            className={`flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all duration-200 ${
               activeView === 'firmAnalysis'
                 ? 'bg-orange-500/20 border border-orange-400/50 text-orange-200 animate-border-glow drop-shadow-neon'
                 : 'bg-white/5 border border-white/10 text-white/70 hover:text-white hover:border-white/20'
@@ -1844,7 +1844,7 @@ export const AdditionalCharts: React.FC<{
           
           <button
             onClick={() => setActiveView('strategyPerformance')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
+            className={`flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all duration-200 ${
               activeView === 'strategyPerformance'
                 ? 'bg-orange-500/20 border border-orange-400/50 text-orange-200 animate-border-glow drop-shadow-neon'
                 : 'bg-white/5 border border-white/10 text-white/70 hover:text-white hover:border-white/20'
@@ -1856,7 +1856,7 @@ export const AdditionalCharts: React.FC<{
           
           <button
             onClick={() => setActiveView('challengeType')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
+            className={`flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all duration-200 ${
               activeView === 'challengeType'
                 ? 'bg-orange-500/20 border border-orange-400/50 text-orange-200 animate-border-glow drop-shadow-neon'
                 : 'bg-white/5 border border-white/10 text-white/70 hover:text-white hover:border-white/20'
@@ -1868,7 +1868,7 @@ export const AdditionalCharts: React.FC<{
           
           <button
             onClick={() => setActiveView('topPerformers')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
+            className={`flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all duration-200 ${
               activeView === 'topPerformers'
                 ? 'bg-orange-500/20 border border-orange-400/50 text-orange-200 animate-border-glow drop-shadow-neon'
                 : 'bg-white/5 border border-white/10 text-white/70 hover:text-white hover:border-white/20'

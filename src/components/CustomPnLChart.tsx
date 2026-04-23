@@ -296,10 +296,10 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[]; selectedYear: s
 
   return (
     <NeonCard glow="purple" className="p-4 relative">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-4">
+      <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-lg font-bold text-white drop-shadow-neon-cyan mb-1">{new Date().getFullYear()}</div>
+            <div className="text-lg font-bold text-white drop-shadow-neon-cyan mb-1">{selectedYear}</div>
             <h3 className="text-lg font-semibold text-white drop-shadow-neon">
               {timeMode === 'monthly' ? 'Monthly' : 'Weekly'} PnL
             </h3>
@@ -413,8 +413,8 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[]; selectedYear: s
           </div>
         ) : (
           /* Mobile-only time toggle - simpler design */
-          <div className="flex justify-center">
-            <div className="flex gap-1 bg-black/40 rounded-lg p-0.5 border border-white/10">
+          <div className="flex flex-col items-start gap-2 sm:items-center">
+            <div className="flex gap-1 rounded-lg border border-white/10 bg-black/40 p-0.5">
               <button
                 onClick={() => setTimeMode('monthly')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-300 ${
@@ -438,9 +438,8 @@ export const CustomPnLChart: React.FC<{ challenges: Challenge[]; selectedYear: s
                 Weekly
               </button>
             </div>
-            {/* Mobile info text */}
             {timeMode === 'weekly' && (
-              <div className="text-center mt-2">
+              <div className="text-left sm:text-center">
                 <div className="text-xs text-white/60">{dateRange}</div>
               </div>
             )}

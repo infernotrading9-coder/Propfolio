@@ -232,18 +232,18 @@ export const ChallengeForm: React.FC<{
   };
 
   const inputClasses = (fieldName: string) => `
-    px-3 py-2 rounded-md bg-white/5 border transition-colors duration-200
+    w-full min-w-0 px-3 py-2 rounded-md bg-white/5 border transition-colors duration-200
     ${errors[fieldName] ? 'border-red-500/50 focus:border-red-400' : 'border-white/10 focus:border-cyan-400/50'}
     text-white placeholder-white/40
     focus:outline-none focus:ring-2 focus:ring-cyan-500/30
   `;
 
   return (
-    <NeonCard className="p-4" glow="cyan" loading={loading}>
+    <NeonCard className="p-3 sm:p-4" glow="cyan" loading={loading}>
       <form className="space-y-4" onSubmit={handleSubmit}>
-        <div className="flex flex-wrap gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           {/* Prop Firm - First */}
-          <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
+          <div className="flex min-w-0 flex-col gap-1">
             <label className="text-xs text-white/60">Prop Firm</label>
             {firms.length === 0 && (
               <div className="text-xs text-cyan-400 mb-2 p-2 bg-cyan-500/10 border border-cyan-500/20 rounded">
@@ -285,7 +285,7 @@ export const ChallengeForm: React.FC<{
           </div>
         
           {/* Account Size - Second */}
-          <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
+          <div className="flex min-w-0 flex-col gap-1">
             <label className="text-xs text-white/60">Account Size</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -331,7 +331,7 @@ export const ChallengeForm: React.FC<{
           </div>
         
           {/* Start Date - Third */}
-          <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
+          <div className="flex min-w-0 flex-col gap-1">
             <label className="text-xs text-white/60">Start Date</label>
             <input 
               type="date" 
@@ -344,7 +344,7 @@ export const ChallengeForm: React.FC<{
           </div>
         
           {/* Strategy - Fourth */}
-          <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
+          <div className="flex min-w-0 flex-col gap-1">
             <label className="text-xs text-white/60">Strategy</label>
             <input 
               type="text" 
@@ -368,9 +368,9 @@ export const ChallengeForm: React.FC<{
         </div>
         
         {/* Cost, Phases, Firm Type - responsive grid (never overlaps) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 xl:items-end">
           {/* Cost */}
-          <div className="flex flex-col gap-1 min-w-[160px]">
+          <div className="flex min-w-0 flex-col gap-1">
             <label className="text-xs text-white/60">Cost</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -411,7 +411,7 @@ export const ChallengeForm: React.FC<{
           </div>
 
           {/* Phases */}
-          <div className="flex flex-col gap-1 min-w-[140px]">
+          <div className="flex min-w-0 flex-col gap-1">
             <label className="text-xs text-white/60">Phases</label>
             <input 
               type="text" 
@@ -452,9 +452,9 @@ export const ChallengeForm: React.FC<{
           </div>
 
           {/* Firm Type */}
-          <div className="flex flex-col gap-1 min-w-[180px]">
+          <div className="flex min-w-0 flex-col gap-1">
             <label className="text-xs text-white/60">Firm Type</label>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setFirmType('futures')}
@@ -483,14 +483,14 @@ export const ChallengeForm: React.FC<{
           </div>
         </div>
         
-        <div className="flex justify-end">
+        <div className="flex justify-stretch sm:justify-end">
           <Button
             type="submit"
             variant="primary"
             loading={loading}
             disabled={formDisabled || (firms.length === 0 && !propFirmName.trim())}
             leftIcon={initial ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-            className="px-6"
+            className="w-full px-6 sm:w-auto"
             glow
           >
             {initial 

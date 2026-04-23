@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Settings, X, LogOut, Wrench } from 'lucide-react';
+import { Settings, X, LogOut, Wrench, CalendarDays } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 
 const SettingsPanel: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const { currentUser, logout } = useAuth();
-  const { buildingMode, setBuildingMode } = useSettings();
+  const { buildingMode, setBuildingMode, ruleCalendarEnabled, setRuleCalendarEnabled } = useSettings();
   const displayIdentity =
     currentUser?.name ||
     currentUser?.email ||
@@ -56,17 +56,51 @@ const SettingsPanel: React.FC = () => {
 
             {/* Settings Options */}
             <div className="space-y-4 mb-6">
-              {/* Building Mode Toggle */}
+              {/* Rule Calendar Toggle */}
               <div className="flex items-center justify-between p-4 bg-white/5 rounded-lg border border-white/10">
+                <div className="flex items-center gap-3">
+                  <CalendarDays className="w-5 h-5 text-purple-400" />
+                  <div>
+                    <div className="text-white font-medium">Rule Calendar</div>
+                    <div className="text-sm text-gray-400">Optional view for tracking rule-following on individual accounts</div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setRuleCalendarEnabled(!ruleCalendarEnabled)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    ruleCalendarEnabled
+                      ? 'bg-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.4)]'
+                      : 'bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      ruleCalendarEnabled ? 'translate-x-5' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Building Mode Toggle */}
+              <div className={`flex items-center justify-between p-4 rounded-lg border transition-opacity ${
+                ruleCalendarEnabled
+                  ? 'bg-white/5 border-white/10'
+                  : 'bg-white/5 border-white/10 opacity-50'
+              }`}>
                 <div className="flex items-center gap-3">
                   <Wrench className="w-5 h-5 text-cyan-400" />
                   <div>
                     <div className="text-white font-medium">Building Mode</div>
-                    <div className="text-sm text-gray-400">Mass challenge status changer (available on calendar page)</div>
+                    <div className="text-sm text-gray-400">
+                      {ruleCalendarEnabled
+                        ? 'Mass challenge status changer (available on the rule calendar view)'
+                        : 'Enable Rule Calendar first to use this mode'}
+                    </div>
                   </div>
                 </div>
                 <button
                   onClick={() => setBuildingMode(!buildingMode)}
+                  disabled={!ruleCalendarEnabled}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                     buildingMode 
                       ? 'bg-cyan-500 shadow-[0_0_20px_rgba(34,211,238,0.4)]' 

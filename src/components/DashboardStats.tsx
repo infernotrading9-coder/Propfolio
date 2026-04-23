@@ -330,12 +330,12 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
 
   return (
     <div>
-      <div className="flex items-center justify-end mb-4 gap-3">
-        <label className="mr-3 text-sm font-medium text-white/80">Year</label>
+      <div className="mb-4 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+        <label className="text-sm font-medium text-white/80 sm:mr-1">Year</label>
         <select
           value={selectedYear}
           onChange={(e) => onChangeYear(e.target.value)}
-          className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400/50 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white focus:border-cyan-400/50 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 sm:w-auto"
         >
           {availableYears.map(year => (
             <option key={year} value={year} className="bg-gray-800">
@@ -343,11 +343,11 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
             </option>
           ))}
         </select>
-        <label className="ml-4 mr-2 text-sm font-medium text-white/80">Pass Basis</label>
+        <label className="text-sm font-medium text-white/80 sm:ml-3 sm:mr-1">Pass Basis</label>
         <select
           value={basis}
           onChange={(e) => setBasis(e.target.value as PassBasis)}
-          className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400/50 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white focus:border-cyan-400/50 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 sm:w-auto"
           title="Choose whether yearly pass rates use Start Year or Completion Year"
         >
           <option value="start" className="bg-gray-800">Start Year</option>

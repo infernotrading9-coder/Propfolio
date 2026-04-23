@@ -72,14 +72,14 @@ export const PropFirmPicker: React.FC<{
           </div>
         </div>
         
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           {onShareStats && (
-            <div>
+            <div className="w-full sm:w-auto">
               <Button
                 onClick={handleShareStats}
                 variant="secondary"
                 leftIcon={<Share2 className="w-4 h-4" />}
-                className="px-6 py-3 bg-gradient-to-r from-cyan-500/20 to-blue-600/20 border-cyan-400/30 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]"
+                className="w-full px-4 py-3 bg-gradient-to-r from-cyan-500/20 to-blue-600/20 border-cyan-400/30 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)] sm:w-auto sm:px-6"
                 glow
               >
                 📈 Share Stats
@@ -87,13 +87,13 @@ export const PropFirmPicker: React.FC<{
             </div>
           )}
           
-          <div>
+          <div className="w-full sm:w-auto">
             <Button
               onClick={handleAddChallenge}
               variant="primary"
               leftIcon={<Plus className="w-4 h-4" />}
               glow
-              className="px-6 py-3"
+              className="w-full px-4 py-3 sm:w-auto sm:px-6"
               title={firms.length === 0 ? "You can create firms when adding challenges" : "Add a new challenge"}
             >
               Add Challenge

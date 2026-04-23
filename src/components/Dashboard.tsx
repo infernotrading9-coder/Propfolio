@@ -29,7 +29,7 @@ type ViewMode = 'prop' | 'calendar';
 
 const Dashboard: React.FC = () => {
   const { currentUser } = useAuth();
-  const { buildingMode } = useSettings();
+  const { buildingMode, ruleCalendarEnabled } = useSettings();
   
   const [state, setState] = React.useState<AppState>({
     firms: [],
@@ -63,7 +63,13 @@ const Dashboard: React.FC = () => {
   const [showBogoModal, setShowBogoModal] = React.useState(false);
   const [bogoDate, setBogoDate] = React.useState<string>(new Date().toISOString().slice(0,10));
   const [bogoLoading, setBogoLoading] = React.useState(false);
-  
+ 
+  React.useEffect(() => {
+    if (!ruleCalendarEnabled && view === 'calendar') {
+      setView('prop');
+    }
+  }, [ruleCalendarEnabled, view]);
+
 
   // Load data from database when user changes
   React.useEffect(() => {
@@ -126,6 +132,7 @@ const Dashboard: React.FC = () => {
 
   // Ensure calendar accounts exist for all challenges (Phase 1) and Live accounts
   React.useEffect(() => {
+    if (!ruleCalendarEnabled) return;
     if (!calendar || !state.challenges || state.challenges.length === 0) return;
 
     const isLive = (c: Challenge) => {
@@ -148,7 +155,7 @@ const Dashboard: React.FC = () => {
         handleAutomaticCalendarIntegration(ch, lastPhase as 'phase1'|'phase2'|'phase3');
       }
     });
-  }, [state.challenges, calendar.accounts?.length]);
+  }, [ruleCalendarEnabled, state.challenges, calendar.accounts?.length]);
 
   
   // Note: ActiveChallenges functionality replaced with ChallengeCards
@@ -728,26 +735,28 @@ const Dashboard: React.FC = () => {
           }
         }
       `}</style>
-      <div className="min-h-screen bg-[#020408] text-white">
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="min-h-screen bg-[#020408] text-white overflow-x-hidden">
+      <div className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
         <header className="mb-6 text-center relative">
           {/* Settings Panel */}
-          <div className="absolute top-0 right-0">
+          <div className="mb-4 flex justify-end sm:absolute sm:right-0 sm:top-0 sm:mb-0">
             <SettingsPanel />
           </div>
 
-          <div className="flex items-center justify-center gap-3 mb-4">
+          <div className="mb-4 flex flex-wrap items-center justify-center gap-3">
             <button onClick={() => setView('prop')} className={`px-4 py-2 rounded-md border ${view==='prop' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Prop Firm Dashboard</button>
-            <button onClick={() => setView('calendar')} className={`px-4 py-2 rounded-md border ${view==='calendar' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Rule Calendar</button>
+            {ruleCalendarEnabled && (
+              <button onClick={() => setView('calendar')} className={`px-4 py-2 rounded-md border ${view==='calendar' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Rule Calendar</button>
+            )}
           </div>
           <a href="/" className="inline-block mb-2 hover:scale-105 transition-transform duration-200">
-            <h1 className="text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='prop' ? 'Propfolio' : 'Rule Calendar'}</h1>
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='calendar' && ruleCalendarEnabled ? 'Rule Calendar' : 'Propfolio'}</h1>
           </a>
-          <p className="text-white/70 mt-2">{view==='prop' ? 'Track Challenges, Trading Rules, and ROI' : 'Track your challenge phases and trading activity'}</p>
+          <p className="text-white/70 mt-2">{view==='calendar' && ruleCalendarEnabled ? 'Track your challenge phases and trading activity' : 'Track Challenges, Trading Rules, and ROI'}</p>
         </header>
 
         <div className="space-y-6">
-          {view === 'prop' ? (
+          {view !== 'calendar' || !ruleCalendarEnabled ? (
             <>
               <PropFirmPicker
                 firms={state.firms}
@@ -797,7 +806,7 @@ const Dashboard: React.FC = () => {
                 calendar={calendar}
                 setCalendar={setCalendar}
                 buildingMode={buildingMode}
-                onAutomaticCalendarIntegration={handleAutomaticCalendarIntegration}
+                onAutomaticCalendarIntegration={ruleCalendarEnabled ? handleAutomaticCalendarIntegration : undefined}
                 onFailLiveAccount={(challengeId) => {
                   const challenge = visibleChallenges.find(c => c.id === challengeId);
                   if (challenge) {
@@ -839,7 +848,7 @@ const Dashboard: React.FC = () => {
               {selectedChallenge && (
                 <>
                   <div className="mt-8 mb-4" data-calendar-section>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <h3 className={`text-xl font-bold text-transparent bg-clip-text ${
                         selectedChallenge?.status === 'failed' 
                           ? 'bg-gradient-to-r from-red-300 to-red-400'
@@ -868,7 +877,7 @@ const Dashboard: React.FC = () => {
                   
                   {/* Phase Selector */}
                   <div className="mb-6">
-                    <div className="flex items-center justify-center gap-2">
+                    <div className="flex flex-wrap items-center justify-center gap-2">
                       {/* Phase 1 */}
                       <button
                         onClick={() => handlePhaseSwitch('phase1')}
@@ -1336,7 +1345,7 @@ const Dashboard: React.FC = () => {
               }));
               
               // Automatically create initial calendar account for new challenge (unless building mode is enabled)
-              if (result.challenge && !buildingMode) {
+              if (result.challenge && ruleCalendarEnabled && !buildingMode) {
                 await handleAutomaticNewChallengeCalendar(result.challenge);
               }
               

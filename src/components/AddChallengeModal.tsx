@@ -38,16 +38,16 @@ export const AddChallengeModal: React.FC<{
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 50 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="fixed inset-0 flex items-center justify-center p-4 z-50"
+            className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4"
           >
-            <div className="w-full max-w-3xl max-h-[80vh] overflow-y-auto">
-              <div className="relative bg-[#0a0e17] border border-cyan-500/30 rounded-lg shadow-[0_0_30px_rgba(6,182,212,0.3)]">
+            <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto sm:max-h-[85vh]">
+              <div className="relative rounded-t-2xl border border-cyan-500/30 bg-[#0a0e17] shadow-[0_0_30px_rgba(6,182,212,0.3)] sm:rounded-lg">
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-white/10">
+                <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-[#0a0e17]/95 p-4 backdrop-blur-sm">
                   <motion.h2 
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    className="text-xl font-bold text-white"
+                    className="pr-3 text-lg font-bold text-white sm:text-xl"
                   >
                     ✨ Add New Challenge
                   </motion.h2>
@@ -66,7 +66,7 @@ export const AddChallengeModal: React.FC<{
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.1 }}
-                  className="p-4"
+                  className="p-3 sm:p-4"
                 >
                   <ChallengeForm
                     firms={firms}

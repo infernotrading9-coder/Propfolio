@@ -3,6 +3,8 @@ import React, { createContext, useContext, useState, ReactNode } from 'react';
 interface SettingsContextType {
   buildingMode: boolean;
   setBuildingMode: (enabled: boolean) => void;
+  ruleCalendarEnabled: boolean;
+  setRuleCalendarEnabled: (enabled: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -24,15 +26,31 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     const saved = localStorage.getItem('dashboard_building_mode');
     return saved ? JSON.parse(saved) : false;
   });
+  const [ruleCalendarEnabled, setRuleCalendarEnabledState] = useState<boolean>(() => {
+    const saved = localStorage.getItem('dashboard_rule_calendar_enabled');
+    return saved ? JSON.parse(saved) : false;
+  });
 
   const setBuildingMode = (enabled: boolean) => {
     setBuildingModeState(enabled);
     localStorage.setItem('dashboard_building_mode', JSON.stringify(enabled));
   };
 
+  const setRuleCalendarEnabled = (enabled: boolean) => {
+    setRuleCalendarEnabledState(enabled);
+    localStorage.setItem('dashboard_rule_calendar_enabled', JSON.stringify(enabled));
+
+    if (!enabled) {
+      setBuildingModeState(false);
+      localStorage.setItem('dashboard_building_mode', JSON.stringify(false));
+    }
+  };
+
   const value: SettingsContextType = {
     buildingMode,
-    setBuildingMode
+    setBuildingMode,
+    ruleCalendarEnabled,
+    setRuleCalendarEnabled,
   };
 
   return (
