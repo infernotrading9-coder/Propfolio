@@ -52,6 +52,9 @@ async function main() {
         account_size INTEGER NOT NULL,
         start_date TEXT NOT NULL,
         cost DECIMAL(10,2) NOT NULL,
+        initial_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+        has_activation_fee BOOLEAN NOT NULL DEFAULT FALSE,
+        activation_fee_amount DECIMAL(10,2),
         strategy TEXT,
         total_phases INTEGER NOT NULL DEFAULT 3,
         phase1_completed BOOLEAN DEFAULT FALSE,
@@ -134,6 +137,28 @@ async function main() {
       console.log('✅ Added status column');
     } catch (error) {
       console.log('Status column might already exist, continuing...');
+    }
+
+    try {
+      await sql`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS initial_cost DECIMAL(10,2) NOT NULL DEFAULT 0;`;
+      await sql`UPDATE challenges SET initial_cost = cost WHERE initial_cost = 0;`;
+      console.log('✅ Added initial_cost column');
+    } catch (error) {
+      console.log('initial_cost column might already exist, continuing...');
+    }
+
+    try {
+      await sql`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS has_activation_fee BOOLEAN NOT NULL DEFAULT FALSE;`;
+      console.log('✅ Added has_activation_fee column');
+    } catch (error) {
+      console.log('has_activation_fee column might already exist, continuing...');
+    }
+
+    try {
+      await sql`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS activation_fee_amount DECIMAL(10,2);`;
+      console.log('✅ Added activation_fee_amount column');
+    } catch (error) {
+      console.log('activation_fee_amount column might already exist, continuing...');
     }
     
     console.log('✅ Column migration completed!');

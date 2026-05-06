@@ -7,6 +7,7 @@ import { useSubscription } from '../contexts/SubscriptionContext';
 import { useAuth } from '../contexts/AuthContext';
 import { PlanType } from '../lib/stripe';
 import { createCheckoutSession } from '../lib/checkout';
+import { FREE_ACCESS_MODE } from '../lib/appFlags';
 
 export const PricingPage: React.FC = () => {
   const navigate = useNavigate();
@@ -14,6 +15,10 @@ export const PricingPage: React.FC = () => {
   const { currentUser } = useAuth();
 
   const handleSelectPlan = async (plan: PlanType) => {
+    if (FREE_ACCESS_MODE) {
+      navigate('/dashboard');
+      return;
+    }
     if (plan === 'free') {
       // Free plan - redirect to dashboard
       navigate('/dashboard');
@@ -73,6 +78,14 @@ export const PricingPage: React.FC = () => {
             <p className="text-xl text-white/70 mb-8 max-w-3xl mx-auto">
               Choose the perfect plan for your prop trading journey. Track Challenges, Trading Rules, and ROI like never before.
             </p>
+            {FREE_ACCESS_MODE && (
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500/20 to-cyan-500/20 border border-green-400/30 rounded-full">
+                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                <span className="text-green-200 font-medium">
+                  Free beta mode is active. All premium limits are currently disabled.
+                </span>
+              </div>
+            )}
           </motion.div>
 
           {/* Current Plan Badge */}

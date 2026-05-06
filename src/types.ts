@@ -27,6 +27,9 @@ export interface Challenge {
   accountSize: number; // e.g., 100000
   startDate: string; // ISO date when challenge purchased
   cost: number; // amount spent to buy challenge
+  initialCost?: number; // original challenge fee before any activation fee is added
+  hasActivationFee?: boolean;
+  activationFeeAmount?: number; // actual activation fee paid after passing, if applicable
   strategy?: string; // trading strategy used
   firmType?: FirmType; // type of firm: futures or CFD (for analytics)
   monthlyPnL: Record<string, number>; // key: YYYY-MM, value: PnL
@@ -99,6 +102,9 @@ export type NewChallengeInput = {
   accountSize: number;
   startDate: string;
   cost: number;
+  initialCost?: number;
+  hasActivationFee?: boolean;
+  activationFeeAmount?: number;
   totalPhases: 1 | 2 | 3;
   status?: ChallengeStatus; // optional, defaults to 'active'
   strategy?: string;

@@ -93,6 +93,9 @@ export const loadState = async (userId: string): Promise<AppState> => {
       accountSize: challenge.accountSize || 0,
       startDate: challenge.startDate || new Date().toISOString().slice(0, 10),
       cost: challenge.cost ? parseFloat(challenge.cost.toString()) : 0,
+      initialCost: challenge.initialCost ? parseFloat(challenge.initialCost.toString()) : (challenge.cost ? parseFloat(challenge.cost.toString()) : 0),
+      hasActivationFee: !!challenge.hasActivationFee,
+      activationFeeAmount: challenge.activationFeeAmount ? parseFloat(challenge.activationFeeAmount.toString()) : undefined,
       totalPhases: ((challenge.totalPhases as any) || 3) as 1 | 2 | 3,
       strategy: challenge.strategy || '',
       status: (challenge.status as Challenge['status']) || 'active',
@@ -175,6 +178,9 @@ export const addChallenge = async (userId: string, challengeData: any) => {
       accountSize: challengeData.accountSize || 0,
       startDate: challengeData.startDate || new Date().toISOString().slice(0, 10),
       cost: challengeData.cost?.toString() || '0',
+      initialCost: challengeData.initialCost?.toString() || challengeData.cost?.toString() || '0',
+      hasActivationFee: !!challengeData.hasActivationFee,
+      activationFeeAmount: challengeData.activationFeeAmount === undefined ? null : challengeData.activationFeeAmount.toString(),
       totalPhases: challengeData.totalPhases || 3,
       strategy: challengeData.strategy || '',
       status: challengeData.status || 'active',
@@ -191,6 +197,9 @@ export const addChallenge = async (userId: string, challengeData: any) => {
       accountSize: row.accountSize || 0,
       startDate: row.startDate || new Date().toISOString().slice(0,10),
       cost: row.cost ? parseFloat(row.cost as any) : 0,
+      initialCost: row.initialCost ? parseFloat(row.initialCost as any) : (row.cost ? parseFloat(row.cost as any) : 0),
+      hasActivationFee: !!row.hasActivationFee,
+      activationFeeAmount: row.activationFeeAmount ? parseFloat(row.activationFeeAmount as any) : undefined,
       totalPhases: ((row.totalPhases as any) || 3) as 1 | 2 | 3,
       strategy: (row.strategy as any) || '',
       status: (row.status as any) || 'active',
@@ -222,6 +231,9 @@ export const updateChallenge = async (challengeId: string, updates: Partial<Chal
     if (typeof updates.accountSize === 'number') mapped.accountSize = updates.accountSize;
     if (typeof updates.startDate === 'string') mapped.startDate = updates.startDate;
     if (typeof updates.cost === 'number') mapped.cost = updates.cost.toString();
+    if (typeof updates.initialCost === 'number') mapped.initialCost = updates.initialCost.toString();
+    if (typeof updates.hasActivationFee === 'boolean') mapped.hasActivationFee = updates.hasActivationFee;
+    if (typeof updates.activationFeeAmount === 'number') mapped.activationFeeAmount = updates.activationFeeAmount.toString();
     if (typeof updates.totalPhases !== 'undefined') mapped.totalPhases = updates.totalPhases;
     if (typeof updates.strategy === 'string') mapped.strategy = updates.strategy;
     if (typeof updates.status === 'string') mapped.status = updates.status;

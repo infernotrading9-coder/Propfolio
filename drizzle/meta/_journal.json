@@ -15,6 +15,13 @@
       "when": 1760313155555,
       "tag": "0001_pink_taskmaster",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778079000000,
+      "tag": "0002_activation_fee_support",
+      "breakpoints": true
     }
   ]
 }

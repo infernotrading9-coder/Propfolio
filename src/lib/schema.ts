@@ -29,6 +29,9 @@ export const challenges = pgTable('challenges', {
   accountSize: integer('account_size').notNull(),
   startDate: text('start_date').notNull(), // YYYY-MM-DD format
   cost: decimal('cost', { precision: 10, scale: 2 }).notNull(),
+  initialCost: decimal('initial_cost', { precision: 10, scale: 2 }).default('0').notNull(),
+  hasActivationFee: boolean('has_activation_fee').default(false).notNull(),
+  activationFeeAmount: decimal('activation_fee_amount', { precision: 10, scale: 2 }),
   strategy: text('strategy'),
   totalPhases: integer('total_phases').default(3).notNull(),
   phase1Completed: boolean('phase1_completed').default(false),

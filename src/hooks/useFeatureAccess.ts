@@ -1,6 +1,7 @@
 import { useSubscription } from '../contexts/SubscriptionContext';
 import { useAuth } from '../contexts/AuthContext';
 import { UserTier, canAccessFeature, hasReachedLimit, getFeatureLimit, FeatureName } from '../lib/featureLimits';
+import { FREE_ACCESS_MODE } from '../lib/appFlags';
 
 // Admin emails that get full access
 const ADMIN_EMAILS = [
@@ -18,6 +19,7 @@ export const useFeatureAccess = () => {
   
   // Determine user tier based on subscription status
   const getUserTier = (): UserTier => {
+    if (FREE_ACCESS_MODE) return 'pro';
     // Admins always get pro tier access
     if (isAdmin) return 'pro';
     

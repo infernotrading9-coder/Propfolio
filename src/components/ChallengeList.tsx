@@ -34,6 +34,11 @@ export const ChallengeList: React.FC<{
   const [phasePromptPrevCompleted, setPhasePromptPrevCompleted] = React.useState<boolean>(false);
   
   const firmName = (id: string) => firms.find(f => f.id === id)?.name ?? 'Unknown';
+  const getFinalPhaseForChallenge = (challenge: Challenge): 'phase1'|'phase2'|'phase3' => {
+    if (challenge.totalPhases === 1) return 'phase1';
+    if (challenge.totalPhases === 2) return 'phase2';
+    return 'phase3';
+  };
   
   const getTotalPayouts = (challenge: Challenge): number => {
     if (Array.isArray(challenge.payouts)) {
@@ -489,6 +494,11 @@ export const ChallengeList: React.FC<{
         open={phasePromptOpen}
         phase={phasePromptPhase}
         totalPhases={(challenges.find(c => c.id === phasePromptChallengeId)?.totalPhases || 3) as 1|2|3}
+        requiresActivationFee={(() => {
+          const ch = challenges.find(c => c.id === phasePromptChallengeId);
+          if (!ch) return false;
+          return !!ch.hasActivationFee && typeof ch.activationFeeAmount !== 'number' && getFinalPhaseForChallenge(ch) === phasePromptPhase;
+        })()}
         onCancel={() => {
           if (!phasePromptChallengeId) return;
           // Revert UI toggle
@@ -506,7 +516,7 @@ export const ChallengeList: React.FC<{
           setPhasePromptOpen(false);
           setPhasePromptChallengeId(null);
         }}
-        onSubmit={async (outcome, date) => {
+        onSubmit={async (outcome, date, activationFeeAmount) => {
           try {
             if (!phasePromptChallengeId) return;
             const ch = challenges.find(c => c.id === phasePromptChallengeId);
@@ -517,15 +527,29 @@ export const ChallengeList: React.FC<{
             } else {
               // Persist phase completion with selected date
               await apiClient.markPhase(ch.id, phasePromptPhase, true, date);
+              const shouldAddActivationFee =
+                !!ch.hasActivationFee &&
+                typeof ch.activationFeeAmount !== 'number' &&
+                getFinalPhaseForChallenge(ch) === phasePromptPhase;
+              const normalizedActivationFee = shouldAddActivationFee ? Number(activationFeeAmount ?? 0) : undefined;
+              const updatedCost = shouldAddActivationFee
+                ? Number(((ch.initialCost ?? ch.cost ?? 0) + (normalizedActivationFee ?? 0)).toFixed(2))
+                : ch.cost;
               // Passed: persist completion with selected date
               const passedChallenge = {
                 ...ch,
                 status: 'active' as const,
+                initialCost: ch.initialCost ?? ch.cost,
+                activationFeeAmount: shouldAddActivationFee ? normalizedActivationFee : ch.activationFeeAmount,
+                cost: updatedCost,
                 phases: {
                   ...ch.phases,
                   [phasePromptPhase]: { ...ch.phases[phasePromptPhase], completed: true, completedAt: date }
                 }
               };
+              if (shouldAddActivationFee) {
+                await apiClient.updateChallenge(passedChallenge);
+              }
               onChallengeUpdate(passedChallenge);
               
               // Passed phase -> ensure next calendar segment exists automatically

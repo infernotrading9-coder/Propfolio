@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 import { PlanType, PRICING_PLANS } from '../lib/stripe';
+import { FREE_ACCESS_MODE } from '../lib/appFlags';
 // Using localStorage for subscriptions until we migrate to API
 type Subscription = {
   id: string;
@@ -80,7 +81,7 @@ export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ chil
   const loadUserSubscription = async () => {
     if (!currentUser?.id) {
       setSubscription(null);
-      setLimits(PRICING_PLANS.free.limits);
+      setLimits(FREE_ACCESS_MODE ? PRICING_PLANS.pro.limits : PRICING_PLANS.free.limits);
       setLoading(false);
       return;
     }
@@ -107,7 +108,9 @@ export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ chil
         console.log('✅ Created subscription:', userSubscription);
       }
 
-      const userLimits = PRICING_PLANS[userSubscription.plan as PlanType]?.limits || PRICING_PLANS.free.limits;
+      const userLimits = FREE_ACCESS_MODE
+        ? PRICING_PLANS.pro.limits
+        : (PRICING_PLANS[userSubscription.plan as PlanType]?.limits || PRICING_PLANS.free.limits);
 
       setSubscription(userSubscription);
       setLimits(userLimits);
@@ -126,7 +129,7 @@ export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ chil
         updatedAt: new Date(),
       } as any;
       setSubscription(fallbackSubscription);
-      setLimits(PRICING_PLANS.free.limits);
+      setLimits(FREE_ACCESS_MODE ? PRICING_PLANS.pro.limits : PRICING_PLANS.free.limits);
       
       console.log('⚠️ Subscription error, using fallback:', error);
     } finally {
@@ -161,21 +164,24 @@ export const SubscriptionProvider: React.FC<SubscriptionProviderProps> = ({ chil
   };
 
   const canAddChallenge = (currentCount: number): boolean => {
+    if (FREE_ACCESS_MODE) return true;
     if (limits.maxChallenges === -1) return true; // Unlimited
     return currentCount < limits.maxChallenges;
   };
 
   const canAccessFeature = (feature: keyof UserLimits): boolean => {
+    if (FREE_ACCESS_MODE) return true;
     return limits[feature] as boolean;
   };
 
   const isAtLimit = (currentCount: number): boolean => {
+    if (FREE_ACCESS_MODE) return false;
     if (limits.maxChallenges === -1) return false; // Unlimited
     return currentCount >= limits.maxChallenges;
   };
 
   // This will be set when you create your Stripe Checkout sessions
-  const upgradeUrl = subscription?.plan === 'free' ? '/pricing' : null;
+  const upgradeUrl = FREE_ACCESS_MODE ? null : (subscription?.plan === 'free' ? '/pricing' : null);
 
   useEffect(() => {
     loadUserSubscription();

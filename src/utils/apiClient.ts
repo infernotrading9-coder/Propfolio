@@ -154,7 +154,7 @@ class ApiClient {
   // Mark phase completion (replaces dbStorage.markPhase)
   async markPhase(challengeId: string, phase: 'phase1'|'phase2'|'phase3', completed: boolean, completedAt?: string): Promise<void> {
     if (this.useLocal()) {
-      await tempStorage.markPhase(challengeId, phase, completed);
+      await tempStorage.markPhase(challengeId, phase, completed, completedAt);
       return;
     }
     await this.makeRequest('/mark-phase', { method: 'PUT', body: JSON.stringify({ challengeId, phase, completed, ...(completedAt ? { completedAt } : {}) }) });

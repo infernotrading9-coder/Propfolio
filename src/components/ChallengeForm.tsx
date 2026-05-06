@@ -94,11 +94,12 @@ export const ChallengeForm: React.FC<{
   const [startDate, setStartDate] = React.useState(
     initial?.startDate ?? (buildingMode ? getLastUsedDate() : new Date().toISOString().slice(0,10))
   );
-  const [cost, setCost] = React.useState<number>(initial?.cost ?? 0);
+  const [cost, setCost] = React.useState<number>(initial?.initialCost ?? initial?.cost ?? 0);
   const [totalPhases, setTotalPhases] = React.useState<1 | 2 | 3>(initial?.totalPhases ?? 3);
   const [totalPhasesStr, setTotalPhasesStr] = React.useState(String(initial?.totalPhases ?? 3));
   const [accountSizeStr, setAccountSizeStr] = React.useState(String(initial?.accountSize ?? 100000));
-  const [costStr, setCostStr] = React.useState(String(initial?.cost ?? 0));
+  const [costStr, setCostStr] = React.useState(String(initial?.initialCost ?? initial?.cost ?? 0));
+  const [hasActivationFee, setHasActivationFee] = React.useState<boolean>(initial?.hasActivationFee ?? false);
   const [status] = React.useState<ChallengeStatus>(initial?.status ?? 'active');
   const [loading, setLoading] = React.useState(false);
   const formDisabled = loading || readOnly;
@@ -185,8 +186,25 @@ export const ChallengeForm: React.FC<{
         throw new Error('Please select a valid prop firm.');
       }
       
+      const activationFeeAmount = initial?.activationFeeAmount ?? undefined;
+      const totalCost = Number((cost + (activationFeeAmount ?? 0)).toFixed(2));
+
       if (initial) {
-        onSubmit({ ...initial, propFirmId: finalPropFirmId, brokerName: initial.brokerName || 'Trading Account', accountSize, startDate, cost, totalPhases, status, strategy: strategy.trim() || undefined, firmType });
+        onSubmit({
+          ...initial,
+          propFirmId: finalPropFirmId,
+          brokerName: initial.brokerName || 'Trading Account',
+          accountSize,
+          startDate,
+          cost: totalCost,
+          initialCost: cost,
+          hasActivationFee,
+          activationFeeAmount,
+          totalPhases,
+          status,
+          strategy: strategy.trim() || undefined,
+          firmType
+        });
       } else {
         // Save account size, strategy, and phase count for future reference
         savePreviousAccountSize(accountSize);
@@ -195,7 +213,19 @@ export const ChallengeForm: React.FC<{
           savePreviousStrategy(strategy);
         }
         
-        onSubmit({ propFirmId: finalPropFirmId, brokerName: 'Trading Account', accountSize, startDate, cost, totalPhases, status: 'active', strategy: strategy.trim() || undefined, firmType });
+        onSubmit({
+          propFirmId: finalPropFirmId,
+          brokerName: 'Trading Account',
+          accountSize,
+          startDate,
+          cost: totalCost,
+          initialCost: cost,
+          hasActivationFee,
+          totalPhases,
+          status: 'active',
+          strategy: strategy.trim() || undefined,
+          firmType
+        });
         
         // Save the start date as last used in build mode
         if (buildingMode) {
@@ -208,6 +238,7 @@ export const ChallengeForm: React.FC<{
         setStartDate(buildingMode ? startDate : new Date().toISOString().slice(0,10));
         setCost(0);
         setCostStr('0');
+        setHasActivationFee(false);
         setTotalPhases(3);
         setTotalPhasesStr('3');
         setStrategy('');
@@ -369,9 +400,9 @@ export const ChallengeForm: React.FC<{
         
         {/* Cost, Phases, Firm Type - responsive grid (never overlaps) */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 xl:items-end">
-          {/* Cost */}
+          {/* Challenge Cost */}
           <div className="flex min-w-0 flex-col gap-1">
-            <label className="text-xs text-white/60">Cost</label>
+            <label className="text-xs text-white/60">Challenge Cost</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <span className="text-white/60 sm:text-sm">$</span>
@@ -408,6 +439,43 @@ export const ChallengeForm: React.FC<{
               />
             </div>
             {errors.cost && <span className="text-xs text-red-400">{errors.cost}</span>}
+            <span className="text-xs text-white/40">
+              {hasActivationFee ? 'Initial challenge fee only. Activation fee will be added after passing.' : 'Total cost for this challenge right now.'}
+            </span>
+          </div>
+
+          {/* Activation Fee */}
+          <div className="flex min-w-0 flex-col gap-1">
+            <label className="text-xs text-white/60">Activation Fee?</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setHasActivationFee(false)}
+                disabled={formDisabled}
+                className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
+                  !hasActivationFee
+                    ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
+                    : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
+                }`}
+              >
+                No
+              </button>
+              <button
+                type="button"
+                onClick={() => setHasActivationFee(true)}
+                disabled={formDisabled}
+                className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
+                  hasActivationFee
+                    ? 'bg-amber-500/20 border-amber-400/50 text-amber-200'
+                    : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
+                }`}
+              >
+                Yes
+              </button>
+            </div>
+            <span className="text-xs text-white/40">
+              If yes, you will be asked for the activation fee when the challenge reaches live.
+            </span>
           </div>
 
           {/* Phases */}

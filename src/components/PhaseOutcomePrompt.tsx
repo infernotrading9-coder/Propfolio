@@ -6,19 +6,24 @@ interface PhaseOutcomePromptProps {
   open: boolean;
   phase: 'phase1' | 'phase2' | 'phase3';
   totalPhases: 1 | 2 | 3;
+  requiresActivationFee?: boolean;
   onCancel: () => void;
-  onSubmit: (outcome: 'passed' | 'failed', date: string) => void;
+  onSubmit: (outcome: 'passed' | 'failed', date: string, activationFeeAmount?: number) => void;
 }
 
-export const PhaseOutcomePrompt: React.FC<PhaseOutcomePromptProps> = ({ open, phase, totalPhases, onCancel, onSubmit }) => {
+export const PhaseOutcomePrompt: React.FC<PhaseOutcomePromptProps> = ({ open, phase, totalPhases, requiresActivationFee = false, onCancel, onSubmit }) => {
   const [outcome, setOutcome] = React.useState<'passed' | 'failed'>('passed');
   const [date, setDate] = React.useState<string>(() => new Date().toISOString().slice(0,10));
+  const [activationFeeStr, setActivationFeeStr] = React.useState<string>('');
+  const [activationFeeError, setActivationFeeError] = React.useState<string>('');
   const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
     if (open) {
       setOutcome('passed');
       setDate(new Date().toISOString().slice(0,10));
+      setActivationFeeStr('');
+      setActivationFeeError('');
       setSaving(false);
     }
   }, [open]);
@@ -54,7 +59,9 @@ export const PhaseOutcomePrompt: React.FC<PhaseOutcomePromptProps> = ({ open, ph
             </div>
 
             <div className="p-5 space-y-5">
-              <div className="text-white/80 text-sm">Select the outcome and date for this phase. This keeps your stats accurate.</div>
+              <div className="text-white/80 text-sm">
+                Select the outcome and date for this phase. This keeps your stats accurate.
+              </div>
 
               {/* Outcome buttons */}
               <div className="grid grid-cols-2 gap-3">
@@ -94,6 +101,33 @@ export const PhaseOutcomePrompt: React.FC<PhaseOutcomePromptProps> = ({ open, ph
                 </div>
               </div>
 
+              {outcome === 'passed' && requiresActivationFee && (
+                <div>
+                  <label className="block text-xs text-white/60 mb-1">Activation fee</label>
+                  <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2">
+                    <span className="text-white/60 text-sm">$</span>
+                    <input
+                      type="text"
+                      value={activationFeeStr}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/[^\d.-]/g, '');
+                        const parts = raw.split('.');
+                        let formatted = parts[0];
+                        if (parts.length > 1) formatted += '.' + parts[1].slice(0, 2);
+                        setActivationFeeStr(formatted);
+                        setActivationFeeError('');
+                      }}
+                      className="bg-transparent text-white text-sm outline-none flex-1"
+                      placeholder="Enter activation fee"
+                    />
+                  </div>
+                  {activationFeeError && <div className="mt-1 text-xs text-rose-300">{activationFeeError}</div>}
+                  <div className="mt-1 text-xs text-white/45">
+                    This will be added to the total cost for this challenge after it reaches live.
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-3 pt-1">
                 <button
                   onClick={onCancel}
@@ -103,7 +137,22 @@ export const PhaseOutcomePrompt: React.FC<PhaseOutcomePromptProps> = ({ open, ph
                   Cancel
                 </button>
                 <button
-                  onClick={async () => { setSaving(true); try { await onSubmit(outcome, date); } finally { setSaving(false); } }}
+                  onClick={async () => {
+                    if (outcome === 'passed' && requiresActivationFee) {
+                      const fee = activationFeeStr.trim() === '' ? NaN : parseFloat(activationFeeStr);
+                      if (Number.isNaN(fee) || fee < 0) {
+                        setActivationFeeError('Enter a valid activation fee.');
+                        return;
+                      }
+                    }
+                    setSaving(true);
+                    try {
+                      const fee = outcome === 'passed' && requiresActivationFee ? parseFloat(activationFeeStr) : undefined;
+                      await onSubmit(outcome, date, fee);
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
                   disabled={saving}
                   className="px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-semibold shadow-lg transition-colors"
                 >

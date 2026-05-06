@@ -193,6 +193,9 @@ export async function loadState(userId: string): Promise<AppState> {
   // Normalize payouts: ensure each payout has an id
   let mutated = false;
   userData.challenges = (userData.challenges || []).map(ch => {
+    const initialCost = typeof ch.initialCost === 'number' ? ch.initialCost : (typeof ch.cost === 'number' ? ch.cost : 0);
+    const activationFeeAmount = typeof ch.activationFeeAmount === 'number' ? ch.activationFeeAmount : undefined;
+    const normalizedCost = typeof ch.cost === 'number' ? ch.cost : Number(ch.cost || 0);
     if (Array.isArray(ch.payouts)) {
       const newPayouts = ch.payouts.map(p => {
         if (!p.id) {
@@ -201,9 +204,22 @@ export async function loadState(userId: string): Promise<AppState> {
         }
         return p;
       });
-      return { ...ch, payouts: newPayouts };
+      return {
+        ...ch,
+        cost: normalizedCost,
+        initialCost,
+        hasActivationFee: !!ch.hasActivationFee,
+        activationFeeAmount,
+        payouts: newPayouts
+      };
     }
-    return ch;
+    return {
+      ...ch,
+      cost: normalizedCost,
+      initialCost,
+      hasActivationFee: !!ch.hasActivationFee,
+      activationFeeAmount
+    };
   });
   if (mutated) {
     data[resolvedUserId] = userData;
@@ -245,6 +261,9 @@ export async function addChallenge(userId: string, input: NewChallengeInput): Pr
     accountSize: input.accountSize,
     startDate: input.startDate,
     cost: input.cost,
+    initialCost: input.initialCost ?? input.cost,
+    hasActivationFee: !!input.hasActivationFee,
+    activationFeeAmount: input.activationFeeAmount,
     strategy: input.strategy?.trim(),
     totalPhases: input.totalPhases,
     status: 'active',
@@ -310,7 +329,12 @@ export async function setSelectedFirm(userId: string, firmId: string | null): Pr
   setStorageData(data);
 }
 
-export async function markPhase(challengeId: string, phase: 'phase1' | 'phase2' | 'phase3', completed: boolean): Promise<void> {
+export async function markPhase(
+  challengeId: string,
+  phase: 'phase1' | 'phase2' | 'phase3',
+  completed: boolean,
+  completedAt?: string
+): Promise<void> {
   const user = localStorage.getItem('user');
   if (!user) return;
   
@@ -325,7 +349,7 @@ export async function markPhase(challengeId: string, phase: 'phase1' | 'phase2' 
   if (challenge) {
     challenge.phases[phase].completed = completed;
     if (completed) {
-      challenge.phases[phase].completedAt = new Date().toISOString();
+      challenge.phases[phase].completedAt = completedAt || new Date().toISOString();
     } else {
       delete challenge.phases[phase].completedAt;
     }

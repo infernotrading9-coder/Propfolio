@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Crown, Check, Zap } from 'lucide-react';
 import { Button } from './ui/Button';
+import { FREE_ACCESS_MODE } from '../lib/appFlags';
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -24,6 +25,10 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
   // const navigate = useNavigate();
 
   const handleUpgrade = () => {
+    if (FREE_ACCESS_MODE) {
+      onClose();
+      return;
+    }
     // Open Stripe Payment Link in new tab
     window.open('https://buy.stripe.com/4gM4gzaXY881foS1ByfQI01', '_blank');
     onClose();
@@ -158,6 +163,12 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
               </div>
             </div>
 
+            {FREE_ACCESS_MODE && (
+              <div className="mb-6 rounded-xl border border-green-400/30 bg-green-500/10 p-4 text-center text-green-200 text-sm">
+                Free beta mode is active. Premium gating is currently disabled.
+              </div>
+            )}
+
             {/* Upgrade Button */}
             <Button
               onClick={handleUpgrade}
@@ -165,12 +176,12 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
               className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 border-purple-400/50 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 hover:scale-[1.02] shadow-lg hover:shadow-purple-500/25"
               leftIcon={<Crown className="w-4 h-4" />}
             >
-              Upgrade to Pro - $19.99/month
+              {FREE_ACCESS_MODE ? 'Close' : 'Upgrade to Pro - $19.99/month'}
             </Button>
 
             {/* Small text */}
             <p className="text-xs text-gray-500 text-center mt-4">
-              30-day money back guarantee
+              {FREE_ACCESS_MODE ? 'Billing is paused while free beta mode is active' : '30-day money back guarantee'}
             </p>
           </motion.div>
         </div>

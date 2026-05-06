@@ -10,7 +10,20 @@ export const handler: Handler = async (event) => {
     if (event.httpMethod === 'POST') {
       // Add challenge
       const input = JSON.parse(event.body || '{}')
-      const { propFirmId, propFirmName, brokerName, accountSize, startDate, cost, totalPhases, strategy, status } = input
+      const {
+        propFirmId,
+        propFirmName,
+        brokerName,
+        accountSize,
+        startDate,
+        cost,
+        initialCost,
+        hasActivationFee,
+        activationFeeAmount,
+        totalPhases,
+        strategy,
+        status
+      } = input
 
       let firmId = propFirmId
       if (!firmId && propFirmName) {
@@ -25,6 +38,9 @@ export const handler: Handler = async (event) => {
         accountSize: Number(accountSize) || 0,
         startDate: startDate || new Date().toISOString().slice(0,10),
         cost: String(cost ?? '0'),
+        initialCost: String(initialCost ?? cost ?? '0'),
+        hasActivationFee: !!hasActivationFee,
+        activationFeeAmount: activationFeeAmount === undefined || activationFeeAmount === null ? null : String(activationFeeAmount),
         totalPhases: Number(totalPhases) || 3,
         strategy: strategy || '',
         status: status || 'active',
@@ -37,6 +53,9 @@ export const handler: Handler = async (event) => {
         accountSize: row.accountSize || 0,
         startDate: row.startDate || new Date().toISOString().slice(0,10),
         cost: row.cost ? parseFloat(String(row.cost)) : 0,
+        initialCost: row.initialCost ? parseFloat(String(row.initialCost)) : (row.cost ? parseFloat(String(row.cost)) : 0),
+        hasActivationFee: !!row.hasActivationFee,
+        activationFeeAmount: row.activationFeeAmount ? parseFloat(String(row.activationFeeAmount)) : undefined,
         totalPhases: (row.totalPhases || 3) as 1 | 2 | 3,
         strategy: row.strategy || '',
         status: (row.status as any) || 'active',
@@ -64,6 +83,11 @@ export const handler: Handler = async (event) => {
       if (updates.accountSize !== undefined) dbUpdates.accountSize = updates.accountSize
       if (updates.startDate) dbUpdates.startDate = updates.startDate
       if (updates.cost !== undefined) dbUpdates.cost = String(updates.cost)
+      if (updates.initialCost !== undefined) dbUpdates.initialCost = String(updates.initialCost)
+      if (updates.hasActivationFee !== undefined) dbUpdates.hasActivationFee = !!updates.hasActivationFee
+      if (updates.activationFeeAmount !== undefined) {
+        dbUpdates.activationFeeAmount = updates.activationFeeAmount === null ? null : String(updates.activationFeeAmount)
+      }
       if (updates.totalPhases !== undefined) dbUpdates.totalPhases = updates.totalPhases
       if (updates.strategy !== undefined) dbUpdates.strategy = updates.strategy
       if (updates.status) dbUpdates.status = updates.status
