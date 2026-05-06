@@ -30,6 +30,15 @@ type ViewMode = 'prop' | 'calendar';
 const Dashboard: React.FC = () => {
   const { currentUser } = useAuth();
   const { buildingMode, ruleCalendarEnabled } = useSettings();
+  const effectiveUser = React.useMemo(() => {
+    if (currentUser?.id) return currentUser;
+    try {
+      const raw = localStorage.getItem('user');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }, [currentUser]);
   
   const [state, setState] = React.useState<AppState>({
     firms: [],
@@ -63,6 +72,18 @@ const Dashboard: React.FC = () => {
   const [showBogoModal, setShowBogoModal] = React.useState(false);
   const [bogoDate, setBogoDate] = React.useState<string>(new Date().toISOString().slice(0,10));
   const [bogoLoading, setBogoLoading] = React.useState(false);
+
+  const emitChallengeDebug = React.useCallback((type: string, detail: Record<string, unknown> = {}) => {
+    try {
+      window.dispatchEvent(new CustomEvent('challengeDebug', {
+        detail: {
+          type,
+          timestamp: new Date().toISOString(),
+          ...detail,
+        }
+      }));
+    } catch {}
+  }, []);
  
   React.useEffect(() => {
     if (!ruleCalendarEnabled && view === 'calendar') {
@@ -74,14 +95,14 @@ const Dashboard: React.FC = () => {
   // Load data from database when user changes
   React.useEffect(() => {
     const loadData = async () => {
-      if (!currentUser?.id) {
+      if (!effectiveUser?.id) {
         setLoading(false);
         return;
       }
       
       try {
-        console.log('📁 Loading data via API for user:', currentUser.id);
-        const loadedState = await apiClient.loadState(currentUser.id);
+        console.log('📁 Loading data via API for user:', effectiveUser.id);
+        const loadedState = await apiClient.loadState(effectiveUser.id);
         console.log('✅ Data loaded successfully:', loadedState);
         setState(loadedState);
       } catch (error) {
@@ -94,13 +115,13 @@ const Dashboard: React.FC = () => {
     };
     
     loadData();
-  }, [currentUser?.id, currentUser?.email, currentUser?.name]);
+  }, [effectiveUser?.id, effectiveUser?.email, effectiveUser?.name]);
   
   // Helper function to refresh state after database operations
   const refreshState = async () => {
-    if (!currentUser?.id) return;
+    if (!effectiveUser?.id) return;
     try {
-      const newState = await apiClient.loadState(currentUser.id);
+      const newState = await apiClient.loadState(effectiveUser.id);
       setState(newState);
     } catch (error) {
       console.error('Error refreshing state:', error);
@@ -130,10 +151,22 @@ const Dashboard: React.FC = () => {
   });
   React.useEffect(() => { saveCalendar(calendar); }, [calendar]);
 
-  // Ensure calendar accounts exist for all challenges (Phase 1) and Live accounts
+  // Ensure calendar accounts exist for all challenges (Phase 1) and Live accounts.
+  // Batch changes into a single calendar update to avoid repeated expensive re-renders.
   React.useEffect(() => {
     if (!ruleCalendarEnabled) return;
-    if (!calendar || !state.challenges || state.challenges.length === 0) return;
+    if (!state.challenges || state.challenges.length === 0) return;
+
+    const sortedChallenges = [...state.challenges].sort((a, b) => {
+      const dateCompare = new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+      if (dateCompare !== 0) return dateCompare;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+
+    const getChallengeNumberForEffect = (challenge: Challenge) => {
+      const index = sortedChallenges.findIndex(c => c.id === challenge.id);
+      return index >= 0 ? index + 1 : 0;
+    };
 
     const isLive = (c: Challenge) => {
       const total = c.totalPhases || 3;
@@ -142,20 +175,71 @@ const Dashboard: React.FC = () => {
       return !!c.phases?.phase1?.completed && !!c.phases?.phase2?.completed && !!c.phases?.phase3?.completed;
     };
 
-    state.challenges.forEach((ch) => {
-      if (!ch) return;
-      // Create Phase 1 calendar for active/passed challenges
-      if (ch.status !== 'failed') {
-        handleAutomaticNewChallengeCalendar(ch);
+    setCalendar(prev => {
+      const existingAccountNames = new Set(prev.accounts.map(account => account.name));
+      const accountsToAdd = [];
+      const accountDataToAdd = [];
+
+      for (const ch of state.challenges) {
+        if (!ch) continue;
+        const firmName = state.firms.find(f => f.id === ch.propFirmId)?.name || 'Unknown Firm';
+        const challengeNumber = getChallengeNumberForEffect(ch);
+
+        if (ch.status !== 'failed') {
+          const phase1Name = `${firmName} - Challenge #${challengeNumber} - Phase 1`;
+          if (!existingAccountNames.has(phase1Name)) {
+            const newAccount = createCalAccount(phase1Name);
+            const accountData = getCalAccountData(newAccount.id, []);
+            addChallengePhase(accountData, {
+              challengeId: ch.id,
+              title: 'Phase 1',
+              description: 'Initial challenge phase',
+              phase: 'phase1',
+              firmName,
+              accountSize: ch.accountSize,
+              challengeNumber
+            });
+            existingAccountNames.add(phase1Name);
+            accountsToAdd.push(newAccount);
+            accountDataToAdd.push(accountData);
+          }
+        }
+
+        if (isLive(ch)) {
+          const liveName = `${firmName} - Challenge #${challengeNumber} - Live Account`;
+          if (!existingAccountNames.has(liveName)) {
+            const newAccount = createCalAccount(liveName);
+            const accountData = getCalAccountData(newAccount.id, []);
+            addChallengePhase(accountData, {
+              challengeId: ch.id,
+              title: 'Live Account',
+              description: 'Live trading account',
+              phase: 'live',
+              firmName,
+              accountSize: ch.accountSize,
+              challengeNumber
+            });
+            existingAccountNames.add(liveName);
+            accountsToAdd.push(newAccount);
+            accountDataToAdd.push(accountData);
+          }
+        }
       }
-      // Ensure Live Account calendar exists for live challenges
-      if (isLive(ch)) {
-        const total = ch.totalPhases || 3;
-        const lastPhase = total === 3 ? 'phase3' : total === 2 ? 'phase2' : 'phase1';
-        handleAutomaticCalendarIntegration(ch, lastPhase as 'phase1'|'phase2'|'phase3');
-      }
+
+      if (accountsToAdd.length === 0) return prev;
+
+      emitChallengeDebug('calendar:auto-batch-created', {
+        count: accountsToAdd.length,
+        challengeCount: state.challenges.length,
+      });
+
+      return {
+        ...prev,
+        accounts: [...accountsToAdd, ...prev.accounts],
+        accountData: [...prev.accountData, ...accountDataToAdd]
+      };
     });
-  }, [ruleCalendarEnabled, state.challenges, calendar.accounts?.length]);
+  }, [ruleCalendarEnabled, state.challenges, state.firms, emitChallengeDebug]);
 
   
   // Note: ActiveChallenges functionality replaced with ChallengeCards
@@ -411,7 +495,7 @@ const Dashboard: React.FC = () => {
   };
   
   const handleBulkStatusChange = async (challengeIds: string[], newStatus: 'active' | 'passed' | 'failed') => {
-    if (!currentUser?.id) return;
+    if (!effectiveUser?.id) return;
     
     try {
       // Update database
@@ -643,13 +727,21 @@ const Dashboard: React.FC = () => {
     }
     setLoadingDelete(true);
     try {
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 600));
+      const startedAt = performance.now();
+      emitChallengeDebug('delete:start', { challengeId: deleteConfirm.id });
       await apiClient.removeChallenge(deleteConfirm.id);
       await refreshState();
+      emitChallengeDebug('delete:success', {
+        challengeId: deleteConfirm.id,
+        durationMs: Math.round(performance.now() - startedAt),
+      });
       setEditing(null); // Close edit modal after deletion
     } catch (error) {
       console.error('Delete error:', error);
+      emitChallengeDebug('delete:error', {
+        challengeId: deleteConfirm.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setLoadingDelete(false);
       setDeleteConfirm(null);
@@ -763,7 +855,7 @@ const Dashboard: React.FC = () => {
                 selectedId={state.selectedFirmId}
                 currentChallengeCount={state.challenges.length}
                 onSelect={async (id) => {
-                  if (!currentUser?.id) return;
+                  if (!effectiveUser?.id) return;
                   
                   // Update UI immediately
                   setState(prevState => ({
@@ -772,7 +864,7 @@ const Dashboard: React.FC = () => {
                   }));
                   
                   // Update database in background
-                  apiClient.setSelectedFirm(currentUser.id, id)
+                  apiClient.setSelectedFirm(effectiveUser.id, id)
                     .catch(error => {
                       console.error('Failed to set selected firm:', error);
                       // Could revert on error if needed
@@ -1212,7 +1304,8 @@ const Dashboard: React.FC = () => {
                         strategy: editing.strategy,
                         firmType: editing.firmType,
                       } as any;
-                      const result = await apiClient.addChallenge(currentUser!.id, input);
+                      if (!effectiveUser?.id) throw new Error('No user ID');
+                      const result = await apiClient.addChallenge(effectiveUser.id, input);
                       setState(prev => ({ ...prev, challenges: [result.challenge, ...prev.challenges] }));
                       await handleAutomaticNewChallengeCalendar(result.challenge);
                       refreshState();
@@ -1301,7 +1394,8 @@ const Dashboard: React.FC = () => {
                         strategy: editing.strategy,
                         firmType: editing.firmType,
                       } as any;
-                      const result = await apiClient.addChallenge(currentUser!.id, input);
+                      if (!effectiveUser?.id) throw new Error('No user ID');
+                      const result = await apiClient.addChallenge(effectiveUser.id, input);
                       setState(prev => ({ ...prev, challenges: [result.challenge, ...prev.challenges] }));
                       await handleAutomaticNewChallengeCalendar(result.challenge);
                       refreshState();
@@ -1330,13 +1424,18 @@ const Dashboard: React.FC = () => {
           defaultFirmId={state.selectedFirmId}
           buildingMode={buildingMode}
           onSubmit={async (input) => {
-            if (!currentUser?.id) return;
+            if (!effectiveUser?.id) return;
             
             // Close modal immediately for better UX
             setIsAddChallengeModalOpen(false);
             
             try {
-              const result = await apiClient.addChallenge(currentUser.id, input as any);
+              const startedAt = performance.now();
+              emitChallengeDebug('add:start', {
+                firmId: (input as any)?.propFirmId || null,
+                accountSize: (input as any)?.accountSize || null,
+              });
+              const result = await apiClient.addChallenge(effectiveUser.id, input as any);
               
               // Update UI immediately with optimistic update
               setState(prev => ({
@@ -1351,16 +1450,23 @@ const Dashboard: React.FC = () => {
               
               // Refresh state in background to ensure consistency
               refreshState();
+              emitChallengeDebug('add:success', {
+                challengeId: result.challenge.id,
+                durationMs: Math.round(performance.now() - startedAt),
+              });
             } catch (error) {
               console.error('Error adding challenge:', error);
+              emitChallengeDebug('add:error', {
+                message: error instanceof Error ? error.message : String(error),
+              });
               alert('Failed to add challenge. Please try again.');
               // Reopen modal on error
               setIsAddChallengeModalOpen(true);
             }
           }}
           onAddFirm={async (input) => {
-            if (!currentUser?.id) throw new Error('No user ID');
-            const result = await apiClient.addFirm(currentUser.id, input);
+            if (!effectiveUser?.id) throw new Error('No user ID');
+            const result = await apiClient.addFirm(effectiveUser.id, input);
             await refreshState();
             return result.firm;
           }}

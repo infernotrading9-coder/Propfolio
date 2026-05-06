@@ -24,9 +24,7 @@ export const DebugWindow: React.FC<DebugWindowProps> = ({
   const { subscription, limits, canAddChallenge } = useSubscription();
   const { tier, isAdmin, canCreateMoreChallenges, hasReachedLimit } = useFeatureAccess();
   
-  // Set to false to disable debug window by default
-  // Change to true when debugging is needed
-  const [isEnabled] = useState(false);
+  const [isEnabled] = useState(true);
   const [isOpen, setIsOpen] = useState(true);
   const [lastError, setLastError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
@@ -36,16 +34,18 @@ export const DebugWindow: React.FC<DebugWindowProps> = ({
     storage: true,
     payouts: true,
     errors: true,
+    challengeOps: true,
     actions: true
   });
   const [payoutDebugInfo, setPayoutDebugInfo] = useState<any>(null);
+  const [challengeDebugInfo, setChallengeDebugInfo] = useState<any>(null);
 
-  // Capture console errors and payout debug events
+  // Capture console errors and app debug events
   useEffect(() => {
     const originalError = console.error;
     console.error = (...args: any[]) => {
       const errorMsg = args.map(arg => typeof arg === 'string' ? arg : JSON.stringify(arg)).join(' ');
-      if (errorMsg.toLowerCase().includes('challenge') || errorMsg.toLowerCase().includes('add') || errorMsg.toLowerCase().includes('payout')) {
+      if (errorMsg.toLowerCase().includes('challenge') || errorMsg.toLowerCase().includes('add') || errorMsg.toLowerCase().includes('delete') || errorMsg.toLowerCase().includes('payout')) {
         setLastError(errorMsg);
         setLogs(prev => [`${new Date().toLocaleTimeString()}: ${errorMsg}`, ...prev.slice(0, 9)]);
       }
@@ -65,11 +65,23 @@ export const DebugWindow: React.FC<DebugWindowProps> = ({
       }
     };
 
+    const handleChallengeDebug = (event: any) => {
+      const detail = event.detail;
+      setChallengeDebugInfo(detail);
+      const durationSuffix = typeof detail.durationMs === 'number' ? ` (${detail.durationMs}ms)` : '';
+      addLog(`🏁 ${detail.type}${durationSuffix}`);
+      if (detail.message) {
+        setLastError(String(detail.message));
+      }
+    };
+
     window.addEventListener('payoutDebug', handlePayoutDebug);
+    window.addEventListener('challengeDebug', handleChallengeDebug);
 
     return () => {
       console.error = originalError;
       window.removeEventListener('payoutDebug', handlePayoutDebug);
+      window.removeEventListener('challengeDebug', handleChallengeDebug);
     };
   }, []);
 
@@ -166,7 +178,7 @@ export const DebugWindow: React.FC<DebugWindowProps> = ({
     <div className="fixed top-4 right-4 w-96 max-h-[90vh] overflow-auto z-50">
       <NeonCard glow="red" className="p-4">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-red-300">🐛 Challenge Creation Debug</h3>
+          <h3 className="text-lg font-bold text-red-300">Debug Window</h3>
           <div className="flex gap-2">
             <button
               onClick={() => setLogs([])}
@@ -359,6 +371,39 @@ export const DebugWindow: React.FC<DebugWindowProps> = ({
                     <div className="text-white/50 text-xs">No activity logged yet</div>
                   )}
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* Challenge Operations */}
+          <div>
+            <button
+              onClick={() => toggleSection('challengeOps')}
+              className="flex items-center gap-2 text-cyan-300 hover:text-cyan-200 transition-colors w-full text-left"
+            >
+              {expandedSections.challengeOps ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              <span className="font-semibold">Latest Challenge Operation</span>
+              {challengeDebugInfo && <CheckCircle className="w-3 h-3 text-cyan-400" />}
+            </button>
+
+            {expandedSections.challengeOps && (
+              <div className="mt-2 pl-5 space-y-1 text-white/80">
+                {challengeDebugInfo ? (
+                  <>
+                    <div>Type: <span className="text-cyan-300">{challengeDebugInfo.type}</span></div>
+                    {'challengeId' in challengeDebugInfo && (
+                      <div>Challenge: <span className="text-cyan-300">{challengeDebugInfo.challengeId || 'n/a'}</span></div>
+                    )}
+                    {'durationMs' in challengeDebugInfo && (
+                      <div>Duration: <span className="text-cyan-300">{challengeDebugInfo.durationMs}ms</span></div>
+                    )}
+                    {'message' in challengeDebugInfo && (
+                      <div className="break-words">Message: <span className="text-cyan-300">{challengeDebugInfo.message}</span></div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-white/50 text-xs">No add/delete activity recorded yet</div>
+                )}
               </div>
             )}
           </div>

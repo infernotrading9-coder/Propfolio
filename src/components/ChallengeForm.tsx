@@ -398,11 +398,11 @@ export const ChallengeForm: React.FC<{
           </div>
         </div>
         
-        {/* Cost, Phases, Firm Type - responsive grid (never overlaps) */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 xl:items-end">
+        {/* Challenge setup - aligned secondary controls */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:items-start">
           {/* Challenge Cost */}
-          <div className="flex min-w-0 flex-col gap-1">
-            <label className="text-xs text-white/60">Challenge Cost</label>
+          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <label className="text-xs font-medium uppercase tracking-wide text-white/60">Challenge Cost</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <span className="text-white/60 sm:text-sm">$</span>
@@ -439,23 +439,24 @@ export const ChallengeForm: React.FC<{
               />
             </div>
             {errors.cost && <span className="text-xs text-red-400">{errors.cost}</span>}
-            <span className="text-xs text-white/40">
+            <span className="text-xs leading-relaxed text-white/45">
               {hasActivationFee ? 'Initial challenge fee only. Activation fee will be added after passing.' : 'Total cost for this challenge right now.'}
             </span>
           </div>
 
           {/* Activation Fee */}
-          <div className="flex min-w-0 flex-col gap-1">
-            <label className="text-xs text-white/60">Activation Fee?</label>
-            <div className="grid grid-cols-2 gap-2">
+          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <label className="text-xs font-medium uppercase tracking-wide text-white/60">Activation Fee</label>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-1">
+              <div className="grid grid-cols-2 gap-1">
               <button
                 type="button"
                 onClick={() => setHasActivationFee(false)}
                 disabled={formDisabled}
-                className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
+                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ${
                   !hasActivationFee
-                    ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
-                    : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
+                    ? 'bg-cyan-500/20 text-cyan-200 shadow-[0_0_18px_rgba(34,211,238,0.18)]'
+                    : 'text-white/70 hover:bg-white/8 hover:text-white'
                 }`}
               >
                 No
@@ -464,23 +465,24 @@ export const ChallengeForm: React.FC<{
                 type="button"
                 onClick={() => setHasActivationFee(true)}
                 disabled={formDisabled}
-                className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
+                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ${
                   hasActivationFee
-                    ? 'bg-amber-500/20 border-amber-400/50 text-amber-200'
-                    : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
+                    ? 'bg-amber-500/20 text-amber-200 shadow-[0_0_18px_rgba(251,191,36,0.18)]'
+                    : 'text-white/70 hover:bg-white/8 hover:text-white'
                 }`}
               >
                 Yes
               </button>
             </div>
-            <span className="text-xs text-white/40">
-              If yes, you will be asked for the activation fee when the challenge reaches live.
+            </div>
+            <span className="text-xs leading-relaxed text-white/45">
+              If enabled, you will enter the fee only when the account reaches live.
             </span>
           </div>
 
           {/* Phases */}
-          <div className="flex min-w-0 flex-col gap-1">
-            <label className="text-xs text-white/60">Phases</label>
+          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <label className="text-xs font-medium uppercase tracking-wide text-white/60">Phases</label>
             <input 
               type="text" 
               list="total-phases"
@@ -517,11 +519,14 @@ export const ChallengeForm: React.FC<{
                 <option key={index} value={phases.toString()} />
               ))}
             </datalist>
+            <span className="text-xs leading-relaxed text-white/45">
+              Choose how many phases this challenge requires before live funding.
+            </span>
           </div>
 
           {/* Firm Type */}
-          <div className="flex min-w-0 flex-col gap-1">
-            <label className="text-xs text-white/60">Firm Type</label>
+          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <label className="text-xs font-medium uppercase tracking-wide text-white/60">Firm Type</label>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
