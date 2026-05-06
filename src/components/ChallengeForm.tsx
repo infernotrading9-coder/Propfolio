@@ -2,7 +2,7 @@ import React from 'react';
 import { NeonCard } from './NeonCard';
 import { Button } from './ui/Button';
 import { PropFirm, NewChallengeInput, Challenge, NewFirmInput, ChallengeStatus, FirmType } from '../types';
-import { Plus, Save } from 'lucide-react';
+import { CalendarDays, CircleDollarSign, Layers3, Plus, Save, Target, WalletCards } from 'lucide-react';
 
 export const ChallengeForm: React.FC<{
   firms: PropFirm[];
@@ -96,7 +96,6 @@ export const ChallengeForm: React.FC<{
   );
   const [cost, setCost] = React.useState<number>(initial?.initialCost ?? initial?.cost ?? 0);
   const [totalPhases, setTotalPhases] = React.useState<1 | 2 | 3>(initial?.totalPhases ?? 3);
-  const [totalPhasesStr, setTotalPhasesStr] = React.useState(String(initial?.totalPhases ?? 3));
   const [accountSizeStr, setAccountSizeStr] = React.useState(String(initial?.accountSize ?? 100000));
   const [costStr, setCostStr] = React.useState(String(initial?.initialCost ?? initial?.cost ?? 0));
   const [hasActivationFee, setHasActivationFee] = React.useState<boolean>(initial?.hasActivationFee ?? false);
@@ -106,7 +105,6 @@ export const ChallengeForm: React.FC<{
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [accountSizeCleared, setAccountSizeCleared] = React.useState(false);
   const [costCleared, setCostCleared] = React.useState(false);
-  const [totalPhasesCleared, setTotalPhasesCleared] = React.useState(false);
   const [firmType, setFirmType] = React.useState<FirmType | undefined>(initial?.firmType || undefined);
   
   // Refresh date when buildingMode changes or when component mounts in build mode
@@ -240,12 +238,10 @@ export const ChallengeForm: React.FC<{
         setCostStr('0');
         setHasActivationFee(false);
         setTotalPhases(3);
-        setTotalPhasesStr('3');
         setStrategy('');
         // Reset the cleared flags
         setAccountSizeCleared(false);
         setCostCleared(false);
-        setTotalPhasesCleared(false);
       }
     } catch (error) {
       console.error('Form submission error:', error);
@@ -269,10 +265,34 @@ export const ChallengeForm: React.FC<{
     focus:outline-none focus:ring-2 focus:ring-cyan-500/30
   `;
 
+  const optionCardClasses = (active: boolean, tone: 'cyan' | 'amber' | 'purple' = 'cyan') => {
+    const activeStyles = {
+      cyan: 'border-cyan-400/50 bg-cyan-500/15 text-cyan-200 shadow-[0_0_20px_rgba(34,211,238,0.18)]',
+      amber: 'border-amber-400/50 bg-amber-500/15 text-amber-200 shadow-[0_0_20px_rgba(251,191,36,0.16)]',
+      purple: 'border-purple-400/50 bg-purple-500/15 text-purple-200 shadow-[0_0_20px_rgba(168,85,247,0.16)]',
+    };
+
+    return `rounded-xl border px-3 py-3 text-sm font-medium transition-all duration-200 ${
+      active
+        ? activeStyles[tone]
+        : 'border-white/10 bg-white/[0.03] text-white/75 hover:border-white/20 hover:bg-white/[0.06] hover:text-white'
+    }`;
+  };
+
   return (
-    <NeonCard className="p-3 sm:p-4" glow="cyan" loading={loading}>
-      <form className="space-y-4" onSubmit={handleSubmit}>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <NeonCard className="p-4 sm:p-5" glow="cyan" loading={loading}>
+      <form className="space-y-6" onSubmit={handleSubmit}>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500/15 text-cyan-200">
+              <WalletCards className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">Core Details</h3>
+              <p className="text-xs text-white/45">Firm, size, date, and strategy.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           {/* Prop Firm - First */}
           <div className="flex min-w-0 flex-col gap-1">
             <label className="text-xs text-white/60">Prop Firm</label>
@@ -397,12 +417,26 @@ export const ChallengeForm: React.FC<{
             {errors.strategy && <span className="text-xs text-red-400">{errors.strategy}</span>}
           </div>
         </div>
+        </div>
         
-        {/* Challenge setup - aligned secondary controls */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:items-start">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-500/15 text-purple-200">
+              <Target className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">Challenge Setup</h3>
+              <p className="text-xs text-white/45">Cost, activation fee, phases, and firm type.</p>
+            </div>
+          </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 xl:items-start">
           {/* Challenge Cost */}
-          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <label className="text-xs font-medium uppercase tracking-wide text-white/60">Challenge Cost</label>
+          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-black/15 p-3">
+            <label className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-white/60">
+              <CircleDollarSign className="h-3.5 w-3.5" />
+              Challenge Cost
+            </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <span className="text-white/60 sm:text-sm">$</span>
@@ -439,25 +473,20 @@ export const ChallengeForm: React.FC<{
               />
             </div>
             {errors.cost && <span className="text-xs text-red-400">{errors.cost}</span>}
-            <span className="text-xs leading-relaxed text-white/45">
-              {hasActivationFee ? 'Initial challenge fee only. Activation fee will be added after passing.' : 'Total cost for this challenge right now.'}
-            </span>
           </div>
 
           {/* Activation Fee */}
-          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <label className="text-xs font-medium uppercase tracking-wide text-white/60">Activation Fee</label>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-1">
-              <div className="grid grid-cols-2 gap-1">
+          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-black/15 p-3">
+            <label className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-white/60">
+              <CalendarDays className="h-3.5 w-3.5" />
+              Activation Fee
+            </label>
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setHasActivationFee(false)}
                 disabled={formDisabled}
-                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ${
-                  !hasActivationFee
-                    ? 'bg-cyan-500/20 text-cyan-200 shadow-[0_0_18px_rgba(34,211,238,0.18)]'
-                    : 'text-white/70 hover:bg-white/8 hover:text-white'
-                }`}
+                className={optionCardClasses(!hasActivationFee, 'cyan')}
               >
                 No
               </button>
@@ -465,78 +494,49 @@ export const ChallengeForm: React.FC<{
                 type="button"
                 onClick={() => setHasActivationFee(true)}
                 disabled={formDisabled}
-                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ${
-                  hasActivationFee
-                    ? 'bg-amber-500/20 text-amber-200 shadow-[0_0_18px_rgba(251,191,36,0.18)]'
-                    : 'text-white/70 hover:bg-white/8 hover:text-white'
-                }`}
+                className={optionCardClasses(hasActivationFee, 'amber')}
               >
                 Yes
               </button>
             </div>
-            </div>
-            <span className="text-xs leading-relaxed text-white/45">
-              If enabled, you will enter the fee only when the account reaches live.
-            </span>
           </div>
 
           {/* Phases */}
-          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <label className="text-xs font-medium uppercase tracking-wide text-white/60">Phases</label>
-            <input 
-              type="text" 
-              list="total-phases"
-              value={totalPhasesStr}
-              onChange={e => { 
-                const rawValue = e.target.value.replace(/[^\d]/g, '');
-                if (!totalPhasesCleared && !initial) {
-                  setTotalPhasesStr(rawValue);
-                  setTotalPhasesCleared(true);
-                } else {
-                  setTotalPhasesStr(rawValue);
-                }
-                const numValue = rawValue === '' ? 3 : Number(rawValue);
-                if ([1, 2, 3].includes(numValue)) {
-                  setTotalPhases(numValue as 1 | 2 | 3);
-                } else if (numValue > 3) {
-                  setTotalPhases(3);
-                  setTotalPhasesStr('3');
-                }
-                setErrors(prev => ({ ...prev, totalPhases: '' })); 
-              }}
-              onFocus={() => {
-                if (!totalPhasesCleared && !initial) {
-                  setTotalPhasesStr('');
-                  setTotalPhasesCleared(true);
-                }
-              }}
-              className={`w-full ${inputClasses('totalPhases')}`}
-              disabled={formDisabled}
-              placeholder="3"
-            />
-            <datalist id="total-phases">
-              {getPreviousPhases().map((phases, index) => (
-                <option key={index} value={phases.toString()} />
+          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-black/15 p-3">
+            <label className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-white/60">
+              <Layers3 className="h-3.5 w-3.5" />
+              Phases
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {[1, 2, 3].map((phaseCount) => (
+                <button
+                  key={phaseCount}
+                  type="button"
+                  disabled={formDisabled}
+                  onClick={() => {
+                    setTotalPhases(phaseCount as 1 | 2 | 3);
+                    setErrors(prev => ({ ...prev, totalPhases: '' }));
+                  }}
+                  className={optionCardClasses(totalPhases === phaseCount, 'purple')}
+                >
+                  {phaseCount}
+                </button>
               ))}
-            </datalist>
-            <span className="text-xs leading-relaxed text-white/45">
-              Choose how many phases this challenge requires before live funding.
-            </span>
+            </div>
           </div>
 
           {/* Firm Type */}
-          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <label className="text-xs font-medium uppercase tracking-wide text-white/60">Firm Type</label>
+          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-black/15 p-3">
+            <label className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-white/60">
+              <WalletCards className="h-3.5 w-3.5" />
+              Firm Type
+            </label>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setFirmType('futures')}
                 disabled={formDisabled}
-                className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
-                  firmType === 'futures'
-                    ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
-                    : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
-                }`}
+                className={optionCardClasses(firmType === 'futures', 'cyan')}
               >
                 Futures
               </button>
@@ -544,19 +544,16 @@ export const ChallengeForm: React.FC<{
                 type="button"
                 onClick={() => setFirmType('cfd')}
                 disabled={formDisabled}
-                className={`flex-1 px-3 py-2 rounded-md border transition-colors duration-200 text-sm ${
-                  firmType === 'cfd'
-                    ? 'bg-purple-500/20 border-purple-400/50 text-purple-200'
-                    : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20'
-                }`}
+                className={optionCardClasses(firmType === 'cfd', 'purple')}
               >
                 CFD
               </button>
             </div>
           </div>
         </div>
+        </div>
         
-        <div className="flex justify-stretch sm:justify-end">
+        <div className="flex justify-stretch border-t border-white/10 pt-2 sm:justify-end">
           <Button
             type="submit"
             variant="primary"
