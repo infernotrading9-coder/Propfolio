@@ -54,6 +54,44 @@ export const AdditionalCharts: React.FC<{
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  const formatCompactCurrency = React.useCallback((value: number) => {
+    const absValue = Math.abs(value);
+    if (absValue >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+    if (absValue >= 1000) return `$${Math.round(value / 1000)}K`;
+    return `$${Math.round(value).toLocaleString()}`;
+  }, []);
+
+  const getFirmMeta = React.useCallback((firmName: string) => {
+    const normalized = firmName.trim().toLowerCase();
+    const match = firms.find((firm) => firm.name.trim().toLowerCase() === normalized);
+    const firmType = match?.firmType;
+
+    const firmProfiles: Array<{ test: (value: string) => boolean; logo: string; accent: string; glow: string; label: string }> = [
+      { test: value => value.includes('ftmo'), logo: 'FT', accent: '#f97316', glow: 'rgba(249,115,22,0.28)', label: 'FTMO' },
+      { test: value => value.includes('apex'), logo: 'AX', accent: '#22d3ee', glow: 'rgba(34,211,238,0.28)', label: 'Apex' },
+      { test: value => value.includes('topstep') || value.includes('top step'), logo: 'TS', accent: '#60a5fa', glow: 'rgba(96,165,250,0.28)', label: 'Topstep' },
+      { test: value => value.includes('funded'), logo: 'FD', accent: '#a855f7', glow: 'rgba(168,85,247,0.28)', label: 'Funded' },
+      { test: value => value.includes('5ers') || value.includes('the5%ers'), logo: '5%', accent: '#14b8a6', glow: 'rgba(20,184,166,0.28)', label: '5ers' },
+      { test: value => value.includes('blue') || value.includes('blu'), logo: 'BL', accent: '#3b82f6', glow: 'rgba(59,130,246,0.28)', label: 'Blue' },
+    ];
+    const known = firmProfiles.find(entry => entry.test(normalized));
+
+    const initials = firmName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map(part => part[0]?.toUpperCase() || '')
+      .join('') || firmName.slice(0, 2).toUpperCase();
+
+    return {
+      logo: known?.logo || initials,
+      accent: known?.accent || (firmType === 'cfd' ? '#a855f7' : '#22d3ee'),
+      glow: known?.glow || (firmType === 'cfd' ? 'rgba(168,85,247,0.28)' : 'rgba(34,211,238,0.28)'),
+      label: known?.label || firmName,
+      typeLabel: firmType ? firmType.toUpperCase() : 'FIRM'
+    };
+  }, [firms]);
   
 
   // Firm Exposure Data (Pie Chart)
@@ -85,7 +123,7 @@ export const AdditionalCharts: React.FC<{
         percentage: totalCost > 0 ? (firm.cost / totalCost) * 100 : 0
       }))
       .sort((a, b) => b.cost - a.cost);
-  }, [challenges, firms]);
+  }, [challenges, firms, selectedYear]);
 
   // Firm Profit Data (Pie Chart)
   const firmProfitData = useMemo(() => {
@@ -142,7 +180,7 @@ export const AdditionalCharts: React.FC<{
       .sort((a, b) => b.profit - a.profit);
     
     return result;
-  }, [challenges, firms]);
+  }, [challenges, firms, selectedYear]);
 
   // Firm ROI Data (Pie Chart)
   const firmROIData = useMemo(() => {
@@ -357,6 +395,124 @@ export const AdditionalCharts: React.FC<{
       .slice(0, 10); // Top 10 performers
   }, [challenges, firms, selectedYear]);
 
+  const insightCards = useMemo(() => {
+    if (activeView === 'firmAnalysis') {
+      const leader = (firmView === 'roi' ? firmROIData[0] : firmExposureData[0]) as any;
+      const totalExposure = firmExposureData.reduce((sum, firm) => sum + firm.cost, 0);
+      return [
+        {
+          label: 'Lead Firm',
+          value: leader?.name || 'No data',
+          detail: leader ? (firmView === 'roi' ? `${leader.roi.toFixed(1)}% ROI` : `${leader.percentage.toFixed(1)}% exposure`) : 'Add firms to compare',
+          accent: firmView === 'roi' ? 'from-blue-500/25 to-cyan-500/10' : 'from-orange-500/25 to-amber-500/10'
+        },
+        {
+          label: 'Tracked Firms',
+          value: `${firmExposureData.length}`,
+          detail: `${formatCompactCurrency(totalExposure)} deployed`,
+          accent: 'from-violet-500/25 to-fuchsia-500/10'
+        },
+        {
+          label: 'Best Payout Mix',
+          value: firmProfitData[0] ? formatCompactCurrency(firmProfitData[0].payouts) : '$0',
+          detail: firmProfitData[0] ? `${firmProfitData[0].name} generated the most payouts` : 'Waiting for payout data',
+          accent: 'from-emerald-500/25 to-green-500/10'
+        }
+      ];
+    }
+
+    if (activeView === 'strategyPerformance') {
+      const ranked = [...strategyData].sort((a, b) => b.roi - a.roi);
+      const best = ranked[0];
+      const avgPass = strategyData.length > 0 ? strategyData.reduce((sum, strategy) => sum + strategy.passRate, 0) / strategyData.length : 0;
+      return [
+        {
+          label: 'Best Strategy',
+          value: best?.name || 'No data',
+          detail: best ? `${best.roi.toFixed(1)}% ROI across ${best.challenges} challenges` : 'Add strategy data to rank',
+          accent: 'from-cyan-500/25 to-sky-500/10'
+        },
+        {
+          label: 'Strategy Coverage',
+          value: `${strategyData.length}`,
+          detail: `${avgPass.toFixed(1)}% average pass rate`,
+          accent: 'from-indigo-500/25 to-violet-500/10'
+        },
+        {
+          label: 'Net PnL Leader',
+          value: best ? formatCompactCurrency(best.pnl) : '$0',
+          detail: best ? `${best.name} is setting the pace` : 'Waiting for results',
+          accent: 'from-emerald-500/25 to-lime-500/10'
+        }
+      ];
+    }
+
+    if (activeView === 'challengeType') {
+      const ranked = [...challengeTypeData].sort((a, b) => b.roi - a.roi);
+      const best = ranked[0];
+      const profitableTotal = challengeTypeData.reduce((sum, type) => sum + type.profitableChallenges, 0);
+      const totalCount = challengeTypeData.reduce((sum, type) => sum + type.count, 0);
+      return [
+        {
+          label: 'Top Type',
+          value: best?.name || 'No data',
+          detail: best ? `${best.roi.toFixed(1)}% ROI with ${best.profitableChallenges}/${best.count} profitable` : 'Add challenge data to compare',
+          accent: 'from-amber-500/25 to-orange-500/10'
+        },
+        {
+          label: 'Profitable Accounts',
+          value: `${profitableTotal}/${totalCount || 0}`,
+          detail: totalCount ? `${((profitableTotal / totalCount) * 100).toFixed(1)}% of tracked accounts` : 'Waiting for challenge results',
+          accent: 'from-green-500/25 to-emerald-500/10'
+        },
+        {
+          label: 'Capital by Type',
+          value: formatCompactCurrency(challengeTypeData.reduce((sum, type) => sum + type.totalCost, 0)),
+          detail: 'Combined spend across all phase models',
+          accent: 'from-purple-500/25 to-fuchsia-500/10'
+        }
+      ];
+    }
+
+    const topPerformer = topAccounts[0];
+    const avgRoi = topAccounts.length > 0 ? topAccounts.reduce((sum, account) => sum + account.roi, 0) / topAccounts.length : 0;
+    return [
+      {
+        label: '#1 Account',
+        value: topPerformer ? `${topPerformer.firm} #${topPerformer.challengeNumber}` : 'No payouts yet',
+        detail: topPerformer ? `${topPerformer.roi.toFixed(0)}% ROI on ${formatCompactCurrency(topPerformer.accountSize)}` : 'Complete funded accounts to rank them',
+        accent: 'from-blue-500/25 to-cyan-500/10'
+      },
+      {
+        label: 'Top 10 Payouts',
+        value: formatCompactCurrency(topAccounts.reduce((sum, account) => sum + account.payouts, 0)),
+        detail: `${topAccounts.length} ranked account${topAccounts.length === 1 ? '' : 's'} this year`,
+        accent: 'from-emerald-500/25 to-green-500/10'
+      },
+      {
+        label: 'Average ROI',
+        value: `${avgRoi.toFixed(0)}%`,
+        detail: 'Mean return across the leaderboard',
+        accent: 'from-violet-500/25 to-fuchsia-500/10'
+      }
+    ];
+  }, [activeView, challengeTypeData, firmExposureData, firmProfitData, firmROIData, firmView, formatCompactCurrency, strategyData, topAccounts]);
+
+  const renderInsightStrip = () => (
+    <div className="mb-5 grid grid-cols-1 gap-3 lg:grid-cols-3">
+      {insightCards.map((card) => (
+        <div
+          key={`${activeView}-${card.label}`}
+          className={`rounded-2xl border border-white/10 bg-gradient-to-br ${card.accent} p-4 shadow-[0_0_25px_rgba(15,23,42,0.22)] backdrop-blur-sm`}
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">{card.label}</div>
+          <div className="mt-2 text-lg font-bold text-white">{card.value}</div>
+          <div className="mt-1 text-sm text-white/65">{card.detail}</div>
+        </div>
+      ))}
+    </div>
+  );
+
 
   const renderFirmAnalysisChart = () => {
     const hasExposureData = firmExposureData.length > 0;
@@ -426,10 +582,28 @@ export const AdditionalCharts: React.FC<{
           
           {/* Firm cards */}
           <div className="space-y-2">
-            {currentData.map((item) => (
-              <div key={item.name} className="bg-white/5 rounded-lg p-3 border border-white/10">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="min-w-0 pr-3 text-sm font-medium text-white break-words">{item.name}</span>
+            {currentData.map((item) => {
+              const meta = getFirmMeta(item.name);
+              return (
+              <div key={item.name} className="bg-white/5 rounded-xl p-3 border border-white/10">
+                <div className="flex items-center justify-between mb-2 gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className="h-11 w-11 shrink-0 rounded-2xl border flex items-center justify-center text-sm font-black"
+                      style={{
+                        color: meta.accent,
+                        borderColor: `${meta.accent}66`,
+                        background: `radial-gradient(circle at top, ${meta.glow} 0%, rgba(15,23,42,0.75) 72%)`,
+                        boxShadow: `0 0 20px ${meta.glow}`
+                      }}
+                    >
+                      {meta.logo}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="min-w-0 pr-1 text-sm font-semibold text-white break-words">{item.name}</div>
+                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">{meta.typeLabel}</div>
+                    </div>
+                  </div>
                   <span className="shrink-0 text-lg font-bold" style={{
                     color: firmView === 'exposure' ? '#fb923c' : '#3b82f6'
                   }}>
@@ -459,7 +633,7 @@ export const AdditionalCharts: React.FC<{
                   </div>
                 )}
               </div>
-            ))}
+            )})}
           </div>
         </div>
       );
@@ -675,7 +849,9 @@ export const AdditionalCharts: React.FC<{
           
           {/* Stats Legend - Enhanced with Animations */}
           <div className="flex-1 space-y-3 max-w-lg ml-auto py-4">
-            {currentData.map((item, index) => (
+            {currentData.map((item, index) => {
+              const meta = getFirmMeta(item.name);
+              return (
               <div 
                 key={item.name} 
                 className="group relative bg-black/20 rounded-lg p-3 border border-white/5 hover:border-white/20 transition-all duration-300 hover:bg-white/5 cursor-pointer overflow-hidden"
@@ -726,55 +902,33 @@ export const AdditionalCharts: React.FC<{
                     <div 
                       className="w-12 h-12 rounded-xl border-2 transition-all duration-300 group-hover:scale-110 flex items-center justify-center relative overflow-hidden"
                       style={{ 
-                        backgroundColor: `${colors[index % colors.length]}20`,
-                        borderColor: colors[index % colors.length],
-                        boxShadow: `0 0 15px ${colors[index % colors.length]}40`,
-                        filter: `drop-shadow(0 0 10px ${colors[index % colors.length]}30)`
+                        background: `radial-gradient(circle at top, ${meta.glow} 0%, rgba(15,23,42,0.82) 72%)`,
+                        borderColor: meta.accent,
+                        boxShadow: `0 0 15px ${meta.glow}`,
+                        filter: `drop-shadow(0 0 10px ${meta.glow})`
                       }}
                     >
                       {/* Animated background gradient */}
                       <div 
                         className="absolute inset-0 opacity-20 group-hover:opacity-40 transition-opacity duration-300"
                         style={{
-                          background: `linear-gradient(135deg, ${colors[index % colors.length]}60, transparent, ${colors[index % colors.length]}30)`
+                          background: `linear-gradient(135deg, ${meta.glow}, transparent, ${meta.accent}55)`
                         }}
                       />
                       
-                      {/* Firm Logo/Icon based on name */}
-                      <div className="relative z-10 font-bold text-xs text-center leading-tight">
-                        {(() => {
-                          const name = item.name.toLowerCase();
-                          // Common prop firm logos/abbreviations
-                          if (name.includes('ftmo')) return '🎯';
-                          if (name.includes('myforexfunds') || name.includes('mff')) return '💎';
-                          if (name.includes('funded') || name.includes('fnn')) return '🚀';
-                          if (name.includes('apex')) return '⚡';
-                          if (name.includes('topstep') || name.includes('top step')) return '👑';
-                          if (name.includes('city') || name.includes('traders')) return '🏙️';
-                          if (name.includes('blu') || name.includes('blue')) return '🔵';
-                          if (name.includes('the5%ers') || name.includes('5ers')) return '📊';
-                          if (name.includes('surge') || name.includes('trader')) return '📈';
-                          if (name.includes('lux') || name.includes('luxury')) return '💰';
-                          if (name.includes('smart') || name.includes('prop')) return '🧠';
-                          if (name.includes('fast') || name.includes('track')) return '🏁';
-                          if (name.includes('instant') || name.includes('funding')) return '⚡';
-                          if (name.includes('nova') || name.includes('funding')) return '⭐';
-                          if (name.includes('ea') || name.includes('electronic')) return '🤖';
-                          // Default based on first letter
-                          const firstLetter = item.name.charAt(0).toUpperCase();
-                          return firstLetter;
-                        })()} 
+                      <div className="relative z-10 font-black text-xs text-center leading-tight" style={{ color: meta.accent }}>
+                        {meta.logo}
                       </div>
                       
                       {/* Firm Name Abbreviation */}
                       <div 
                         className="absolute -bottom-1 left-0 right-0 text-xs font-black text-center px-1 py-0.5 rounded-b-lg"
                         style={{
-                          backgroundColor: colors[index % colors.length],
+                          backgroundColor: meta.accent,
                           color: '#000'
                         }}
                       >
-                        {item.name.length > 8 ? item.name.substring(0, 3) : item.name.substring(0, 4)}
+                        {meta.typeLabel}
                       </div>
                     </div>
                     
@@ -782,7 +936,7 @@ export const AdditionalCharts: React.FC<{
                     <div 
                       className="absolute -inset-1 rounded-xl animate-pulse opacity-30 group-hover:opacity-60 transition-opacity"
                       style={{ 
-                        border: `2px solid ${colors[index % colors.length]}`,
+                        border: `2px solid ${meta.accent}`,
                         animation: (firmView === 'roi' ? ((item as any).roi) : item.percentage) > 40 
                           ? 'spin 8s linear infinite' 
                           : 'pulse 2s ease-in-out infinite'
@@ -803,6 +957,9 @@ export const AdditionalCharts: React.FC<{
                       <div className="text-white font-semibold truncate text-base group-hover:text-white transition-colors">
                         {item.name}
                       </div>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold tracking-[0.22em] text-white/50">
+                        {meta.typeLabel}
+                      </span>
                       {/* Trending indicator */}
                       <div className="flex items-center space-x-1 opacity-70 group-hover:opacity-100 transition-opacity">
                         {(firmView === 'roi' ? ((item as any).roi) : item.percentage) > 30 && (
@@ -819,34 +976,34 @@ export const AdditionalCharts: React.FC<{
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
                             <span className="text-blue-400">🎯</span>
-                            <span className="font-medium">${item.cost.toLocaleString()} invested</span>
+                            <span className="font-medium">{formatCompactCurrency(item.cost)} invested</span>
                           </div>
                           <div className="flex items-center gap-2 text-xs">
                             <span className="text-cyan-400">📊</span>
                             <span>{item.count} challenges</span>
                             <span className="text-white/50">•</span>
-                            <span className="text-green-400">${(item.cost / item.count).toLocaleString()} avg</span>
+                            <span className="text-green-400">{formatCompactCurrency(item.cost / item.count)} avg</span>
                           </div>
                         </div>
                       ) : (
                         <div className="space-y-1">
                           <div className="flex items-center gap-2 text-xs">
                             <span className="text-orange-400">💰</span>
-                            <span>${(() => {
+                            <span>{(() => {
                               const firmExposure = firmExposureData.find(f => f.name === item.name);
-                              return firmExposure ? firmExposure.cost.toLocaleString() : (item as any).cost.toLocaleString();
+                              return formatCompactCurrency(firmExposure ? firmExposure.cost : (item as any).cost);
                             })()} cost</span>
                             <span className="text-white/50">•</span>
                             <span className="text-cyan-400">{item.count} challenges</span>
                           </div>
                           <div className="flex items-center gap-2 text-xs">
                             <span className="text-green-400">💎</span>
-                            <span>${(item as any).payouts.toLocaleString()} earned</span>
+                            <span>{formatCompactCurrency((item as any).payouts)} earned</span>
                             <span className="text-white/50">•</span>
                             <span className={`${
                               (item as any).profit >= 0 ? 'text-green-400' : 'text-red-400'
                             }`}>
-                              {(item as any).profit >= 0 ? '+$' : '-$'}{Math.abs((item as any).profit).toLocaleString()} profit
+                              {((item as any).profit >= 0 ? '+' : '-')}{formatCompactCurrency(Math.abs((item as any).profit))} profit
                             </span>
                           </div>
                         </div>
@@ -906,7 +1063,7 @@ export const AdditionalCharts: React.FC<{
                   }}
                 />
               </div>
-            ))}          </div>
+            )})}          </div>
         </div>
       </div>
     );
@@ -935,21 +1092,34 @@ export const AdditionalCharts: React.FC<{
           </div>
           
           <div className="space-y-2">
-            {topAccounts.slice(0, 5).map((account, index) => (
+            {topAccounts.slice(0, 5).map((account, index) => {
+              const meta = getFirmMeta(account.firm);
+              return (
               <div 
                 key={account.id} 
-                className="bg-white/5 rounded-lg p-3 border border-white/10 cursor-pointer"
+                className="bg-white/5 rounded-xl p-3 border border-white/10 cursor-pointer"
                 onClick={() => setSelectedPerformer(selectedPerformer === account.id ? null : account.id)}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
                     <span className="text-xs font-bold text-yellow-400 bg-yellow-400/20 px-2 py-1 rounded">
                       #{index + 1}
                     </span>
+                    <div
+                      className="h-10 w-10 shrink-0 rounded-2xl border flex items-center justify-center text-xs font-black"
+                      style={{
+                        color: meta.accent,
+                        borderColor: `${meta.accent}66`,
+                        background: `radial-gradient(circle at top, ${meta.glow} 0%, rgba(15,23,42,0.8) 72%)`,
+                        boxShadow: `0 0 18px ${meta.glow}`
+                      }}
+                    >
+                      {meta.logo}
+                    </div>
                     <div className="min-w-0">
                       <div className="text-white font-medium text-sm break-words">{account.firm}</div>
-                      <div className="text-white/60 text-xs">
-                        ${account.accountSize?.toLocaleString()}
+                      <div className="text-white/60 text-[11px] uppercase tracking-[0.2em]">
+                        {meta.typeLabel} · {formatCompactCurrency(account.accountSize)}
                       </div>
                     </div>
                   </div>
@@ -962,8 +1132,8 @@ export const AdditionalCharts: React.FC<{
                 </div>
                 
                 <div className="flex justify-between text-xs">
-                  <span className="text-green-400">${account.profit.toLocaleString()}</span>
-                  <span className="text-white/60">Cost: ${account.cost.toLocaleString()}</span>
+                  <span className="text-green-400">{formatCompactCurrency(account.profit)}</span>
+                  <span className="text-white/60">Cost: {formatCompactCurrency(account.cost)}</span>
                 </div>
                 
                 {selectedPerformer === account.id && (
@@ -972,7 +1142,7 @@ export const AdditionalCharts: React.FC<{
                   </div>
                 )}
               </div>
-            ))}
+            )})}
           </div>
         </div>
       );
@@ -1213,6 +1383,7 @@ export const AdditionalCharts: React.FC<{
               {topAccounts.map((account, index) => {
                 const colors = ['#3b82f6', '#a855f7', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#84cc16'];
                 const cardColor = colors[index % colors.length];
+                const meta = getFirmMeta(account.firm);
                 
                 return (
                   <div 
@@ -1275,17 +1446,26 @@ export const AdditionalCharts: React.FC<{
                     <div className="relative z-10 pt-2">
                       {/* Firm Name with Animation */}
                       <div className="mb-3">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-3 mb-1">
                           <div 
-                            className="w-3 h-3 rounded-full flex-shrink-0 transition-all duration-300 group-hover:scale-125"
+                            className="h-11 w-11 rounded-2xl flex-shrink-0 transition-all duration-300 group-hover:scale-110 border flex items-center justify-center text-xs font-black"
                             style={{ 
-                              backgroundColor: cardColor,
-                              boxShadow: `0 0 8px ${cardColor}60`,
-                              filter: `drop-shadow(0 0 6px ${cardColor}40)`
+                              color: meta.accent,
+                              borderColor: `${meta.accent}66`,
+                              background: `radial-gradient(circle at top, ${meta.glow} 0%, rgba(15,23,42,0.82) 72%)`,
+                              boxShadow: `0 0 18px ${meta.glow}`,
+                              filter: `drop-shadow(0 0 8px ${meta.glow})`
                             }}
-                          />
-                          <div className="text-white font-bold text-sm truncate group-hover:text-white transition-colors">
-                            {account.firm}
+                          >
+                            {meta.logo}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-white font-bold text-sm truncate group-hover:text-white transition-colors">
+                              {account.firm}
+                            </div>
+                            <div className="text-white/45 text-[10px] uppercase tracking-[0.24em]">
+                              {meta.typeLabel}
+                            </div>
                           </div>
                           {/* Performance indicators */}
                           <div className="flex items-center space-x-1 opacity-70 group-hover:opacity-100 transition-opacity">
@@ -1297,8 +1477,8 @@ export const AdditionalCharts: React.FC<{
                             )}
                           </div>
                         </div>
-                        <div className="text-white/60 text-xs pl-5">
-                          ${account.accountSize?.toLocaleString()}
+                        <div className="text-white/60 text-xs pl-14">
+                          {formatCompactCurrency(account.accountSize)}
                         </div>
                       </div>
                       
@@ -1348,7 +1528,7 @@ export const AdditionalCharts: React.FC<{
                               filter: 'drop-shadow(0 0 8px #22c55e60)'
                             }}
                           >
-                            +${account.profit.toLocaleString()}
+                            +{formatCompactCurrency(account.profit)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -1356,14 +1536,14 @@ export const AdditionalCharts: React.FC<{
                             <span className="text-orange-400">💰</span>
                             <span className="text-white/60">Cost:</span>
                           </div>
-                          <span className="text-white/60">${account.cost.toLocaleString()}</span>
+                          <span className="text-white/60">{formatCompactCurrency(account.cost)}</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <span className="text-blue-400">📊</span>
                             <span className="text-blue-400">Earned:</span>
                           </div>
-                          <span className="text-blue-200 font-medium">${account.payouts.toLocaleString()}</span>
+                          <span className="text-blue-200 font-medium">{formatCompactCurrency(account.payouts)}</span>
                         </div>
                       </div>
                       
@@ -1879,6 +2059,8 @@ export const AdditionalCharts: React.FC<{
           </button>
         </div>
       </div>
+
+      {renderInsightStrip()}
 
       {renderActiveChart()}
       

@@ -105,7 +105,19 @@ export const ChallengeForm: React.FC<{
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [accountSizeCleared, setAccountSizeCleared] = React.useState(false);
   const [costCleared, setCostCleared] = React.useState(false);
-  const [firmType, setFirmType] = React.useState<FirmType | undefined>(initial?.firmType || undefined);
+  const [firmType, setFirmType] = React.useState<FirmType | undefined>(() => {
+    if (initial?.firmType) return initial.firmType;
+    if (initial?.propFirmId) {
+      return firms.find((firm) => firm.id === initial.propFirmId)?.firmType;
+    }
+    if (defaultFirmId) {
+      return firms.find((firm) => firm.id === defaultFirmId)?.firmType;
+    }
+    return undefined;
+  });
+  const [accountQuantity, setAccountQuantity] = React.useState<number>(initial ? (initial.purchaseGroupSize ?? 1) : 1);
+  const [accountQuantityStr, setAccountQuantityStr] = React.useState(String(initial ? (initial.purchaseGroupSize ?? 1) : 1));
+  const [purchaseGroupLabel, setPurchaseGroupLabel] = React.useState(initial?.purchaseGroupLabel ?? '');
   
   // Refresh date when buildingMode changes or when component mounts in build mode
   React.useEffect(() => {
@@ -114,6 +126,14 @@ export const ChallengeForm: React.FC<{
       setStartDate(lastUsedDate);
     }
   }, [buildingMode, initial]);
+
+  React.useEffect(() => {
+    if (initial?.firmType || firmType) return;
+    const selectedFirm = firms.find((firm) => firm.id === propFirmId);
+    if (selectedFirm?.firmType) {
+      setFirmType(selectedFirm.firmType);
+    }
+  }, [firms, firmType, initial?.firmType, propFirmId]);
   
   const formatNumber = (value: string) => {
     const num = parseFloat(value.replace(/[^\d.-]/g, ''));
@@ -140,6 +160,13 @@ export const ChallengeForm: React.FC<{
     const costNum = Number(costStr);
     if (costStr.trim() && (costNum < 0 || isNaN(costNum))) {
       newErrors.cost = 'Cost cannot be negative';
+    }
+
+    if (!initial) {
+      const quantityNum = Number(accountQuantityStr);
+      if (!accountQuantityStr.trim() || !Number.isInteger(quantityNum) || quantityNum <= 0) {
+        newErrors.accountQuantity = 'Accounts must be a whole number greater than 0';
+      }
     }
     
     setErrors(newErrors);
@@ -192,6 +219,10 @@ export const ChallengeForm: React.FC<{
           ...initial,
           propFirmId: finalPropFirmId,
           brokerName: initial.brokerName || 'Trading Account',
+          purchaseGroupId: initial.purchaseGroupId,
+          purchaseGroupLabel: initial.purchaseGroupLabel,
+          purchaseGroupSize: initial.purchaseGroupSize,
+          purchaseGroupIndex: initial.purchaseGroupIndex,
           accountSize,
           startDate,
           cost: totalCost,
@@ -214,6 +245,8 @@ export const ChallengeForm: React.FC<{
         onSubmit({
           propFirmId: finalPropFirmId,
           brokerName: 'Trading Account',
+          purchaseGroupLabel: purchaseGroupLabel.trim() || undefined,
+          accountQuantity,
           accountSize,
           startDate,
           cost: totalCost,
@@ -239,6 +272,9 @@ export const ChallengeForm: React.FC<{
         setHasActivationFee(false);
         setTotalPhases(3);
         setStrategy('');
+        setAccountQuantity(1);
+        setAccountQuantityStr('1');
+        setPurchaseGroupLabel('');
         // Reset the cleared flags
         setAccountSizeCleared(false);
         setCostCleared(false);
@@ -292,7 +328,7 @@ export const ChallengeForm: React.FC<{
               <p className="text-xs text-white/45">Firm, size, date, and strategy.</p>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className={`grid grid-cols-1 gap-4 md:grid-cols-2 ${initial ? 'xl:grid-cols-4' : 'xl:grid-cols-3'}`}>
           {/* Prop Firm - First */}
           <div className="flex min-w-0 flex-col gap-1">
             <label className="text-xs text-white/60">Prop Firm</label>
@@ -394,7 +430,7 @@ export const ChallengeForm: React.FC<{
             {errors.startDate && <span className="text-xs text-red-400">{errors.startDate}</span>}
           </div>
         
-          {/* Strategy - Fourth */}
+          {/* Strategy */}
           <div className="flex min-w-0 flex-col gap-1">
             <label className="text-xs text-white/60">Strategy</label>
             <input 
@@ -416,6 +452,42 @@ export const ChallengeForm: React.FC<{
             </datalist>
             {errors.strategy && <span className="text-xs text-red-400">{errors.strategy}</span>}
           </div>
+
+          {!initial && (
+            <>
+              <div className="flex min-w-0 flex-col gap-1">
+                <label className="text-xs text-white/60">Accounts</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={accountQuantityStr}
+                  onChange={e => {
+                    const rawValue = e.target.value.replace(/[^\d]/g, '');
+                    setAccountQuantityStr(rawValue);
+                    setAccountQuantity(rawValue ? Number(rawValue) : 0);
+                    setErrors(prev => ({ ...prev, accountQuantity: '' }));
+                  }}
+                  className={inputClasses('accountQuantity')}
+                  disabled={formDisabled}
+                  placeholder="1"
+                />
+                {errors.accountQuantity && <span className="text-xs text-red-400">{errors.accountQuantity}</span>}
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-1 md:col-span-2 xl:col-span-2">
+                <label className="text-xs text-white/60">Linked Batch Label</label>
+                <input
+                  type="text"
+                  value={purchaseGroupLabel}
+                  onChange={e => setPurchaseGroupLabel(e.target.value)}
+                  className={inputClasses('purchaseGroupLabel')}
+                  disabled={formDisabled}
+                  placeholder="Optional, e.g. Apex 5-Pack"
+                />
+              </div>
+            </>
+          )}
         </div>
         </div>
         

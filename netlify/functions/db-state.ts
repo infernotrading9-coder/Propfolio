@@ -14,6 +14,7 @@ export const handler: Handler = async (event) => {
     const firms = data.firms.map((f: any) => ({
       id: f.id,
       name: f.name,
+      firmType: f.firmType || undefined,
       createdAt: f.createdAt ? new Date(f.createdAt).toISOString() : new Date().toISOString(),
     }))
 
@@ -36,12 +37,17 @@ export const handler: Handler = async (event) => {
       id: c.id,
       propFirmId: c.firmId,
       brokerName: c.brokerName || 'Trading Account',
+      purchaseGroupId: c.purchaseGroupId || undefined,
+      purchaseGroupLabel: c.purchaseGroupLabel || undefined,
+      purchaseGroupSize: c.purchaseGroupSize || undefined,
+      purchaseGroupIndex: c.purchaseGroupIndex || undefined,
       accountSize: c.accountSize || 0,
       startDate: c.startDate || new Date().toISOString().slice(0,10),
       cost: c.cost ? parseFloat(String(c.cost)) : 0,
       initialCost: c.initialCost ? parseFloat(String(c.initialCost)) : (c.cost ? parseFloat(String(c.cost)) : 0),
       hasActivationFee: !!c.hasActivationFee,
       activationFeeAmount: c.activationFeeAmount ? parseFloat(String(c.activationFeeAmount)) : undefined,
+      firmType: c.firmType || undefined,
       totalPhases: (c.totalPhases || 3) as 1 | 2 | 3,
       strategy: c.strategy || '',
       status: (c.status as any) || 'active',

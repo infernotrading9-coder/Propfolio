@@ -6,12 +6,13 @@ interface PhaseOutcomePromptProps {
   open: boolean;
   phase: 'phase1' | 'phase2' | 'phase3';
   totalPhases: 1 | 2 | 3;
+  accountCount?: number;
   requiresActivationFee?: boolean;
   onCancel: () => void;
   onSubmit: (outcome: 'passed' | 'failed', date: string, activationFeeAmount?: number) => void;
 }
 
-export const PhaseOutcomePrompt: React.FC<PhaseOutcomePromptProps> = ({ open, phase, totalPhases, requiresActivationFee = false, onCancel, onSubmit }) => {
+export const PhaseOutcomePrompt: React.FC<PhaseOutcomePromptProps> = ({ open, phase, totalPhases, accountCount = 1, requiresActivationFee = false, onCancel, onSubmit }) => {
   const [outcome, setOutcome] = React.useState<'passed' | 'failed'>('passed');
   const [date, setDate] = React.useState<string>(() => new Date().toISOString().slice(0,10));
   const [activationFeeStr, setActivationFeeStr] = React.useState<string>('');
@@ -36,7 +37,8 @@ export const PhaseOutcomePrompt: React.FC<PhaseOutcomePromptProps> = ({ open, ph
 
   const subtitle = (() => {
     const idx = phase === 'phase1' ? 1 : phase === 'phase2' ? 2 : 3;
-    return `Challenge has ${totalPhases} phase${totalPhases>1?'s':''} · Logging phase ${idx}`;
+    const accountText = accountCount > 1 ? ` · ${accountCount} accounts selected` : '';
+    return `Challenge has ${totalPhases} phase${totalPhases>1?'s':''} · Logging phase ${idx}${accountText}`;
   })();
 
   return (
@@ -103,7 +105,7 @@ export const PhaseOutcomePrompt: React.FC<PhaseOutcomePromptProps> = ({ open, ph
 
               {outcome === 'passed' && requiresActivationFee && (
                 <div>
-                  <label className="block text-xs text-white/60 mb-1">Activation fee</label>
+                  <label className="block text-xs text-white/60 mb-1">{accountCount > 1 ? 'Activation fee per account' : 'Activation fee'}</label>
                   <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2">
                     <span className="text-white/60 text-sm">$</span>
                     <input
@@ -123,7 +125,7 @@ export const PhaseOutcomePrompt: React.FC<PhaseOutcomePromptProps> = ({ open, ph
                   </div>
                   {activationFeeError && <div className="mt-1 text-xs text-rose-300">{activationFeeError}</div>}
                   <div className="mt-1 text-xs text-white/45">
-                    This will be added to the total cost for this challenge after it reaches live.
+                    This will be added to the total cost {accountCount > 1 ? 'for each selected account' : 'for this challenge'} after it reaches live.
                   </div>
                 </div>
               )}

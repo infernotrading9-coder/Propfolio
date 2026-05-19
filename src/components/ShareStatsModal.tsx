@@ -97,7 +97,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-[#020408] border border-white/10 rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-[#020408] border border-white/10 rounded-2xl p-4 sm:p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -121,7 +121,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({
           <label className="block text-sm font-medium text-white/80 mb-3">
             Choose Timeframe
           </label>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <button
               onClick={() => setTimeframe('month')}
               className={`flex items-center gap-2 px-4 py-3 rounded-lg border transition-all duration-300 ${
@@ -280,7 +280,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({
         </div>
 
         {/* Preview Card */}
-        <div className="flex justify-center">
+        <div className="flex justify-center overflow-x-auto pb-2">
           <ShareableStatsCard 
             challenges={challenges}
             timeframe={timeframe}

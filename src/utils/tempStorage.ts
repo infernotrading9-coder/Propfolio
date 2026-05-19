@@ -210,6 +210,7 @@ export async function loadState(userId: string): Promise<AppState> {
         initialCost,
         hasActivationFee: !!ch.hasActivationFee,
         activationFeeAmount,
+        firmType: ch.firmType,
         payouts: newPayouts
       };
     }
@@ -218,7 +219,8 @@ export async function loadState(userId: string): Promise<AppState> {
       cost: normalizedCost,
       initialCost,
       hasActivationFee: !!ch.hasActivationFee,
-      activationFeeAmount
+      activationFeeAmount,
+      firmType: ch.firmType
     };
   });
   if (mutated) {
@@ -241,6 +243,7 @@ export async function addFirm(userId: string, input: NewFirmInput): Promise<{ fi
   const newFirm: PropFirm = {
     id: uuidv4(),
     name: input.name.trim(),
+    firmType: input.firmType,
     createdAt: new Date().toISOString(),
   };
 
@@ -258,6 +261,11 @@ export async function addChallenge(userId: string, input: NewChallengeInput): Pr
     id: uuidv4(),
     propFirmId: input.propFirmId,
     brokerName: input.brokerName.trim(),
+    firmType: input.firmType,
+    purchaseGroupId: input.purchaseGroupId,
+    purchaseGroupLabel: input.purchaseGroupLabel,
+    purchaseGroupSize: input.purchaseGroupSize,
+    purchaseGroupIndex: input.purchaseGroupIndex,
     accountSize: input.accountSize,
     startDate: input.startDate,
     cost: input.cost,

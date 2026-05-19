@@ -41,6 +41,11 @@ export function loadState(userId?: string): AppState {
         id: challenge.id || '',
         propFirmId: challenge.propFirmId || '',
         brokerName: challenge.brokerName || 'Trading Account',
+        firmType: challenge.firmType,
+        purchaseGroupId: challenge.purchaseGroupId,
+        purchaseGroupLabel: challenge.purchaseGroupLabel,
+        purchaseGroupSize: challenge.purchaseGroupSize,
+        purchaseGroupIndex: challenge.purchaseGroupIndex,
         accountSize: typeof challenge.accountSize === 'number' ? challenge.accountSize : 100000,
         startDate: challenge.startDate || new Date().toISOString().slice(0, 10),
         cost: typeof challenge.cost === 'number' ? challenge.cost : 0,
@@ -89,6 +94,7 @@ export function addFirm(state: AppState, input: NewFirmInput): { state: AppState
   const firm: PropFirm = {
     id: uuidv4(),
     name: input.name.trim(),
+    firmType: input.firmType,
     createdAt: new Date().toISOString(),
   };
   const next: AppState = { ...state, firms: [firm, ...state.firms], selectedFirmId: firm.id };
@@ -100,6 +106,11 @@ export function addChallenge(state: AppState, input: NewChallengeInput): { state
     id: uuidv4(),
     propFirmId: input.propFirmId,
     brokerName: input.brokerName.trim(),
+    firmType: input.firmType,
+    purchaseGroupId: input.purchaseGroupId,
+    purchaseGroupLabel: input.purchaseGroupLabel,
+    purchaseGroupSize: input.purchaseGroupSize,
+    purchaseGroupIndex: input.purchaseGroupIndex,
     accountSize: input.accountSize,
     startDate: input.startDate,
     cost: input.cost,

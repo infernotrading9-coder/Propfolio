@@ -446,6 +446,21 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
       inset 0 -1px 0 rgba(0, 0, 0, 0.1)
     `
   };
+  const getMetricValueClass = (value: string, compactValue: boolean) => {
+    if (!compactValue) return 'text-3xl sm:text-4xl';
+
+    if (value.length >= 12) {
+      return 'text-[1.4rem] sm:text-[1.75rem] tracking-[-0.08em]';
+    }
+    if (value.length >= 10) {
+      return 'text-[1.6rem] sm:text-[1.95rem] tracking-[-0.06em]';
+    }
+    if (value.length >= 8) {
+      return 'text-[1.85rem] sm:text-[2.15rem] tracking-[-0.05em]';
+    }
+
+    return 'text-[2rem] sm:text-[2.35rem] tracking-tight';
+  };
   const renderMetricTile = (
     key: ShareStatKey,
     title: string,
@@ -481,7 +496,7 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
             ))}
           </div>
 
-          <div className="relative p-6 z-10">
+          <div className="relative p-5 sm:p-6 z-10">
             <div className="relative mb-6">
               <div
                 className="absolute -inset-2 rounded-2xl opacity-30"
@@ -550,9 +565,9 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
               />
               <div className="relative">
                 <p className="text-sm text-white/60 font-medium uppercase tracking-[0.2em] mb-2">Metric</p>
-                <div className="relative overflow-visible px-1">
+                <div className="relative min-w-0 overflow-visible px-1">
                   <h2
-                    className={`font-black leading-none ${compactValue ? 'text-[2rem] sm:text-[2.35rem] tracking-tight whitespace-nowrap' : 'text-3xl sm:text-4xl'} ${textClass}`}
+                    className={`max-w-full font-black leading-[0.95] whitespace-nowrap ${getMetricValueClass(value, compactValue)} ${textClass}`}
                     style={{ filter: `drop-shadow(0 0 18px ${accentSoft.replace('0.25', '0.8')})` }}
                   >
                     {value}
@@ -721,7 +736,7 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
       <div 
         ref={cardRef}
         data-card-ref="true"
-        className="relative w-[580px] min-h-[650px] overflow-hidden rounded-3xl backdrop-blur-xl border border-white/20"
+        className="relative w-full max-w-[580px] min-h-[650px] overflow-hidden rounded-3xl backdrop-blur-xl border border-white/20"
         style={{
           background: `linear-gradient(135deg,
             rgba(255, 255, 255, 0.1) 0%,

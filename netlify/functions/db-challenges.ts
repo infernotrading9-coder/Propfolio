@@ -14,12 +14,17 @@ export const handler: Handler = async (event) => {
         propFirmId,
         propFirmName,
         brokerName,
+        purchaseGroupId,
+        purchaseGroupLabel,
+        purchaseGroupSize,
+        purchaseGroupIndex,
         accountSize,
         startDate,
         cost,
         initialCost,
         hasActivationFee,
         activationFeeAmount,
+        firmType,
         totalPhases,
         strategy,
         status
@@ -27,7 +32,7 @@ export const handler: Handler = async (event) => {
 
       let firmId = propFirmId
       if (!firmId && propFirmName) {
-        const firm = await propFirmService.create(user.id, { name: propFirmName } as any)
+        const firm = await propFirmService.create(user.id, { name: propFirmName, firmType } as any)
         firmId = firm.id
       }
       if (!firmId) return json(400, { error: 'propFirmId or propFirmName required' })
@@ -35,12 +40,17 @@ export const handler: Handler = async (event) => {
       const row = await challengeService.create(user.id, {
         firmId,
         brokerName: brokerName || 'Trading Account',
+        purchaseGroupId: purchaseGroupId || null,
+        purchaseGroupLabel: purchaseGroupLabel || null,
+        purchaseGroupSize: purchaseGroupSize === undefined ? null : Number(purchaseGroupSize),
+        purchaseGroupIndex: purchaseGroupIndex === undefined ? null : Number(purchaseGroupIndex),
         accountSize: Number(accountSize) || 0,
         startDate: startDate || new Date().toISOString().slice(0,10),
         cost: String(cost ?? '0'),
         initialCost: String(initialCost ?? cost ?? '0'),
         hasActivationFee: !!hasActivationFee,
         activationFeeAmount: activationFeeAmount === undefined || activationFeeAmount === null ? null : String(activationFeeAmount),
+        firmType: firmType || null,
         totalPhases: Number(totalPhases) || 3,
         strategy: strategy || '',
         status: status || 'active',
@@ -50,12 +60,17 @@ export const handler: Handler = async (event) => {
         id: row.id,
         propFirmId: row.firmId,
         brokerName: row.brokerName || 'Trading Account',
+        purchaseGroupId: row.purchaseGroupId || undefined,
+        purchaseGroupLabel: row.purchaseGroupLabel || undefined,
+        purchaseGroupSize: row.purchaseGroupSize || undefined,
+        purchaseGroupIndex: row.purchaseGroupIndex || undefined,
         accountSize: row.accountSize || 0,
         startDate: row.startDate || new Date().toISOString().slice(0,10),
         cost: row.cost ? parseFloat(String(row.cost)) : 0,
         initialCost: row.initialCost ? parseFloat(String(row.initialCost)) : (row.cost ? parseFloat(String(row.cost)) : 0),
         hasActivationFee: !!row.hasActivationFee,
         activationFeeAmount: row.activationFeeAmount ? parseFloat(String(row.activationFeeAmount)) : undefined,
+        firmType: row.firmType || undefined,
         totalPhases: (row.totalPhases || 3) as 1 | 2 | 3,
         strategy: row.strategy || '',
         status: (row.status as any) || 'active',
@@ -80,6 +95,10 @@ export const handler: Handler = async (event) => {
       const dbUpdates: any = {}
       if (updates.propFirmId) dbUpdates.firmId = updates.propFirmId
       if (updates.brokerName) dbUpdates.brokerName = updates.brokerName
+      if (updates.purchaseGroupId !== undefined) dbUpdates.purchaseGroupId = updates.purchaseGroupId || null
+      if (updates.purchaseGroupLabel !== undefined) dbUpdates.purchaseGroupLabel = updates.purchaseGroupLabel || null
+      if (updates.purchaseGroupSize !== undefined) dbUpdates.purchaseGroupSize = updates.purchaseGroupSize ?? null
+      if (updates.purchaseGroupIndex !== undefined) dbUpdates.purchaseGroupIndex = updates.purchaseGroupIndex ?? null
       if (updates.accountSize !== undefined) dbUpdates.accountSize = updates.accountSize
       if (updates.startDate) dbUpdates.startDate = updates.startDate
       if (updates.cost !== undefined) dbUpdates.cost = String(updates.cost)
@@ -88,6 +107,7 @@ export const handler: Handler = async (event) => {
       if (updates.activationFeeAmount !== undefined) {
         dbUpdates.activationFeeAmount = updates.activationFeeAmount === null ? null : String(updates.activationFeeAmount)
       }
+      if (updates.firmType !== undefined) dbUpdates.firmType = updates.firmType || null
       if (updates.totalPhases !== undefined) dbUpdates.totalPhases = updates.totalPhases
       if (updates.strategy !== undefined) dbUpdates.strategy = updates.strategy
       if (updates.status) dbUpdates.status = updates.status

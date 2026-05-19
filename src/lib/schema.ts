@@ -17,6 +17,7 @@ export const firms = pgTable('firms', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').references(() => users.id).notNull(),
   name: text('name').notNull(),
+  firmType: text('firm_type'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -26,6 +27,10 @@ export const challenges = pgTable('challenges', {
   userId: uuid('user_id').references(() => users.id).notNull(),
   firmId: uuid('firm_id').references(() => firms.id).notNull(),
   brokerName: text('broker_name').notNull(),
+  purchaseGroupId: text('purchase_group_id'),
+  purchaseGroupLabel: text('purchase_group_label'),
+  purchaseGroupSize: integer('purchase_group_size'),
+  purchaseGroupIndex: integer('purchase_group_index'),
   accountSize: integer('account_size').notNull(),
   startDate: text('start_date').notNull(), // YYYY-MM-DD format
   cost: decimal('cost', { precision: 10, scale: 2 }).notNull(),
@@ -33,6 +38,7 @@ export const challenges = pgTable('challenges', {
   hasActivationFee: boolean('has_activation_fee').default(false).notNull(),
   activationFeeAmount: decimal('activation_fee_amount', { precision: 10, scale: 2 }),
   strategy: text('strategy'),
+  firmType: text('firm_type'),
   totalPhases: integer('total_phases').default(3).notNull(),
   phase1Completed: boolean('phase1_completed').default(false),
   phase1CompletedAt: timestamp('phase1_completed_at'),

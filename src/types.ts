@@ -24,6 +24,10 @@ export interface Challenge {
   id: string;
   propFirmId: string;
   brokerName: string; // user-input broker name
+  purchaseGroupId?: string;
+  purchaseGroupLabel?: string;
+  purchaseGroupSize?: number;
+  purchaseGroupIndex?: number;
   accountSize: number; // e.g., 100000
   startDate: string; // ISO date when challenge purchased
   cost: number; // amount spent to buy challenge
@@ -99,6 +103,11 @@ export type NewFirmInput = { name: string; firmType?: FirmType };
 export type NewChallengeInput = {
   propFirmId: string;
   brokerName: string;
+  purchaseGroupId?: string;
+  purchaseGroupLabel?: string;
+  purchaseGroupSize?: number;
+  purchaseGroupIndex?: number;
+  accountQuantity?: number;
   accountSize: number;
   startDate: string;
   cost: number;

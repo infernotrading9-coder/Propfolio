@@ -1431,27 +1431,54 @@ const Dashboard: React.FC = () => {
             
             try {
               const startedAt = performance.now();
+              const rawInput = input as any;
+              const requestedQuantity = Math.max(1, Number(rawInput?.accountQuantity || 1));
+              const quantity = Number.isFinite(requestedQuantity) ? requestedQuantity : 1;
+              const purchaseGroupId = quantity > 1
+                ? (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                    ? crypto.randomUUID()
+                    : `${Date.now()}-${Math.random().toString(36).slice(2)}`)
+                : undefined;
+              const purchaseGroupLabel = rawInput?.purchaseGroupLabel?.trim() || undefined;
               emitChallengeDebug('add:start', {
                 firmId: (input as any)?.propFirmId || null,
                 accountSize: (input as any)?.accountSize || null,
+                quantity,
               });
-              const result = await apiClient.addChallenge(effectiveUser.id, input as any);
+              const createdChallenges = [] as any[];
+
+              for (let index = 0; index < quantity; index += 1) {
+                const payload = {
+                  ...rawInput,
+                  accountQuantity: undefined,
+                  purchaseGroupId,
+                  purchaseGroupLabel,
+                  purchaseGroupSize: quantity > 1 ? quantity : undefined,
+                  purchaseGroupIndex: quantity > 1 ? index + 1 : undefined,
+                  brokerName: quantity > 1 ? `Account ${index + 1}` : (rawInput?.brokerName || 'Trading Account'),
+                };
+                const result = await apiClient.addChallenge(effectiveUser.id, payload);
+                createdChallenges.push(result.challenge);
+              }
               
               // Update UI immediately with optimistic update
               setState(prev => ({
                 ...prev,
-                challenges: [result.challenge, ...prev.challenges]
+                challenges: [...createdChallenges, ...prev.challenges]
               }));
               
               // Automatically create initial calendar account for new challenge (unless building mode is enabled)
-              if (result.challenge && ruleCalendarEnabled && !buildingMode) {
-                await handleAutomaticNewChallengeCalendar(result.challenge);
+              if (ruleCalendarEnabled && !buildingMode) {
+                for (const createdChallenge of createdChallenges) {
+                  await handleAutomaticNewChallengeCalendar(createdChallenge);
+                }
               }
               
               // Refresh state in background to ensure consistency
               refreshState();
               emitChallengeDebug('add:success', {
-                challengeId: result.challenge.id,
+                challengeId: createdChallenges[0]?.id,
+                quantity: createdChallenges.length,
                 durationMs: Math.round(performance.now() - startedAt),
               });
             } catch (error) {

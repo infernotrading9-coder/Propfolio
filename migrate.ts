@@ -38,6 +38,7 @@ async function main() {
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
+        firm_type TEXT,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
     `;
@@ -49,6 +50,10 @@ async function main() {
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
         broker_name TEXT NOT NULL,
+        purchase_group_id TEXT,
+        purchase_group_label TEXT,
+        purchase_group_size INTEGER,
+        purchase_group_index INTEGER,
         account_size INTEGER NOT NULL,
         start_date TEXT NOT NULL,
         cost DECIMAL(10,2) NOT NULL,
@@ -56,6 +61,7 @@ async function main() {
         has_activation_fee BOOLEAN NOT NULL DEFAULT FALSE,
         activation_fee_amount DECIMAL(10,2),
         strategy TEXT,
+        firm_type TEXT,
         total_phases INTEGER NOT NULL DEFAULT 3,
         phase1_completed BOOLEAN DEFAULT FALSE,
         phase1_completed_at TIMESTAMP,
@@ -124,6 +130,48 @@ async function main() {
     console.log('Adding missing columns...');
     
     try {
+      await sql`ALTER TABLE firms ADD COLUMN IF NOT EXISTS firm_type TEXT;`;
+      console.log('✅ Added firms.firm_type column');
+    } catch (error) {
+      console.log('firms.firm_type column might already exist, continuing...');
+    }
+
+    try {
+      await sql`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS firm_type TEXT;`;
+      console.log('✅ Added challenges.firm_type column');
+    } catch (error) {
+      console.log('challenges.firm_type column might already exist, continuing...');
+    }
+
+    try {
+      await sql`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS purchase_group_id TEXT;`;
+      console.log('✅ Added purchase_group_id column');
+    } catch (error) {
+      console.log('purchase_group_id column might already exist, continuing...');
+    }
+
+    try {
+      await sql`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS purchase_group_label TEXT;`;
+      console.log('✅ Added purchase_group_label column');
+    } catch (error) {
+      console.log('purchase_group_label column might already exist, continuing...');
+    }
+
+    try {
+      await sql`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS purchase_group_size INTEGER;`;
+      console.log('✅ Added purchase_group_size column');
+    } catch (error) {
+      console.log('purchase_group_size column might already exist, continuing...');
+    }
+
+    try {
+      await sql`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS purchase_group_index INTEGER;`;
+      console.log('✅ Added purchase_group_index column');
+    } catch (error) {
+      console.log('purchase_group_index column might already exist, continuing...');
+    }
+
+    try {
       // Add strategy column if it doesn't exist
       await sql`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS strategy TEXT;`;
       console.log('✅ Added strategy column');
@@ -167,6 +215,7 @@ async function main() {
     await sql`CREATE INDEX IF NOT EXISTS idx_firms_user_id ON firms(user_id);`;
     await sql`CREATE INDEX IF NOT EXISTS idx_challenges_user_id ON challenges(user_id);`;
     await sql`CREATE INDEX IF NOT EXISTS idx_challenges_firm_id ON challenges(firm_id);`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_challenges_purchase_group_id ON challenges(purchase_group_id);`;
     await sql`CREATE INDEX IF NOT EXISTS idx_payouts_challenge_id ON payouts(challenge_id);`;
     await sql`CREATE INDEX IF NOT EXISTS idx_monthly_pnl_challenge_id ON monthly_pnl(challenge_id);`;
     await sql`CREATE INDEX IF NOT EXISTS idx_weekly_pnl_challenge_id ON weekly_pnl(challenge_id);`;

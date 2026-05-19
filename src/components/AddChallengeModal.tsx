@@ -66,10 +66,10 @@ export const AddChallengeModal: React.FC<{
                         </div>
                         <div>
                           <h2 className="pr-3 text-lg font-bold text-white sm:text-2xl">
-                            Add Challenge
+                            Add Challenge Batch
                           </h2>
                           <p className="text-sm text-white/55">
-                            Clean setup for a new prop account.
+                            Create one account or a linked batch in one step.
                           </p>
                         </div>
                       </motion.div>

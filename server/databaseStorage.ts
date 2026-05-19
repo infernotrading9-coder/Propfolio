@@ -83,6 +83,7 @@ export const loadState = async (userId: string): Promise<AppState> => {
     const firms = data.firms.map(firm => ({
       id: firm.id,
       name: firm.name,
+      firmType: (firm as any).firmType || undefined,
       createdAt: (firm as any).createdAt ? new Date((firm as any).createdAt as any).toISOString() : new Date().toISOString(),
     }));
 
@@ -90,12 +91,17 @@ export const loadState = async (userId: string): Promise<AppState> => {
       id: challenge.id,
       propFirmId: challenge.firmId,
       brokerName: challenge.brokerName || 'Trading Account',
+      purchaseGroupId: (challenge as any).purchaseGroupId || undefined,
+      purchaseGroupLabel: (challenge as any).purchaseGroupLabel || undefined,
+      purchaseGroupSize: (challenge as any).purchaseGroupSize || undefined,
+      purchaseGroupIndex: (challenge as any).purchaseGroupIndex || undefined,
       accountSize: challenge.accountSize || 0,
       startDate: challenge.startDate || new Date().toISOString().slice(0, 10),
       cost: challenge.cost ? parseFloat(challenge.cost.toString()) : 0,
       initialCost: challenge.initialCost ? parseFloat(challenge.initialCost.toString()) : (challenge.cost ? parseFloat(challenge.cost.toString()) : 0),
       hasActivationFee: !!challenge.hasActivationFee,
       activationFeeAmount: challenge.activationFeeAmount ? parseFloat(challenge.activationFeeAmount.toString()) : undefined,
+      firmType: (challenge as any).firmType || undefined,
       totalPhases: ((challenge.totalPhases as any) || 3) as 1 | 2 | 3,
       strategy: challenge.strategy || '',
       status: (challenge.status as Challenge['status']) || 'active',
@@ -175,12 +181,17 @@ export const addChallenge = async (userId: string, challengeData: any) => {
     const row = await challengeService.create(canonicalId, {
       firmId: propFirmId,
       brokerName: challengeData.brokerName || 'Trading Account',
+      purchaseGroupId: challengeData.purchaseGroupId || null,
+      purchaseGroupLabel: challengeData.purchaseGroupLabel || null,
+      purchaseGroupSize: challengeData.purchaseGroupSize ?? null,
+      purchaseGroupIndex: challengeData.purchaseGroupIndex ?? null,
       accountSize: challengeData.accountSize || 0,
       startDate: challengeData.startDate || new Date().toISOString().slice(0, 10),
       cost: challengeData.cost?.toString() || '0',
       initialCost: challengeData.initialCost?.toString() || challengeData.cost?.toString() || '0',
       hasActivationFee: !!challengeData.hasActivationFee,
       activationFeeAmount: challengeData.activationFeeAmount === undefined ? null : challengeData.activationFeeAmount.toString(),
+      firmType: challengeData.firmType || null,
       totalPhases: challengeData.totalPhases || 3,
       strategy: challengeData.strategy || '',
       status: challengeData.status || 'active',
@@ -194,12 +205,17 @@ export const addChallenge = async (userId: string, challengeData: any) => {
       id: row.id,
       propFirmId: row.firmId,
       brokerName: row.brokerName || 'Trading Account',
+      purchaseGroupId: (row as any).purchaseGroupId || undefined,
+      purchaseGroupLabel: (row as any).purchaseGroupLabel || undefined,
+      purchaseGroupSize: (row as any).purchaseGroupSize || undefined,
+      purchaseGroupIndex: (row as any).purchaseGroupIndex || undefined,
       accountSize: row.accountSize || 0,
       startDate: row.startDate || new Date().toISOString().slice(0,10),
       cost: row.cost ? parseFloat(row.cost as any) : 0,
       initialCost: row.initialCost ? parseFloat(row.initialCost as any) : (row.cost ? parseFloat(row.cost as any) : 0),
       hasActivationFee: !!row.hasActivationFee,
       activationFeeAmount: row.activationFeeAmount ? parseFloat(row.activationFeeAmount as any) : undefined,
+      firmType: (row as any).firmType || undefined,
       totalPhases: ((row.totalPhases as any) || 3) as 1 | 2 | 3,
       strategy: (row.strategy as any) || '',
       status: (row.status as any) || 'active',
@@ -228,6 +244,10 @@ export const updateChallenge = async (challengeId: string, updates: Partial<Chal
     const mapped: any = {};
     if (typeof updates.propFirmId === 'string') mapped.firmId = updates.propFirmId;
     if (typeof updates.brokerName === 'string') mapped.brokerName = updates.brokerName;
+    if (updates.purchaseGroupId !== undefined) mapped.purchaseGroupId = updates.purchaseGroupId || null;
+    if (updates.purchaseGroupLabel !== undefined) mapped.purchaseGroupLabel = updates.purchaseGroupLabel || null;
+    if (updates.purchaseGroupSize !== undefined) mapped.purchaseGroupSize = updates.purchaseGroupSize ?? null;
+    if (updates.purchaseGroupIndex !== undefined) mapped.purchaseGroupIndex = updates.purchaseGroupIndex ?? null;
     if (typeof updates.accountSize === 'number') mapped.accountSize = updates.accountSize;
     if (typeof updates.startDate === 'string') mapped.startDate = updates.startDate;
     if (typeof updates.cost === 'number') mapped.cost = updates.cost.toString();
@@ -236,6 +256,7 @@ export const updateChallenge = async (challengeId: string, updates: Partial<Chal
     if (typeof updates.activationFeeAmount === 'number') mapped.activationFeeAmount = updates.activationFeeAmount.toString();
     if (typeof updates.totalPhases !== 'undefined') mapped.totalPhases = updates.totalPhases;
     if (typeof updates.strategy === 'string') mapped.strategy = updates.strategy;
+    if (typeof updates.firmType === 'string') mapped.firmType = updates.firmType;
     if (typeof updates.status === 'string') mapped.status = updates.status;
 
     // Phase fields (if present in updates.phases, map to DB columns)
