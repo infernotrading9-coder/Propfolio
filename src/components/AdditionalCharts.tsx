@@ -38,6 +38,20 @@ export const AdditionalCharts: React.FC<{
             transform: translateY(0);
           }
         }
+        @keyframes drift {
+          0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+          30% { transform: translate3d(6px, -10px, 0) rotate(1deg); }
+          65% { transform: translate3d(-4px, 8px, 0) rotate(-1deg); }
+        }
+        @keyframes thrusterPulse {
+          0%, 100% { transform: scaleY(1) scaleX(1); opacity: 0.8; }
+          50% { transform: scaleY(1.2) scaleX(0.92); opacity: 1; }
+        }
+        @keyframes starTrail {
+          0% { opacity: 0.15; transform: translateX(0); }
+          50% { opacity: 0.55; }
+          100% { opacity: 0.15; transform: translateX(-10px); }
+        }
       `;
       document.head.appendChild(style);
     }
@@ -67,13 +81,13 @@ export const AdditionalCharts: React.FC<{
     const match = firms.find((firm) => firm.name.trim().toLowerCase() === normalized);
     const firmType = match?.firmType;
 
-    const firmProfiles: Array<{ test: (value: string) => boolean; logo: string; accent: string; glow: string; label: string }> = [
-      { test: value => value.includes('ftmo'), logo: 'FT', accent: '#f97316', glow: 'rgba(249,115,22,0.28)', label: 'FTMO' },
-      { test: value => value.includes('apex'), logo: 'AX', accent: '#22d3ee', glow: 'rgba(34,211,238,0.28)', label: 'Apex' },
-      { test: value => value.includes('topstep') || value.includes('top step'), logo: 'TS', accent: '#60a5fa', glow: 'rgba(96,165,250,0.28)', label: 'Topstep' },
-      { test: value => value.includes('funded'), logo: 'FD', accent: '#a855f7', glow: 'rgba(168,85,247,0.28)', label: 'Funded' },
-      { test: value => value.includes('5ers') || value.includes('the5%ers'), logo: '5%', accent: '#14b8a6', glow: 'rgba(20,184,166,0.28)', label: '5ers' },
-      { test: value => value.includes('blue') || value.includes('blu'), logo: 'BL', accent: '#3b82f6', glow: 'rgba(59,130,246,0.28)', label: 'Blue' },
+    const firmProfiles: Array<{ test: (value: string) => boolean; logo: string; accent: string; glow: string; label: string; kind: string }> = [
+      { test: value => value.includes('ftmo'), logo: 'FT', accent: '#f97316', glow: 'rgba(249,115,22,0.28)', label: 'FTMO', kind: 'target' },
+      { test: value => value.includes('apex'), logo: 'AX', accent: '#22d3ee', glow: 'rgba(34,211,238,0.28)', label: 'Apex', kind: 'apex' },
+      { test: value => value.includes('topstep') || value.includes('top step'), logo: 'TS', accent: '#60a5fa', glow: 'rgba(96,165,250,0.28)', label: 'Topstep', kind: 'steps' },
+      { test: value => value.includes('funded'), logo: 'FD', accent: '#a855f7', glow: 'rgba(168,85,247,0.28)', label: 'Funded', kind: 'bolt' },
+      { test: value => value.includes('5ers') || value.includes('the5%ers'), logo: '5%', accent: '#14b8a6', glow: 'rgba(20,184,166,0.28)', label: '5ers', kind: 'pentagon' },
+      { test: value => value.includes('blue') || value.includes('blu'), logo: 'BL', accent: '#3b82f6', glow: 'rgba(59,130,246,0.28)', label: 'Blue', kind: 'wave' },
     ];
     const known = firmProfiles.find(entry => entry.test(normalized));
 
@@ -89,9 +103,62 @@ export const AdditionalCharts: React.FC<{
       accent: known?.accent || (firmType === 'cfd' ? '#a855f7' : '#22d3ee'),
       glow: known?.glow || (firmType === 'cfd' ? 'rgba(168,85,247,0.28)' : 'rgba(34,211,238,0.28)'),
       label: known?.label || firmName,
+      kind: known?.kind || 'initials',
       typeLabel: firmType ? firmType.toUpperCase() : 'FIRM'
     };
   }, [firms]);
+
+  const renderFirmGlyph = React.useCallback((meta: ReturnType<typeof getFirmMeta>, size: 'sm' | 'md' = 'md') => {
+    const glyphClass = size === 'sm' ? 'h-5 w-5' : 'h-6 w-6';
+    const commonStroke = { stroke: meta.accent, strokeWidth: 2, fill: 'none', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+
+    switch (meta.kind) {
+      case 'target':
+        return (
+          <svg viewBox="0 0 24 24" className={glyphClass}>
+            <circle cx="12" cy="12" r="8" {...commonStroke} />
+            <circle cx="12" cy="12" r="3.5" {...commonStroke} />
+            <path d="M14 10 L19 5" {...commonStroke} />
+            <path d="M17.5 5 H19 V6.5" {...commonStroke} />
+          </svg>
+        );
+      case 'apex':
+        return (
+          <svg viewBox="0 0 24 24" className={glyphClass}>
+            <path d="M4 18 L10.5 6 L13.5 11 L16 8 L20 18 Z" fill={`${meta.accent}22`} stroke={meta.accent} strokeWidth="2" strokeLinejoin="round" />
+          </svg>
+        );
+      case 'steps':
+        return (
+          <svg viewBox="0 0 24 24" className={glyphClass}>
+            <path d="M5 17 H9 V13 H13 V9 H19" {...commonStroke} />
+            <path d="M16 6 H19 V9" {...commonStroke} />
+          </svg>
+        );
+      case 'bolt':
+        return (
+          <svg viewBox="0 0 24 24" className={glyphClass}>
+            <path d="M13 3 L6 13 H11 L9.5 21 L18 10.5 H13.5 L16 3 Z" fill={`${meta.accent}22`} stroke={meta.accent} strokeWidth="2" strokeLinejoin="round" />
+          </svg>
+        );
+      case 'pentagon':
+        return (
+          <svg viewBox="0 0 24 24" className={glyphClass}>
+            <path d="M12 3 L19 8 L16 19 H8 L5 8 Z" fill={`${meta.accent}18`} stroke={meta.accent} strokeWidth="2" strokeLinejoin="round" />
+            <path d="M10 9.5 H14 L11 12.5 H14 L10 16" {...commonStroke} />
+          </svg>
+        );
+      case 'wave':
+        return (
+          <svg viewBox="0 0 24 24" className={glyphClass}>
+            <path d="M4 15 C7 10, 10 10, 13 15 C16 20, 19 20, 20 16" {...commonStroke} />
+            <path d="M4 10 C7 5, 10 5, 13 10 C16 15, 19 15, 20 11" {...commonStroke} />
+          </svg>
+        );
+      default:
+        return <span className={size === 'sm' ? 'text-[10px] font-black' : 'text-xs font-black'}>{meta.logo}</span>;
+    }
+  }, [getFirmMeta]);
   
 
   // Firm Exposure Data (Pie Chart)
@@ -589,7 +656,7 @@ export const AdditionalCharts: React.FC<{
                 <div className="flex items-center justify-between mb-2 gap-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <div
-                      className="h-11 w-11 shrink-0 rounded-2xl border flex items-center justify-center text-sm font-black"
+                      className="h-11 w-11 shrink-0 rounded-2xl border flex items-center justify-center"
                       style={{
                         color: meta.accent,
                         borderColor: `${meta.accent}66`,
@@ -597,11 +664,14 @@ export const AdditionalCharts: React.FC<{
                         boxShadow: `0 0 20px ${meta.glow}`
                       }}
                     >
-                      {meta.logo}
+                      {renderFirmGlyph(meta)}
                     </div>
                     <div className="min-w-0">
                       <div className="min-w-0 pr-1 text-sm font-semibold text-white break-words">{item.name}</div>
-                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">{meta.typeLabel}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold tracking-[0.24em]" style={{ color: meta.accent }}>{meta.label.toUpperCase()}</span>
+                        <span className="text-[10px] uppercase tracking-[0.22em] text-white/40">{meta.typeLabel}</span>
+                      </div>
                     </div>
                   </div>
                   <span className="shrink-0 text-lg font-bold" style={{
@@ -916,19 +986,18 @@ export const AdditionalCharts: React.FC<{
                         }}
                       />
                       
-                      <div className="relative z-10 font-black text-xs text-center leading-tight" style={{ color: meta.accent }}>
-                        {meta.logo}
+                      <div className="relative z-10" style={{ color: meta.accent }}>
+                        {renderFirmGlyph(meta)}
                       </div>
                       
-                      {/* Firm Name Abbreviation */}
                       <div 
-                        className="absolute -bottom-1 left-0 right-0 text-xs font-black text-center px-1 py-0.5 rounded-b-lg"
+                        className="absolute -bottom-1 left-0 right-0 text-[9px] font-black text-center px-1 py-0.5 rounded-b-lg tracking-[0.18em]"
                         style={{
                           backgroundColor: meta.accent,
                           color: '#000'
                         }}
                       >
-                        {meta.typeLabel}
+                        {meta.label.slice(0, 5).toUpperCase()}
                       </div>
                     </div>
                     
@@ -957,8 +1026,8 @@ export const AdditionalCharts: React.FC<{
                       <div className="text-white font-semibold truncate text-base group-hover:text-white transition-colors">
                         {item.name}
                       </div>
-                      <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold tracking-[0.22em] text-white/50">
-                        {meta.typeLabel}
+                      <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-[0.22em]" style={{ borderColor: `${meta.accent}55`, color: meta.accent, background: `${meta.accent}12` }}>
+                        {meta.label.toUpperCase()}
                       </span>
                       {/* Trending indicator */}
                       <div className="flex items-center space-x-1 opacity-70 group-hover:opacity-100 transition-opacity">
@@ -1106,7 +1175,7 @@ export const AdditionalCharts: React.FC<{
                       #{index + 1}
                     </span>
                     <div
-                      className="h-10 w-10 shrink-0 rounded-2xl border flex items-center justify-center text-xs font-black"
+                      className="h-10 w-10 shrink-0 rounded-2xl border flex items-center justify-center"
                       style={{
                         color: meta.accent,
                         borderColor: `${meta.accent}66`,
@@ -1114,12 +1183,15 @@ export const AdditionalCharts: React.FC<{
                         boxShadow: `0 0 18px ${meta.glow}`
                       }}
                     >
-                      {meta.logo}
+                      {renderFirmGlyph(meta, 'sm')}
                     </div>
                     <div className="min-w-0">
                       <div className="text-white font-medium text-sm break-words">{account.firm}</div>
-                      <div className="text-white/60 text-[11px] uppercase tracking-[0.2em]">
-                        {meta.typeLabel} · {formatCompactCurrency(account.accountSize)}
+                      <div className="text-[11px] uppercase tracking-[0.2em]" style={{ color: meta.accent }}>
+                        {meta.label} · {meta.typeLabel}
+                      </div>
+                      <div className="text-white/50 text-[11px]">
+                        {formatCompactCurrency(account.accountSize)}
                       </div>
                     </div>
                   </div>
@@ -1153,222 +1225,76 @@ export const AdditionalCharts: React.FC<{
       <div>
         <div className="min-h-[500px] flex">
           <div className="w-96 flex items-center justify-center bg-black/20 rounded-l-lg border-r border-blue-500/30 overflow-hidden">
-            <div className="relative w-full h-full flex items-center justify-center p-4">
-              {/* Modern Space Shuttle/Rocket - Clean and Futuristic */}
-              <div className="relative w-full h-full flex items-center justify-center">
-                {/* Rocket with gentle hover animation */}
-                <div className="relative hover:scale-105 transition-transform duration-500" style={{
-                  animation: 'float 4s ease-in-out infinite'
-                }}>
-                  <svg width="320" height="400" viewBox="0 0 200 320" fill="none" className="relative z-10">
-                    {/* Main body - chunky retro style */}
-                    <rect x="70" y="80" width="60" height="140" rx="8" 
-                          fill="url(#retroBodyGradient)" stroke="#ff6b35" strokeWidth="2" opacity="0.9">
-                      <animate attributeName="fill" 
-                               values="url(#retroBodyGradient);url(#retroBodyGradientAlt);url(#retroBodyGradient)" 
-                               dur="4s" repeatCount="indefinite"/>
-                    </rect>
-                    
-                    {/* Rounded dome top */}
-                    <ellipse cx="100" cy="80" rx="30" ry="25" 
-                             fill="url(#domeGradient)" stroke="#ff6b35" strokeWidth="2" opacity="0.95"/>
-                    
-                    {/* Control tower/bridge */}
-                    <rect x="85" y="65" width="30" height="20" rx="15" 
-                          fill="url(#bridgeGradient)" stroke="#ffa726" strokeWidth="1.5">
-                      <animate attributeName="opacity" 
-                               values="0.8;1;0.8" dur="2.5s" repeatCount="indefinite"/>
-                    </rect>
-                    
-                    {/* Large circular windows */}
-                    <circle cx="100" cy="100" r="12" 
-                            fill="#26c6da" stroke="#ff6b35" strokeWidth="2" opacity="0.8">
-                      <animate attributeName="fill" 
-                               values="#26c6da;#4dd0e1;#00acc1;#26c6da" dur="3s" repeatCount="indefinite"/>
-                    </circle>
-                    <circle cx="100" cy="130" r="8" 
-                            fill="#4dd0e1" stroke="#ff6b35" strokeWidth="1.5" opacity="0.7">
-                      <animate attributeName="fill" 
-                               values="#4dd0e1;#26c6da;#4dd0e1" dur="2s" repeatCount="indefinite"/>
-                    </circle>
-                    
-                    {/* Side boosters - chunky cylinders */}
-                    <rect x="40" y="160" width="20" height="60" rx="10" 
-                          fill="url(#boosterGradient)" stroke="#ff8a50" strokeWidth="1.5"/>
-                    <rect x="140" y="160" width="20" height="60" rx="10" 
-                          fill="url(#boosterGradient)" stroke="#ff8a50" strokeWidth="1.5"/>
-                    
-                    {/* Landing legs/stabilizers */}
-                    <path d="M70 200 L45 240 L55 245 L70 220 Z" 
-                          fill="url(#legGradient)" stroke="#ff6b35" strokeWidth="1.5" opacity="0.85"/>
-                    <path d="M130 200 L155 240 L145 245 L130 220 Z" 
-                          fill="url(#legGradient)" stroke="#ff6b35" strokeWidth="1.5" opacity="0.85"/>
-                    
-                    {/* Decorative panels and vents */}
-                    <rect x="75" y="150" width="50" height="8" rx="4" 
-                          fill="#ffb74d" opacity="0.6">
-                      <animate attributeName="opacity" values="0.4;0.9;0.4" dur="2.2s" repeatCount="indefinite"/>
-                    </rect>
-                    <rect x="80" y="170" width="40" height="6" rx="3" 
-                          fill="#ffb74d" opacity="0.6">
-                      <animate attributeName="opacity" values="0.6;1;0.6" dur="1.8s" repeatCount="indefinite"/>
-                    </rect>
-                    <rect x="85" y="185" width="30" height="4" rx="2" 
-                          fill="#ffb74d" opacity="0.6">
-                      <animate attributeName="opacity" values="0.3;0.8;0.3" dur="2.5s" repeatCount="indefinite"/>
-                    </rect>
-                    
-                    {/* Antenna and communication dish */}
-                    <line x1="100" y1="55" x2="100" y2="35" stroke="#ff8a50" strokeWidth="2"/>
-                    <circle cx="100" cy="35" r="4" fill="#ffa726" stroke="#ff6b35" strokeWidth="1">
-                      <animate attributeName="r" values="4;6;4" dur="1.5s" repeatCount="indefinite"/>
-                      <animate attributeName="fill" values="#ffa726;#ffcc02;#ffa726" dur="1.5s" repeatCount="indefinite"/>
-                    </circle>
-                    
-                    {/* Spinning radar dish */}
-                    <g transform="translate(100, 75)">
-                      <ellipse cx="0" cy="0" rx="8" ry="3" 
-                               fill="#42a5f5" stroke="#ff6b35" strokeWidth="1" opacity="0.7">
-                        <animateTransform attributeName="transform" type="rotate" 
-                                        values="0;360" dur="3s" repeatCount="indefinite"/>
-                      </ellipse>
-                    </g>
-                    
-                    {/* Floating energy orbs around rocket */}
-                    <g opacity="0.7">
-                      <circle cx="140" cy="120" r="3" fill="#ff9800">
-                        <animateTransform attributeName="transform" type="rotate" 
-                                        values="0 100 150;360 100 150" dur="6s" repeatCount="indefinite"/>
-                        <animate attributeName="opacity" values="0.4;1;0.4" dur="2s" repeatCount="indefinite"/>
-                      </circle>
-                      <circle cx="60" cy="140" r="2.5" fill="#ffc107">
-                        <animateTransform attributeName="transform" type="rotate" 
-                                        values="360 100 150;0 100 150" dur="8s" repeatCount="indefinite"/>
-                        <animate attributeName="opacity" values="0.6;1;0.6" dur="1.5s" repeatCount="indefinite"/>
-                      </circle>
-                      <circle cx="120" cy="80" r="2" fill="#ff5722">
-                        <animateTransform attributeName="transform" type="rotate" 
-                                        values="0 100 150;360 100 150" dur="10s" repeatCount="indefinite"/>
-                        <animate attributeName="opacity" values="0.3;0.9;0.3" dur="3s" repeatCount="indefinite"/>
-                      </circle>
-                    </g>
-                    
-                    <defs>
-                      <linearGradient id="retroBodyGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="rgba(255, 107, 53, 0.3)"/>
-                        <stop offset="50%" stopColor="rgba(255, 152, 0, 0.2)"/>
-                        <stop offset="100%" stopColor="rgba(255, 183, 77, 0.4)"/>
-                      </linearGradient>
-                      <linearGradient id="retroBodyGradientAlt" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="rgba(255, 152, 0, 0.4)"/>
-                        <stop offset="50%" stopColor="rgba(255, 183, 77, 0.2)"/>
-                        <stop offset="100%" stopColor="rgba(255, 107, 53, 0.3)"/>
-                      </linearGradient>
-                      <linearGradient id="domeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="rgba(255, 183, 77, 0.5)"/>
-                        <stop offset="100%" stopColor="rgba(255, 107, 53, 0.6)"/>
-                      </linearGradient>
-                      <linearGradient id="bridgeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="rgba(255, 167, 38, 0.6)"/>
-                        <stop offset="100%" stopColor="rgba(255, 204, 2, 0.8)"/>
-                      </linearGradient>
-                      <linearGradient id="boosterGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" stopColor="rgba(255, 138, 80, 0.4)"/>
-                        <stop offset="100%" stopColor="rgba(255, 107, 53, 0.6)"/>
-                      </linearGradient>
-                      <linearGradient id="legGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="rgba(255, 107, 53, 0.5)"/>
-                        <stop offset="100%" stopColor="rgba(255, 183, 77, 0.7)"/>
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                  
-                  {/* Retro Rocket Exhaust */}
-                  <div className="absolute bottom-[-45px] left-1/2 transform -translate-x-1/2 z-0">
-                    <svg width="140" height="100" viewBox="0 0 90 70" fill="none">
-                      {/* Main exhaust plume - chunky and wide */}
-                      <path d="M45 10 Q35 25 25 50 Q35 45 45 45 Q55 45 65 50 Q55 25 45 10" 
-                            fill="url(#retroExhaustMain)" opacity="0.9">
-                        <animate attributeName="d" 
-                                 values="M45 10 Q35 25 25 50 Q35 45 45 45 Q55 45 65 50 Q55 25 45 10;
-                                         M45 10 Q30 20 20 45 Q40 40 45 40 Q50 40 70 45 Q60 20 45 10;
-                                         M45 10 Q40 30 30 55 Q40 50 45 50 Q50 50 60 55 Q50 30 45 10;
-                                         M45 10 Q35 25 25 50 Q35 45 45 45 Q55 45 65 50 Q55 25 45 10" 
-                                 dur="0.6s" repeatCount="indefinite"/>
-                      </path>
-                      
-                      {/* Side booster exhaust streams */}
-                      <ellipse cx="25" cy="15" rx="8" ry="30" 
-                               fill="url(#retroExhaustSide)" opacity="0.7">
-                        <animate attributeName="ry" values="30;40;30" dur="0.8s" repeatCount="indefinite"/>
-                        <animate attributeName="opacity" values="0.7;0.4;0.7" dur="0.8s" repeatCount="indefinite"/>
-                      </ellipse>
-                      <ellipse cx="65" cy="15" rx="8" ry="30" 
-                               fill="url(#retroExhaustSide)" opacity="0.7">
-                        <animate attributeName="ry" values="30;40;30" dur="0.8s" repeatCount="indefinite"/>
-                        <animate attributeName="opacity" values="0.7;0.4;0.7" dur="0.8s" repeatCount="indefinite"/>
-                      </ellipse>
-                      
-                      {/* Hot exhaust particles and sparks */}
-                      <circle cx="40" cy="55" r="2.5" fill="#ff6b35" opacity="0.8">
-                        <animate attributeName="cy" values="55;35;55" dur="1s" repeatCount="indefinite"/>
-                        <animate attributeName="opacity" values="0.8;0.2;0.8" dur="1s" repeatCount="indefinite"/>
-                        <animate attributeName="r" values="2.5;1;2.5" dur="1s" repeatCount="indefinite"/>
-                      </circle>
-                      <circle cx="50" cy="60" r="2" fill="#ff9800" opacity="0.9">
-                        <animate attributeName="cy" values="60;25;60" dur="0.7s" repeatCount="indefinite"/>
-                        <animate attributeName="opacity" values="0.9;0.1;0.9" dur="0.7s" repeatCount="indefinite"/>
-                      </circle>
-                      <circle cx="30" cy="50" r="1.5" fill="#ffb74d" opacity="0.6">
-                        <animate attributeName="cy" values="50;30;50" dur="1.3s" repeatCount="indefinite"/>
-                        <animate attributeName="opacity" values="0.6;0.1;0.6" dur="1.3s" repeatCount="indefinite"/>
-                      </circle>
-                      <circle cx="60" cy="52" r="1.8" fill="#ff5722" opacity="0.7">
-                        <animate attributeName="cy" values="52;28;52" dur="0.9s" repeatCount="indefinite"/>
-                        <animate attributeName="opacity" values="0.7;0.1;0.7" dur="0.9s" repeatCount="indefinite"/>
-                      </circle>
-                      
-                      {/* Glowing exhaust core */}
-                      <ellipse cx="45" cy="25" rx="6" ry="15" 
-                               fill="#ffcc02" opacity="0.6">
-                        <animate attributeName="ry" values="15;20;15" dur="0.3s" repeatCount="indefinite"/>
-                        <animate attributeName="opacity" values="0.6;0.9;0.6" dur="0.3s" repeatCount="indefinite"/>
-                      </ellipse>
-                      
+            <div className="relative w-full h-full p-5">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.18),transparent_45%),radial-gradient(circle_at_bottom,rgba(168,85,247,0.12),transparent_40%)]" />
+              <div className="absolute inset-0 opacity-60">
+                <div className="absolute left-10 top-12 h-1.5 w-1.5 rounded-full bg-cyan-300" style={{ animation: 'starTrail 3.4s ease-in-out infinite' }} />
+                <div className="absolute left-24 top-28 h-1 w-1 rounded-full bg-blue-200" style={{ animation: 'starTrail 4.1s ease-in-out infinite', animationDelay: '0.3s' }} />
+                <div className="absolute right-16 top-20 h-2 w-2 rounded-full bg-fuchsia-300" style={{ animation: 'starTrail 3.8s ease-in-out infinite', animationDelay: '0.7s' }} />
+                <div className="absolute right-10 bottom-24 h-1.5 w-1.5 rounded-full bg-amber-300" style={{ animation: 'starTrail 4.5s ease-in-out infinite', animationDelay: '1s' }} />
+                <div className="absolute left-14 bottom-20 h-1 w-1 rounded-full bg-emerald-300" style={{ animation: 'starTrail 4s ease-in-out infinite', animationDelay: '1.2s' }} />
+              </div>
+              <div className="relative h-full w-full rounded-[28px] border border-white/10 bg-gradient-to-br from-slate-950/90 via-slate-950/70 to-blue-950/40 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                <div className="absolute left-1/2 top-[18%] h-40 w-40 -translate-x-1/2 rounded-full bg-cyan-400/15 blur-3xl" />
+                <div className="absolute left-1/2 top-[54%] h-32 w-32 -translate-x-1/2 rounded-full bg-fuchsia-500/10 blur-3xl" />
+                <div className="relative flex h-full flex-col items-center justify-between">
+                  <div className="text-center">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-300/70">Launch Bay</div>
+                    <div className="mt-2 text-xl font-semibold text-white">Top Account Command Ship</div>
+                    <div className="mt-2 text-sm text-white/55">A faster, sharper flagship for your best performers.</div>
+                  </div>
+                  <div className="relative flex-1 w-full flex items-center justify-center" style={{ animation: 'drift 6s ease-in-out infinite' }}>
+                    <div className="absolute inset-x-8 top-1/2 h-px bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
+                    <svg width="300" height="320" viewBox="0 0 260 260" fill="none" className="relative z-10 drop-shadow-[0_0_24px_rgba(34,211,238,0.22)]">
                       <defs>
-                        <linearGradient id="retroExhaustMain" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#ffcc02" stopOpacity="0.9"/>
-                          <stop offset="30%" stopColor="#ff9800" stopOpacity="0.8"/>
-                          <stop offset="70%" stopColor="#ff6b35" stopOpacity="0.7"/>
-                          <stop offset="100%" stopColor="#ff5722" stopOpacity="0.5"/>
+                        <linearGradient id="shipHull" x1="62" y1="52" x2="194" y2="198" gradientUnits="userSpaceOnUse">
+                          <stop offset="0%" stopColor="#eef6ff" />
+                          <stop offset="48%" stopColor="#94a3b8" />
+                          <stop offset="100%" stopColor="#1e293b" />
                         </linearGradient>
-                        <linearGradient id="retroExhaustSide" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#ffa726" stopOpacity="0.8"/>
-                          <stop offset="50%" stopColor="#ff6b35" stopOpacity="0.6"/>
-                          <stop offset="100%" stopColor="#ff5722" stopOpacity="0.4"/>
+                        <linearGradient id="shipCore" x1="130" y1="62" x2="130" y2="188" gradientUnits="userSpaceOnUse">
+                          <stop offset="0%" stopColor="#67e8f9" />
+                          <stop offset="100%" stopColor="#2563eb" />
+                        </linearGradient>
+                        <linearGradient id="wingGlow" x1="44" y1="130" x2="216" y2="130" gradientUnits="userSpaceOnUse">
+                          <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.15" />
+                          <stop offset="50%" stopColor="#3b82f6" stopOpacity="0.4" />
+                          <stop offset="100%" stopColor="#a855f7" stopOpacity="0.15" />
+                        </linearGradient>
+                        <linearGradient id="engineGlow" x1="130" y1="188" x2="130" y2="238" gradientUnits="userSpaceOnUse">
+                          <stop offset="0%" stopColor="#fef08a" />
+                          <stop offset="50%" stopColor="#fb923c" />
+                          <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
                         </linearGradient>
                       </defs>
+                      <ellipse cx="130" cy="134" rx="94" ry="20" fill="url(#wingGlow)" opacity="0.6" />
+                      <path d="M130 34 L156 92 L130 206 L104 92 Z" fill="url(#shipHull)" stroke="#cbd5e1" strokeWidth="2.2" />
+                      <path d="M130 52 L144 94 L130 168 L116 94 Z" fill="url(#shipCore)" opacity="0.95" />
+                      <path d="M95 108 L46 136 L92 150 L118 140 Z" fill="#1e3a8a" stroke="#60a5fa" strokeWidth="2" />
+                      <path d="M165 108 L214 136 L168 150 L142 140 Z" fill="#312e81" stroke="#818cf8" strokeWidth="2" />
+                      <path d="M104 92 L80 118 L96 122 L118 112 Z" fill="#0f172a" stroke="#38bdf8" strokeWidth="1.8" />
+                      <path d="M156 92 L180 118 L164 122 L142 112 Z" fill="#0f172a" stroke="#a78bfa" strokeWidth="1.8" />
+                      <ellipse cx="130" cy="84" rx="16" ry="10" fill="#0f172a" stroke="#67e8f9" strokeWidth="2" />
+                      <path d="M120 198 L130 226 L140 198 Z" fill="url(#engineGlow)" style={{ transformOrigin: '130px 198px', animation: 'thrusterPulse 0.7s ease-in-out infinite' }} />
+                      <path d="M112 196 L118 218 L124 196 Z" fill="url(#engineGlow)" opacity="0.75" style={{ transformOrigin: '118px 196px', animation: 'thrusterPulse 0.85s ease-in-out infinite' }} />
+                      <path d="M136 196 L142 218 L148 196 Z" fill="url(#engineGlow)" opacity="0.75" style={{ transformOrigin: '142px 196px', animation: 'thrusterPulse 0.8s ease-in-out infinite' }} />
+                      <circle cx="130" cy="84" r="4" fill="#a5f3fc" />
                     </svg>
                   </div>
-                  
-                  {/* Glowing aura around rocket */}
-                  <div className="absolute inset-0 rounded-full opacity-20" style={{
-                    background: 'radial-gradient(circle, #3b82f6 0%, transparent 70%)',
-                    animation: 'pulse 2s ease-in-out infinite'
-                  }} />
-                  
-                  {/* Trailing sparkles */}
-                  <div className="absolute top-1/2 left-[-20px] w-2 h-2 bg-blue-400 rounded-full opacity-60" style={{
-                    animation: 'ping 1s ease-out infinite'
-                  }} />
-                  <div className="absolute top-1/3 right-[-15px] w-1.5 h-1.5 bg-yellow-400 rounded-full opacity-70" style={{
-                    animation: 'ping 1.5s ease-out infinite',
-                    animationDelay: '0.5s'
-                  }} />
-                  <div className="absolute top-2/3 left-[-10px] w-1 h-1 bg-green-400 rounded-full opacity-50" style={{
-                    animation: 'ping 2s ease-out infinite',
-                    animationDelay: '1s'
-                  }} />
+                  <div className="grid w-full grid-cols-3 gap-2">
+                    <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/8 px-3 py-2 text-center">
+                      <div className="text-[10px] uppercase tracking-[0.24em] text-cyan-300/60">Vector</div>
+                      <div className="mt-1 text-sm font-semibold text-white">Precision</div>
+                    </div>
+                    <div className="rounded-2xl border border-blue-400/20 bg-blue-400/8 px-3 py-2 text-center">
+                      <div className="text-[10px] uppercase tracking-[0.24em] text-blue-300/60">Drive</div>
+                      <div className="mt-1 text-sm font-semibold text-white">Momentum</div>
+                    </div>
+                    <div className="rounded-2xl border border-fuchsia-400/20 bg-fuchsia-400/8 px-3 py-2 text-center">
+                      <div className="text-[10px] uppercase tracking-[0.24em] text-fuchsia-300/60">Signal</div>
+                      <div className="mt-1 text-sm font-semibold text-white">Edge</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1448,7 +1374,7 @@ export const AdditionalCharts: React.FC<{
                       <div className="mb-3">
                         <div className="flex items-center gap-3 mb-1">
                           <div 
-                            className="h-11 w-11 rounded-2xl flex-shrink-0 transition-all duration-300 group-hover:scale-110 border flex items-center justify-center text-xs font-black"
+                            className="h-11 w-11 rounded-2xl flex-shrink-0 transition-all duration-300 group-hover:scale-110 border flex items-center justify-center"
                             style={{ 
                               color: meta.accent,
                               borderColor: `${meta.accent}66`,
@@ -1457,14 +1383,14 @@ export const AdditionalCharts: React.FC<{
                               filter: `drop-shadow(0 0 8px ${meta.glow})`
                             }}
                           >
-                            {meta.logo}
+                            {renderFirmGlyph(meta)}
                           </div>
                           <div className="min-w-0">
                             <div className="text-white font-bold text-sm truncate group-hover:text-white transition-colors">
                               {account.firm}
                             </div>
-                            <div className="text-white/45 text-[10px] uppercase tracking-[0.24em]">
-                              {meta.typeLabel}
+                            <div className="text-[10px] uppercase tracking-[0.24em]" style={{ color: meta.accent }}>
+                              {meta.label} · {meta.typeLabel}
                             </div>
                           </div>
                           {/* Performance indicators */}
