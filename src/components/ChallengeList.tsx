@@ -25,7 +25,7 @@ export const ChallengeList: React.FC<{
   setCalendar?: (updater: (prev: any) => any) => void;
   buildingMode?: boolean;
   onAutomaticCalendarIntegration?: (challenge: Challenge, completedPhase: 'phase1' | 'phase2' | 'phase3') => Promise<void>;
-  onFailLiveAccount?: (challengeId: string) => void;
+  onFailLiveAccount?: (challengeIds: string[]) => void;
 }> = ({
   challenges,
   firms,
@@ -111,7 +111,7 @@ export const ChallengeList: React.FC<{
     setSelectedChallengeIds((prev) => {
       const next = new Set<string>();
       validChallenges.forEach((challenge) => {
-        if (prev.has(challenge.id)) next.add(challenge.id);
+        if (prev.has(challenge.id) && challenge.status !== 'failed') next.add(challenge.id);
       });
       return next;
     });
@@ -131,6 +131,8 @@ export const ChallengeList: React.FC<{
   }, [showPageSizeSelector]);
 
   const toggleChallengeSelection = (challengeId: string) => {
+    const challenge = validChallenges.find((item) => item.id === challengeId);
+    if (!challenge || challenge.status === 'failed') return;
     setSelectedChallengeIds((prev) => {
       const next = new Set(prev);
       if (next.has(challengeId)) next.delete(challengeId);
@@ -140,7 +142,10 @@ export const ChallengeList: React.FC<{
   };
 
   const setSelectedIds = (ids: string[]) => {
-    setSelectedChallengeIds(new Set(ids));
+    const selectableIds = new Set(
+      validChallenges.filter((challenge) => challenge.status !== 'failed').map((challenge) => challenge.id)
+    );
+    setSelectedChallengeIds(new Set(ids.filter((id) => selectableIds.has(id))));
   };
 
   const selectedChallenges = React.useMemo(
@@ -276,6 +281,10 @@ export const ChallengeList: React.FC<{
     const challengeNumber = challengeNumberMap.get(challenge.id) ?? 0;
     const inBatch = (challenge.purchaseGroupSize ?? 1) > 1;
     const label = challenge.purchaseGroupIndex ? `Account ${challenge.purchaseGroupIndex}` : challenge.brokerName;
+    const isSelected = selectedChallengeIds.has(challenge.id);
+    const liveSelectedIds = actionableSelected.filter(isChallengeLive).map((item) => item.id);
+    const liveFailTargetIds = isSelected && liveSelectedIds.length > 1 ? liveSelectedIds : [challenge.id];
+    const liveFailButtonLabel = isSelected && liveSelectedIds.length > 1 ? `Fail Selected (${liveSelectedIds.length})` : 'Fail';
 
     return (
       <motion.div
@@ -304,8 +313,9 @@ export const ChallengeList: React.FC<{
             <div className="flex items-start gap-3">
               <input
                 type="checkbox"
-                checked={selectedChallengeIds.has(challenge.id)}
+                checked={isSelected}
                 onChange={() => toggleChallengeSelection(challenge.id)}
+                disabled={challenge.status === 'failed'}
                 className="mt-1 h-4 w-4 rounded border-white/20 bg-white/5 text-cyan-400 focus:ring-cyan-500/40"
               />
 
@@ -362,11 +372,11 @@ export const ChallengeList: React.FC<{
                 <Button
                   size="sm"
                   variant="danger"
-                  onClick={() => onFailLiveAccount(challenge.id)}
+                  onClick={() => onFailLiveAccount(liveFailTargetIds)}
                   leftIcon={<XCircle className="w-4 h-4" />}
                   className="px-3 !bg-red-500/20 hover:!bg-red-500/30 border-red-500/50"
                 >
-                  Fail
+                  {liveFailButtonLabel}
                 </Button>
               )}
               {isLive && challenge.status !== 'failed' && (

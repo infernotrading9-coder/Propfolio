@@ -16,6 +16,19 @@ function emitAuthDebug(type: string, detail: Record<string, unknown> = {}) {
   } catch {}
 }
 
+function getFriendlyLoginError(message: string): string {
+  if (/failed to fetch|networkerror|network request failed|load failed|fetch/i.test(message)) {
+    return 'Failed to log in: network/auth service blocked or unreachable. This can happen on a work laptop if the browser, VPN, firewall, or company filter blocks Netlify Identity.';
+  }
+  if (/popup|blocked/i.test(message)) {
+    return 'Failed to log in: the browser blocked the auth popup. Try allowing popups for this site.';
+  }
+  if (/cors|origin/i.test(message)) {
+    return 'Failed to log in: the browser blocked the auth request. This is usually a site URL or company browser restriction.';
+  }
+  return `Failed to log in: ${message}`;
+}
+
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -66,7 +79,7 @@ const Login: React.FC = () => {
       if (EMAIL_PASSWORD_USE_NETLIFY_IDENTITY && /confirm|verified|verification/i.test(message)) {
         setError(`Failed to log in: ${message}. Please check your email and confirm your account first.`);
       } else {
-        setError('Failed to log in: ' + message);
+        setError(getFriendlyLoginError(message));
       }
     } finally {
       setLoading(false);

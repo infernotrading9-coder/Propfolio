@@ -54,18 +54,36 @@ const AuthDebugPanel: React.FC = () => {
   const identitySnapshot = useMemo(() => {
     try {
       const user: any = netlifyIdentity.currentUser();
-      if (!user) return null;
+      const params = new URLSearchParams(window.location.search);
       return {
+        href: window.location.href,
+        authDebugQuery: params.get('authDebug'),
+        online: navigator.onLine,
+        userAgent: navigator.userAgent,
         id: user?.id || user?.sub || null,
         email: user?.email || user?.user_metadata?.email || user?.profile?.email || null,
         name: user?.user_metadata?.full_name || user?.user_metadata?.name || user?.full_name || user?.profile?.name || null,
         provider: user?.app_metadata?.provider || user?.user_metadata?.provider || null,
+        apiUrl: (import.meta as any).env?.VITE_IDENTITY_API_URL || 'auto-detect',
+        currentUser: !!user,
         userMetadata: user?.user_metadata || null,
         appMetadata: user?.app_metadata || null,
         keys: Object.keys(user || {}),
       };
     } catch {
-      return null;
+      try {
+        const params = new URLSearchParams(window.location.search);
+        return {
+          href: window.location.href,
+          authDebugQuery: params.get('authDebug'),
+          online: navigator.onLine,
+          userAgent: navigator.userAgent,
+          apiUrl: (import.meta as any).env?.VITE_IDENTITY_API_URL || 'auto-detect',
+          currentUser: null,
+        };
+      } catch {
+        return null;
+      }
     }
   }, [currentUser, location.pathname, events.length]);
 

@@ -60,6 +60,7 @@ const Dashboard: React.FC = () => {
   const [isRulesComplianceOpen, setIsRulesComplianceOpen] = React.useState(false);
   const [selectedComplianceDate, setSelectedComplianceDate] = React.useState<string | null>(null);
   const [isFailLiveModalOpen, setIsFailLiveModalOpen] = React.useState(false);
+  const [selectedFailLiveIds, setSelectedFailLiveIds] = React.useState<string[]>([]);
   const [failureDate, setFailureDate] = React.useState<string>(new Date().toISOString().slice(0, 10));
   const [selectedYear, setSelectedYear] = React.useState<string>(new Date().getFullYear().toString());
   
@@ -261,6 +262,10 @@ const Dashboard: React.FC = () => {
     if (!selectedChallengeId) return null;
     return state.challenges.find(c => c.id === selectedChallengeId) || null;
   }, [selectedChallengeId, state.challenges]);
+
+  const selectedFailLiveChallenges = React.useMemo(() => {
+    return state.challenges.filter((challenge) => selectedFailLiveIds.includes(challenge.id));
+  }, [selectedFailLiveIds, state.challenges]);
   
   // Get calendar data for selected challenge and phase
   const selectedChallengeCalendarData = React.useMemo(() => {
@@ -750,45 +755,54 @@ const Dashboard: React.FC = () => {
   
   // Handle marking live account as failed
   const handleFailLiveAccount = async () => {
-    if (!selectedChallenge) return;
+    if (selectedFailLiveChallenges.length === 0) return;
     
     try {
-      // Calculate live account duration
-      const lastCompletedPhase = selectedChallenge.totalPhases === 3 ? selectedChallenge.phases.phase3
-        : selectedChallenge.totalPhases === 2 ? selectedChallenge.phases.phase2
-        : selectedChallenge.phases.phase1;
-      
-      const liveStartDate = lastCompletedPhase.completedAt || selectedChallenge.startDate;
-      const liveStartTime = new Date(liveStartDate).getTime();
       const failureTime = new Date(failureDate).getTime();
-      const daysLive = Math.max(0, Math.ceil((failureTime - liveStartTime) / (1000 * 60 * 60 * 24)));
-      
-      // Update challenge status to failed
-      const updatedChallenge = { ...selectedChallenge, status: 'failed' as const };
-      await apiClient.updateChallenge(updatedChallenge);
-      
-      // Update local state
+      const liveSummaries = selectedFailLiveChallenges.map((challenge) => {
+        const lastCompletedPhase = challenge.totalPhases === 3 ? challenge.phases.phase3
+          : challenge.totalPhases === 2 ? challenge.phases.phase2
+          : challenge.phases.phase1;
+        const liveStartDate = lastCompletedPhase.completedAt || challenge.startDate;
+        const liveStartTime = new Date(liveStartDate).getTime();
+        const daysLive = Math.max(0, Math.ceil((failureTime - liveStartTime) / (1000 * 60 * 60 * 24)));
+        return {
+          challenge,
+          liveStartDate,
+          daysLive,
+        };
+      });
+
+      for (const { challenge } of liveSummaries) {
+        await apiClient.updateChallenge({ ...challenge, status: 'failed' as const });
+      }
+
       setState(prev => ({
         ...prev,
         challenges: prev.challenges.map(c => 
-          c.id === selectedChallenge.id ? updatedChallenge : c
+          selectedFailLiveIds.includes(c.id) ? { ...c, status: 'failed' as const } : c
         )
       }));
       
-      // Archive all calendar phases for this challenge
       setCalendar(prev => {
         const newAccountData = [...prev.accountData];
         newAccountData.forEach(accountData => {
-          archiveFailedChallenge(accountData, selectedChallenge.id);
+          selectedFailLiveIds.forEach((challengeId) => {
+            archiveFailedChallenge(accountData, challengeId);
+          });
         });
         return { ...prev, accountData: newAccountData };
       });
       
-      // Show success message
-      alert(`Live account marked as failed.\nLive for ${daysLive} days (from ${new Date(liveStartDate).toLocaleDateString()} to ${new Date(failureDate).toLocaleDateString()})`);
+      if (liveSummaries.length === 1) {
+        const summary = liveSummaries[0];
+        alert(`Live account marked as failed.\nLive for ${summary.daysLive} days (from ${new Date(summary.liveStartDate).toLocaleDateString()} to ${new Date(failureDate).toLocaleDateString()})`);
+      } else {
+        alert(`${liveSummaries.length} live accounts marked as failed on ${new Date(failureDate).toLocaleDateString()}.`);
+      }
       
-      // Close modal and go back to challenges view
       setIsFailLiveModalOpen(false);
+      setSelectedFailLiveIds([]);
       setSelectedChallengeId(null);
     } catch (error) {
       console.error('Error marking live account as failed:', error);
@@ -899,10 +913,11 @@ const Dashboard: React.FC = () => {
                 setCalendar={setCalendar}
                 buildingMode={buildingMode}
                 onAutomaticCalendarIntegration={ruleCalendarEnabled ? handleAutomaticCalendarIntegration : undefined}
-                onFailLiveAccount={(challengeId) => {
-                  const challenge = visibleChallenges.find(c => c.id === challengeId);
-                  if (challenge) {
-                    setSelectedChallengeId(challengeId);
+                onFailLiveAccount={(challengeIds) => {
+                  const targetIds = challengeIds.filter((id) => visibleChallenges.some((challenge) => challenge.id === id));
+                  if (targetIds.length > 0) {
+                    setSelectedChallengeId(targetIds[0]);
+                    setSelectedFailLiveIds(targetIds);
                     setIsFailLiveModalOpen(true);
                   }
                 }}
@@ -1547,12 +1562,16 @@ const Dashboard: React.FC = () => {
         )}
         
         {/* Fail Live Account Modal */}
-        {isFailLiveModalOpen && selectedChallenge && (
+        {isFailLiveModalOpen && selectedFailLiveChallenges.length > 0 && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-[#0a0e17] border border-red-500/50 rounded-xl p-6 max-w-md w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]">
-              <h3 className="text-xl font-bold text-red-300 mb-4">Mark Live Account as Failed</h3>
+              <h3 className="text-xl font-bold text-red-300 mb-4">
+                {selectedFailLiveChallenges.length > 1 ? 'Mark Live Accounts as Failed' : 'Mark Live Account as Failed'}
+              </h3>
               <p className="text-white/70 mb-6">
-                Are you sure you want to mark this live account as failed? This will lock the challenge and its phases will become uneditable.
+                {selectedFailLiveChallenges.length > 1
+                  ? `Are you sure you want to mark these ${selectedFailLiveChallenges.length} live accounts as failed? This will lock each challenge and make its phases uneditable.`
+                  : 'Are you sure you want to mark this live account as failed? This will lock the challenge and its phases will become uneditable.'}
               </p>
               
               <div className="mb-6">
@@ -1574,7 +1593,10 @@ const Dashboard: React.FC = () => {
                   Confirm Failure
                 </button>
                 <button
-                  onClick={() => setIsFailLiveModalOpen(false)}
+                  onClick={() => {
+                    setIsFailLiveModalOpen(false);
+                    setSelectedFailLiveIds([]);
+                  }}
                   className="flex-1 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/20 text-white/70 rounded-lg transition-all duration-200"
                 >
                   Cancel
