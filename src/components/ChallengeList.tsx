@@ -1,13 +1,13 @@
 import React from 'react';
 import { Challenge, PropFirm } from '../types';
 import { Button } from './ui/Button';
-import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Circle, Flame, Layers3, Pencil, Settings, Users2, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, Circle, Flame, Layers3, Pencil, Settings, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PhaseOutcomePrompt } from './PhaseOutcomePrompt';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { apiClient } from '../utils/apiClient';
 import { archiveFailedChallenge } from '../utils/calendarStorage';
-import { ChallengeGroup, getFinalPhaseForChallenge, getNextIncompletePhase, groupChallengesByPurchase, isChallengeLive } from '../utils/challengeGroups';
+import { getFinalPhaseForChallenge, getNextIncompletePhase, isChallengeLive } from '../utils/challengeGroups';
 
 type FailConfirmState = {
   ids: string[];
@@ -19,12 +19,12 @@ export const ChallengeList: React.FC<{
   challenges: Challenge[];
   firms: PropFirm[];
   onEdit: (ch: Challenge) => void;
-  onTogglePhase: (id: string, phase: 'phase1'|'phase2'|'phase3') => void;
+  onTogglePhase: (id: string, phase: 'phase1' | 'phase2' | 'phase3') => void;
   onChallengeUpdate: (challenge: Challenge) => void;
   calendar?: any;
   setCalendar?: (updater: (prev: any) => any) => void;
   buildingMode?: boolean;
-  onAutomaticCalendarIntegration?: (challenge: Challenge, completedPhase: 'phase1'|'phase2'|'phase3') => Promise<void>;
+  onAutomaticCalendarIntegration?: (challenge: Challenge, completedPhase: 'phase1' | 'phase2' | 'phase3') => Promise<void>;
   onFailLiveAccount?: (challengeId: string) => void;
 }> = ({
   challenges,
@@ -41,11 +41,10 @@ export const ChallengeList: React.FC<{
   const [currentPage, setCurrentPage] = React.useState(1);
   const [itemsPerPage, setItemsPerPage] = React.useState(5);
   const [showPageSizeSelector, setShowPageSizeSelector] = React.useState(false);
-  const [expandedGroupIds, setExpandedGroupIds] = React.useState<Set<string>>(new Set());
   const [selectedChallengeIds, setSelectedChallengeIds] = React.useState<Set<string>>(new Set());
   const [phasePromptOpen, setPhasePromptOpen] = React.useState(false);
   const [phasePromptChallengeIds, setPhasePromptChallengeIds] = React.useState<string[]>([]);
-  const [phasePromptPhase, setPhasePromptPhase] = React.useState<'phase1'|'phase2'|'phase3'>('phase1');
+  const [phasePromptPhase, setPhasePromptPhase] = React.useState<'phase1' | 'phase2' | 'phase3'>('phase1');
   const [failConfirm, setFailConfirm] = React.useState<FailConfirmState | null>(null);
   const [loadingFailConfirm, setLoadingFailConfirm] = React.useState(false);
 
@@ -93,42 +92,30 @@ export const ChallengeList: React.FC<{
     });
   }, [validChallenges]);
 
-  const groupedForDisplay = React.useMemo(() => {
-    return groupChallengesByPurchase(sortedForDisplay).sort((a, b) => {
-      const activeA = a.challenges.some((challenge) => challenge.status !== 'failed') ? 1 : 0;
-      const activeB = b.challenges.some((challenge) => challenge.status !== 'failed') ? 1 : 0;
-      if (activeA !== activeB) return activeB - activeA;
-
-      const liveA = a.challenges.some(isChallengeLive) ? 1 : 0;
-      const liveB = b.challenges.some(isChallengeLive) ? 1 : 0;
-      if (liveA !== liveB) return liveB - liveA;
-
-      const newestA = Math.max(...a.challenges.map((challenge) => new Date(challenge.startDate || challenge.createdAt).getTime()));
-      const newestB = Math.max(...b.challenges.map((challenge) => new Date(challenge.startDate || challenge.createdAt).getTime()));
-      return newestB - newestA;
-    });
-  }, [sortedForDisplay]);
-
   const challengeNumberMap = React.useMemo(() => {
     return new Map(sortedForNumbering.map((challenge, index) => [challenge.id, index + 1]));
   }, [sortedForNumbering]);
 
-  const activeGroupCount = React.useMemo(
-    () => groupedForDisplay.filter((group) => group.challenges.some((challenge) => challenge.status !== 'failed')).length,
-    [groupedForDisplay]
-  );
-  const firstPageSize = Math.max(itemsPerPage, activeGroupCount);
-  const totalPages = groupedForDisplay.length <= firstPageSize ? 1 : 1 + Math.ceil((groupedForDisplay.length - firstPageSize) / itemsPerPage);
-  const startIndex = currentPage === 1 ? 0 : firstPageSize + (currentPage - 2) * itemsPerPage;
-  const pageSize = currentPage === 1 ? firstPageSize : itemsPerPage;
-  const endIndex = startIndex + pageSize;
-  const paginatedGroups = groupedForDisplay.slice(startIndex, endIndex);
+  const totalPages = Math.max(1, Math.ceil(sortedForDisplay.length / itemsPerPage));
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedChallenges = sortedForDisplay.slice(startIndex, endIndex);
 
   React.useEffect(() => {
     if (currentPage > totalPages && totalPages > 0) {
       setCurrentPage(1);
     }
   }, [currentPage, totalPages]);
+
+  React.useEffect(() => {
+    setSelectedChallengeIds((prev) => {
+      const next = new Set<string>();
+      validChallenges.forEach((challenge) => {
+        if (prev.has(challenge.id)) next.add(challenge.id);
+      });
+      return next;
+    });
+  }, [validChallenges]);
 
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -143,15 +130,6 @@ export const ChallengeList: React.FC<{
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showPageSizeSelector]);
 
-  const toggleGroupExpanded = (groupId: string) => {
-    setExpandedGroupIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupId)) next.delete(groupId);
-      else next.add(groupId);
-      return next;
-    });
-  };
-
   const toggleChallengeSelection = (challengeId: string) => {
     setSelectedChallengeIds((prev) => {
       const next = new Set(prev);
@@ -161,16 +139,34 @@ export const ChallengeList: React.FC<{
     });
   };
 
-  const setSelectionForGroup = (group: ChallengeGroup, ids: string[]) => {
-    setSelectedChallengeIds((prev) => {
-      const next = new Set(prev);
-      group.challenges.forEach((challenge) => next.delete(challenge.id));
-      ids.forEach((id) => next.add(id));
-      return next;
-    });
+  const setSelectedIds = (ids: string[]) => {
+    setSelectedChallengeIds(new Set(ids));
   };
 
-  const handlePhaseToggle = async (challengeId: string, phase: 'phase1'|'phase2'|'phase3') => {
+  const selectedChallenges = React.useMemo(
+    () => validChallenges.filter((challenge) => selectedChallengeIds.has(challenge.id)),
+    [selectedChallengeIds, validChallenges]
+  );
+
+  const actionableSelected = React.useMemo(
+    () => selectedChallenges.filter((challenge) => challenge.status !== 'failed'),
+    [selectedChallenges]
+  );
+
+  const selectedNextPhases = React.useMemo(
+    () =>
+      actionableSelected
+        .map((challenge) => getNextIncompletePhase(challenge))
+        .filter((phase): phase is 'phase1' | 'phase2' | 'phase3' => Boolean(phase)),
+    [actionableSelected]
+  );
+
+  const canBulkUpdate =
+    actionableSelected.length > 0 &&
+    selectedNextPhases.length === actionableSelected.length &&
+    new Set(selectedNextPhases).size === 1;
+
+  const handlePhaseToggle = async (challengeId: string, phase: 'phase1' | 'phase2' | 'phase3') => {
     const challenge = validChallenges.find((item) => item.id === challengeId);
     if (!challenge) return;
 
@@ -204,7 +200,7 @@ export const ChallengeList: React.FC<{
     const selected = validChallenges.filter((challenge) => challengeIds.includes(challenge.id));
     const nextPhases = selected
       .map((challenge) => getNextIncompletePhase(challenge))
-      .filter((phase): phase is 'phase1'|'phase2'|'phase3' => Boolean(phase));
+      .filter((phase): phase is 'phase1' | 'phase2' | 'phase3' => Boolean(phase));
 
     if (selected.length === 0 || nextPhases.length !== selected.length || new Set(nextPhases).size !== 1) {
       alert('Select accounts that are on the same next phase.');
@@ -251,20 +247,20 @@ export const ChallengeList: React.FC<{
             isFailedThisPhase
               ? <XCircle className="w-4 h-4" />
               : phase.completed
-              ? <CheckCircle2 className="w-4 h-4" />
-              : <Circle className="w-4 h-4" />
+                ? <CheckCircle2 className="w-4 h-4" />
+                : <Circle className="w-4 h-4" />
           }
           className={`text-xs ${isFailedThisPhase ? 'line-through decoration-red-400 decoration-2' : ''} ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isActiveNext ? '!bg-gradient-to-r !from-purple-600 !to-purple-500' : ''}`}
           title={
             phase.completedAt
               ? `Completed on ${new Date(phase.completedAt).toLocaleDateString()}`
               : isFailedThisPhase
-              ? 'Failed'
-              : isActiveNext
-              ? 'Active - Click to mark as completed'
-              : disabledDueToProgression
-              ? 'Complete previous phases first'
-              : 'Click to mark as completed'
+                ? 'Failed'
+                : isActiveNext
+                  ? 'Active - Click to mark as completed'
+                  : disabledDueToProgression
+                    ? 'Complete previous phases first'
+                    : 'Click to mark as completed'
           }
           glow={isActiveNext}
           style={isActiveNext ? { boxShadow: '0 0 25px rgba(168, 85, 247, 0.8), 0 0 50px rgba(168, 85, 247, 0.5), 0 0 75px rgba(168, 85, 247, 0.3)' } : undefined}
@@ -275,251 +271,119 @@ export const ChallengeList: React.FC<{
     });
   };
 
-  const renderGroupCard = (group: ChallengeGroup) => {
-    const representative = group.challenges[0];
-    const groupNumbers = group.challenges
-      .map((challenge) => challengeNumberMap.get(challenge.id))
-      .filter((value): value is number => typeof value === 'number')
-      .sort((a, b) => a - b);
-    const challengeNumberLabel = groupNumbers.length <= 1
-      ? `${groupNumbers[0] ?? 0}`
-      : `${groupNumbers[0]}-${groupNumbers[groupNumbers.length - 1]}`;
-    const groupIsLive = group.challenges.some(isChallengeLive);
-    const expandable = group.challenges.length > 1;
-    const isExpanded = !expandable || expandedGroupIds.has(group.id);
-    const totalCost = group.challenges.reduce((sum, challenge) => sum + Number(challenge.cost || 0), 0);
-    const totalPayouts = group.challenges.reduce((sum, challenge) => sum + getTotalPayouts(challenge), 0);
-    const selectedInGroup = group.challenges.filter((challenge) => selectedChallengeIds.has(challenge.id));
-    const selectedIdsInGroup = selectedInGroup.map((challenge) => challenge.id);
-    const actionableSelected = selectedInGroup.filter((challenge) => challenge.status !== 'failed');
-    const selectedNextPhases = actionableSelected
-      .map((challenge) => getNextIncompletePhase(challenge))
-      .filter((phase): phase is 'phase1'|'phase2'|'phase3' => Boolean(phase));
-    const canBulkUpdate = actionableSelected.length > 0 && selectedNextPhases.length === actionableSelected.length && new Set(selectedNextPhases).size === 1;
+  const renderChallengeCard = (challenge: Challenge) => {
+    const isLive = isChallengeLive(challenge);
+    const challengeNumber = challengeNumberMap.get(challenge.id) ?? 0;
+    const inBatch = (challenge.purchaseGroupSize ?? 1) > 1;
+    const label = challenge.purchaseGroupIndex ? `Account ${challenge.purchaseGroupIndex}` : challenge.brokerName;
 
     return (
       <motion.div
-        key={group.id}
+        key={challenge.id}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.98 }}
         transition={{ duration: 0.2, ease: 'easeOut' }}
       >
-        <div className={`relative rounded-xl border p-5 backdrop-blur-sm transition-all duration-300 ${
-          groupIsLive
-            ? 'border-emerald-400/40 bg-gradient-to-br from-gray-900/90 to-gray-800/60 shadow-[0_0_40px_rgba(16,185,129,0.25)] hover:border-emerald-400/60 hover:shadow-[0_0_50px_rgba(16,185,129,0.35)]'
-            : 'border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/60 hover:border-cyan-400/30 hover:shadow-[0_0_30px_rgba(6,182,212,0.15)]'
-        }`}>
+        <div
+          className={`relative rounded-xl border p-5 backdrop-blur-sm transition-all duration-300 ${
+            isLive
+              ? 'border-emerald-400/40 bg-gradient-to-br from-gray-900/90 to-gray-800/60 shadow-[0_0_40px_rgba(16,185,129,0.2)] hover:border-emerald-400/60'
+              : selectedChallengeIds.has(challenge.id)
+                ? 'border-cyan-400/40 bg-gradient-to-br from-gray-900/90 to-gray-800/60 shadow-[0_0_30px_rgba(6,182,212,0.15)]'
+                : 'border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/60 hover:border-cyan-400/30 hover:shadow-[0_0_30px_rgba(6,182,212,0.15)]'
+          }`}
+        >
           <div className={`absolute inset-0 rounded-xl ${
-            groupIsLive
+            isLive
               ? 'bg-gradient-to-r from-emerald-500/5 via-green-500/5 to-emerald-500/5'
-              : 'bg-gradient-to-r from-cyan-500/0 via-purple-500/0 to-cyan-500/0 group-hover:from-cyan-500/5 group-hover:via-purple-500/5 group-hover:to-cyan-500/5'
+              : 'bg-gradient-to-r from-cyan-500/0 via-purple-500/0 to-cyan-500/0 hover:from-cyan-500/5 hover:via-purple-500/5 hover:to-cyan-500/5'
           }`} />
 
-          <div className="relative space-y-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={selectedChallengeIds.has(challenge.id)}
+                onChange={() => toggleChallengeSelection(challenge.id)}
+                className="mt-1 h-4 w-4 rounded border-white/20 bg-white/5 text-cyan-400 focus:ring-cyan-500/40"
+              />
+
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-400/40 bg-gradient-to-br from-cyan-500/20 to-purple-500/20 text-sm font-bold text-cyan-200 shadow-[0_0_15px_rgba(6,182,212,0.3)]">
-                    {challengeNumberLabel}
+                    {challengeNumber}
                   </span>
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-lg font-bold text-white">{firmName(representative.propFirmId)}</span>
-                      {expandable && (
+                      <span className="text-lg font-bold text-white">{firmName(challenge.propFirmId)}</span>
+                      {inBatch && (
                         <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-200">
-                          <Users2 className="h-3.5 w-3.5" />
-                          {group.challenges.length} Accounts
+                          <Layers3 className="h-3.5 w-3.5" />
+                          Batch of {challenge.purchaseGroupSize}
                         </span>
                       )}
-                      {group.label && (
+                      {challenge.purchaseGroupLabel && (
                         <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/70">
-                          {group.label}
+                          {challenge.purchaseGroupLabel}
                         </span>
                       )}
-                      {groupIsLive && (
+                      {isLive && (
                         <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-emerald-400/60 bg-gradient-to-r from-emerald-500/30 to-green-500/30 px-3 py-1">
                           <Flame className="h-4 w-4 text-emerald-300" />
                           <span className="text-xs font-black tracking-wider text-emerald-200">LIVE</span>
                         </span>
                       )}
+                      {challenge.status === 'failed' && (
+                        <span className="rounded-full border border-red-400/40 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-200">
+                          Failed
+                        </span>
+                      )}
                     </div>
                     <div className="text-sm font-semibold text-cyan-300">
-                      ${Number(representative.accountSize || 0).toLocaleString()} Account{expandable ? ' Size' : ''}
+                      {label} · ${Number(challenge.accountSize || 0).toLocaleString()} Account
                     </div>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/60">
-                  <span>Started: <span className="font-medium text-cyan-300/80">{representative.startDate || '—'}</span></span>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pl-11 text-xs text-white/60">
+                  <span>Started: <span className="font-medium text-cyan-300/80">{challenge.startDate || '—'}</span></span>
                   <span className="text-white/20">•</span>
-                  <span>{expandable ? 'Total Cost' : 'Cost'}: <span className="font-medium text-red-300/80">${totalCost.toFixed(2)}</span></span>
+                  <span>Cost: <span className="font-medium text-red-300/80">${Number(challenge.cost || 0).toFixed(2)}</span></span>
                   <span className="text-white/20">•</span>
-                  <span>Payouts: <span className="font-medium text-green-300/80">${totalPayouts.toFixed(2)}</span></span>
-                  {expandable && (
-                    <>
-                      <span className="text-white/20">•</span>
-                      <span>
-                        Status: <span className="font-medium text-white/80">
-                          {group.challenges.filter((challenge) => challenge.status !== 'failed').length} active / {group.challenges.filter(isChallengeLive).length} live / {group.challenges.filter((challenge) => challenge.status === 'failed').length} failed
-                        </span>
-                      </span>
-                    </>
-                  )}
+                  <span>Payouts: <span className="font-medium text-green-300/80">${getTotalPayouts(challenge).toFixed(2)}</span></span>
                 </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {expandable ? (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => toggleGroupExpanded(group.id)}
-                    leftIcon={<ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />}
-                    className="px-3 !bg-white/5 hover:!bg-white/10 border-white/10 hover:border-white/20"
-                  >
-                    {isExpanded ? 'Hide Accounts' : 'Show Accounts'}
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => onEdit(representative)}
-                    leftIcon={<Pencil className="w-4 h-4" />}
-                    className="px-3 !bg-white/5 hover:!bg-white/10 border-white/10 hover:border-white/20"
-                  >
-                    Edit
-                  </Button>
-                )}
               </div>
             </div>
 
-            {isExpanded && (
-              <div className="space-y-4 border-t border-white/10 pt-4">
-                {expandable && (
-                  <div className="rounded-xl border border-white/10 bg-black/15 p-3">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div className="flex flex-wrap items-center gap-2 text-sm text-white/70">
-                        <span className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-cyan-200">
-                          <Layers3 className="h-3.5 w-3.5" />
-                          {selectedInGroup.length} selected
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setSelectionForGroup(group, group.challenges.filter((challenge) => challenge.status !== 'failed').map((challenge) => challenge.id))}
-                          className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/75 transition hover:bg-white/10 hover:text-white"
-                        >
-                          Select All Active
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSelectionForGroup(group, [])}
-                          className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/75 transition hover:bg-white/10 hover:text-white"
-                        >
-                          Clear
-                        </button>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button size="sm" variant="primary" disabled={!canBulkUpdate} onClick={() => handleBulkPhaseAction(selectedIdsInGroup)}>
-                          Pass Selected
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          disabled={!canBulkUpdate}
-                          onClick={() => {
-                            if (!canBulkUpdate) return;
-                            setFailConfirm({
-                              ids: selectedIdsInGroup,
-                              phase: selectedNextPhases[0],
-                              date: new Date().toISOString().slice(0, 10),
-                            });
-                          }}
-                        >
-                          Fail Selected
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-3">
-                  {group.challenges.map((challenge) => {
-                    const isLive = isChallengeLive(challenge);
-                    const label = challenge.purchaseGroupIndex ? `Account ${challenge.purchaseGroupIndex}` : challenge.brokerName;
-
-                    return (
-                      <div key={challenge.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
-                        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                          <div className="flex items-start gap-3">
-                            {expandable && (
-                              <input
-                                type="checkbox"
-                                checked={selectedChallengeIds.has(challenge.id)}
-                                onChange={() => toggleChallengeSelection(challenge.id)}
-                                className="mt-1 h-4 w-4 rounded border-white/20 bg-white/5 text-cyan-400 focus:ring-cyan-500/40"
-                              />
-                            )}
-
-                            <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-sm font-semibold text-white">{label}</span>
-                                {isLive && (
-                                  <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-200">
-                                    Live
-                                  </span>
-                                )}
-                                {challenge.status === 'failed' && (
-                                  <span className="rounded-full border border-red-400/40 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-200">
-                                    Failed
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/55">
-                                <span>Cost: ${Number(challenge.cost || 0).toFixed(2)}</span>
-                                <span>Payouts: ${getTotalPayouts(challenge).toFixed(2)}</span>
-                                <span>Started: {challenge.startDate || '—'}</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            {renderPhaseButtons(challenge)}
-                            {isLive && challenge.status !== 'failed' && onFailLiveAccount && (
-                              <Button
-                                size="sm"
-                                variant="danger"
-                                onClick={() => onFailLiveAccount(challenge.id)}
-                                leftIcon={<XCircle className="w-4 h-4" />}
-                                className="px-3 !bg-red-500/20 hover:!bg-red-500/30 border-red-500/50"
-                              >
-                                Fail
-                              </Button>
-                            )}
-                            {isLive && challenge.status !== 'failed' && (
-                              <Button size="sm" variant="success" onClick={() => onEdit(challenge)} className="px-3">
-                                Add Payout
-                              </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => onEdit(challenge)}
-                              leftIcon={<Pencil className="w-4 h-4" />}
-                              className="px-3 !bg-white/5 hover:!bg-white/10 border-white/10 hover:border-white/20"
-                            >
-                              Edit
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {renderPhaseButtons(challenge)}
+              {isLive && challenge.status !== 'failed' && onFailLiveAccount && (
+                <Button
+                  size="sm"
+                  variant="danger"
+                  onClick={() => onFailLiveAccount(challenge.id)}
+                  leftIcon={<XCircle className="w-4 h-4" />}
+                  className="px-3 !bg-red-500/20 hover:!bg-red-500/30 border-red-500/50"
+                >
+                  Fail
+                </Button>
+              )}
+              {isLive && challenge.status !== 'failed' && (
+                <Button size="sm" variant="success" onClick={() => onEdit(challenge)} className="px-3">
+                  Add Payout
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => onEdit(challenge)}
+                leftIcon={<Pencil className="w-4 h-4" />}
+                className="px-3 !bg-white/5 hover:!bg-white/10 border-white/10 hover:border-white/20"
+              >
+                Edit
+              </Button>
+            </div>
           </div>
         </div>
       </motion.div>
@@ -540,18 +404,66 @@ export const ChallengeList: React.FC<{
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3">
-          <AnimatePresence mode="popLayout">
-            {paginatedGroups.map((group) => renderGroupCard(group))}
-          </AnimatePresence>
-        </div>
+        <>
+          <div className="mb-4 rounded-xl border border-white/10 bg-gradient-to-br from-gray-900/60 to-gray-800/40 p-4 backdrop-blur-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap items-center gap-2 text-sm text-white/70">
+                <span className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-cyan-200">
+                  <Layers3 className="h-3.5 w-3.5" />
+                  {selectedChallenges.length} selected
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(paginatedChallenges.filter((challenge) => challenge.status !== 'failed').map((challenge) => challenge.id))}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/75 transition hover:bg-white/10 hover:text-white"
+                >
+                  Select Active On Page
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds([])}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/75 transition hover:bg-white/10 hover:text-white"
+                >
+                  Clear
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="primary" disabled={!canBulkUpdate} onClick={() => handleBulkPhaseAction(actionableSelected.map((challenge) => challenge.id))}>
+                  Pass Selected
+                </Button>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={!canBulkUpdate}
+                  onClick={() => {
+                    if (!canBulkUpdate) return;
+                    setFailConfirm({
+                      ids: actionableSelected.map((challenge) => challenge.id),
+                      phase: selectedNextPhases[0],
+                      date: new Date().toISOString().slice(0, 10),
+                    });
+                  }}
+                >
+                  Fail Selected
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3">
+            <AnimatePresence mode="popLayout">
+              {paginatedChallenges.map((challenge) => renderChallengeCard(challenge))}
+            </AnimatePresence>
+          </div>
+        </>
       )}
 
       {validChallenges.length > 0 && (
         <div className="mt-6 flex flex-col items-center justify-between gap-4 rounded-xl border border-white/10 bg-gradient-to-br from-gray-900/60 to-gray-800/40 p-4 backdrop-blur-sm sm:flex-row">
           <div className="flex items-center gap-3 text-sm">
             <span className="text-white/60">
-              Showing <span className="font-semibold text-cyan-300">{startIndex + 1}-{Math.min(endIndex, groupedForDisplay.length)}</span> of <span className="font-semibold text-cyan-300">{groupedForDisplay.length}</span> challenge groups
+              Showing <span className="font-semibold text-cyan-300">{startIndex + 1}-{Math.min(endIndex, sortedForDisplay.length)}</span> of <span className="font-semibold text-cyan-300">{sortedForDisplay.length}</span> challenges
             </span>
             <div className="page-size-selector relative">
               <button
