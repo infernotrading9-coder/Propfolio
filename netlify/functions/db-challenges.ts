@@ -25,6 +25,7 @@ export const handler: Handler = async (event) => {
         hasActivationFee,
         activationFeeAmount,
         firmType,
+        evalType,
         totalPhases,
         strategy,
         status
@@ -51,6 +52,7 @@ export const handler: Handler = async (event) => {
         hasActivationFee: !!hasActivationFee,
         activationFeeAmount: activationFeeAmount === undefined || activationFeeAmount === null ? null : String(activationFeeAmount),
         firmType: firmType || null,
+        evalType: evalType || null,
         totalPhases: Number(totalPhases) || 3,
         strategy: strategy || '',
         status: status || 'active',
@@ -71,6 +73,7 @@ export const handler: Handler = async (event) => {
         hasActivationFee: !!row.hasActivationFee,
         activationFeeAmount: row.activationFeeAmount ? parseFloat(String(row.activationFeeAmount)) : undefined,
         firmType: row.firmType || undefined,
+        evalType: (row as any).evalType || undefined,
         totalPhases: (row.totalPhases || 3) as 1 | 2 | 3,
         strategy: row.strategy || '',
         status: (row.status as any) || 'active',
@@ -108,6 +111,7 @@ export const handler: Handler = async (event) => {
         dbUpdates.activationFeeAmount = updates.activationFeeAmount === null ? null : String(updates.activationFeeAmount)
       }
       if (updates.firmType !== undefined) dbUpdates.firmType = updates.firmType || null
+      if (updates.evalType !== undefined) dbUpdates.evalType = updates.evalType || null
       if (updates.totalPhases !== undefined) dbUpdates.totalPhases = updates.totalPhases
       if (updates.strategy !== undefined) dbUpdates.strategy = updates.strategy
       if (updates.status) dbUpdates.status = updates.status

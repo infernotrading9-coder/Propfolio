@@ -48,6 +48,7 @@ export const handler: Handler = async (event) => {
       hasActivationFee: !!c.hasActivationFee,
       activationFeeAmount: c.activationFeeAmount ? parseFloat(String(c.activationFeeAmount)) : undefined,
       firmType: c.firmType || undefined,
+      evalType: c.evalType || undefined,
       totalPhases: (c.totalPhases || 3) as 1 | 2 | 3,
       strategy: c.strategy || '',
       status: (c.status as any) || 'active',

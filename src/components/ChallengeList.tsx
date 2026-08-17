@@ -1,7 +1,7 @@
 import React from 'react';
 import { Challenge, PropFirm } from '../types';
 import { Button } from './ui/Button';
-import { CheckCircle2, ChevronLeft, ChevronRight, Circle, Flame, Layers3, Pencil, Settings, XCircle } from 'lucide-react';
+import { BarChart3, Briefcase, CheckCircle2, ChevronLeft, ChevronRight, Circle, Flame, Layers3, Pencil, Settings, Sparkles, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PhaseOutcomePrompt } from './PhaseOutcomePrompt';
 import { ConfirmDialog } from './ui/ConfirmDialog';
@@ -286,6 +286,8 @@ export const ChallengeList: React.FC<{
     const liveFailTargetIds = isSelected && liveSelectedIds.length > 1 ? liveSelectedIds : [challenge.id];
     const liveFailButtonLabel = isSelected && liveSelectedIds.length > 1 ? `Fail Selected (${liveSelectedIds.length})` : 'Fail';
 
+    const resolvedFirmType = challenge.firmType ?? firms.find(f => f.id === challenge.propFirmId)?.firmType;
+
     return (
       <motion.div
         key={challenge.id}
@@ -336,6 +338,26 @@ export const ChallengeList: React.FC<{
                       {challenge.purchaseGroupLabel && (
                         <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/70">
                           {challenge.purchaseGroupLabel}
+                        </span>
+                      )}
+                      {challenge.evalType?.trim() && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-3 py-1 text-xs font-semibold text-fuchsia-200 shadow-[0_0_12px_rgba(217,70,239,0.12)]">
+                          <Sparkles className="h-3 w-3" />
+                          {challenge.evalType.trim()}
+                        </span>
+                      )}
+                      {resolvedFirmType && (
+                        <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${
+                          resolvedFirmType === 'futures'
+                            ? 'border-amber-400/30 bg-amber-500/10 text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.12)]'
+                            : 'border-sky-400/30 bg-sky-500/10 text-sky-200 shadow-[0_0_12px_rgba(56,189,248,0.12)]'
+                        }`}>
+                          {resolvedFirmType === 'futures' ? (
+                            <BarChart3 className="h-3 w-3" />
+                          ) : (
+                            <Briefcase className="h-3 w-3" />
+                          )}
+                          {resolvedFirmType.toUpperCase()}
                         </span>
                       )}
                       {isLive && (

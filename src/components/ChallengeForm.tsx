@@ -2,7 +2,7 @@ import React from 'react';
 import { NeonCard } from './NeonCard';
 import { Button } from './ui/Button';
 import { PropFirm, NewChallengeInput, Challenge, NewFirmInput, ChallengeStatus, FirmType } from '../types';
-import { CalendarDays, CircleDollarSign, Layers3, Plus, Save, Target, WalletCards } from 'lucide-react';
+import { CalendarDays, CircleDollarSign, Layers3, Plus, Save, Target, WalletCards, Sparkles } from 'lucide-react';
 
 export const ChallengeForm: React.FC<{
   firms: PropFirm[];
@@ -45,6 +45,40 @@ export const ChallengeForm: React.FC<{
     const previous = getPreviousStrategies();
     const updated = [strategy.trim(), ...previous.filter(s => s !== strategy.trim())].slice(0, 10); // Keep top 10 unique strategies
     localStorage.setItem('previous_strategies', JSON.stringify(updated));
+  };
+
+  // Get previous eval types per firm from localStorage
+  const getPreviousEvalTypesByFirm = (): Record<string, string[]> => {
+    try {
+      const stored = localStorage.getItem('eval_types_by_firm');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const getPreviousEvalTypesForFirm = (firmId: string, firmName?: string): string[] => {
+    const all = getPreviousEvalTypesByFirm();
+    const key = firmId || firmName || '';
+    if (key && all[key]) return all[key];
+    // Fallback: search by firm name if any entry matches
+    if (firmName) {
+      for (const [k, v] of Object.entries(all)) {
+        const matchingFirm = firms.find(f => f.id === k);
+        if (matchingFirm && matchingFirm.name.toLowerCase() === firmName.toLowerCase()) return v;
+      }
+    }
+    return [];
+  };
+
+  const savePreviousEvalType = (firmId: string, firmName: string | undefined, evalType: string) => {
+    if (!evalType.trim()) return;
+    const key = firmId || firmName;
+    if (!key) return;
+    const all = getPreviousEvalTypesByFirm();
+    const current = all[key] || [];
+    all[key] = [evalType.trim(), ...current.filter(s => s.toLowerCase() !== evalType.trim().toLowerCase())].slice(0, 15);
+    localStorage.setItem('eval_types_by_firm', JSON.stringify(all));
   };
   
   // Get previous phase counts from localStorage
@@ -90,6 +124,7 @@ export const ChallengeForm: React.FC<{
   });
   const [firmCreating, setFirmCreating] = React.useState(false);
   const [strategy, setStrategy] = React.useState(initial?.strategy ?? '');
+  const [evalType, setEvalType] = React.useState(initial?.evalType ?? '');
   const [accountSize, setSize] = React.useState<number>(initial?.accountSize ?? 100000);
   const [startDate, setStartDate] = React.useState(
     initial?.startDate ?? (buildingMode ? getLastUsedDate() : new Date().toISOString().slice(0,10))
@@ -232,6 +267,7 @@ export const ChallengeForm: React.FC<{
           totalPhases,
           status,
           strategy: strategy.trim() || undefined,
+          evalType: evalType.trim() || undefined,
           firmType
         });
       } else {
@@ -240,6 +276,9 @@ export const ChallengeForm: React.FC<{
         savePreviousPhases(totalPhases);
         if (strategy.trim()) {
           savePreviousStrategy(strategy);
+        }
+        if (evalType.trim()) {
+          savePreviousEvalType(finalPropFirmId, propFirmName.trim() || undefined, evalType);
         }
         
         onSubmit({
@@ -255,6 +294,7 @@ export const ChallengeForm: React.FC<{
           totalPhases,
           status: 'active',
           strategy: strategy.trim() || undefined,
+          evalType: evalType.trim() || undefined,
           firmType
         });
         
@@ -272,6 +312,7 @@ export const ChallengeForm: React.FC<{
         setHasActivationFee(false);
         setTotalPhases(3);
         setStrategy('');
+        setEvalType('');
         setAccountQuantity(1);
         setAccountQuantityStr('1');
         setPurchaseGroupLabel('');
@@ -451,6 +492,39 @@ export const ChallengeForm: React.FC<{
               ))}
             </datalist>
             {errors.strategy && <span className="text-xs text-red-400">{errors.strategy}</span>}
+          </div>
+
+          {/* Eval / Program Type */}
+          <div className="flex min-w-0 flex-col gap-1">
+            <label className="text-xs text-white/60 flex items-center gap-1.5">
+              <Sparkles className="h-3 w-3 text-fuchsia-400" />
+              Eval Type
+              {propFirmName?.trim() && getPreviousEvalTypesForFirm(propFirmId, propFirmName).length > 0 && (
+                <span className="text-[10px] text-fuchsia-400/70">· {propFirmName.trim()}</span>
+              )}
+            </label>
+            <input
+              type="text"
+              list={`eval-types-${propFirmId || propFirmName || 'none'}`}
+              value={evalType}
+              onChange={e => {
+                setEvalType(e.target.value);
+                setErrors(prev => ({ ...prev, evalType: '' }));
+              }}
+              className={inputClasses('evalType')}
+              disabled={formDisabled}
+              placeholder={propFirmName?.trim() ? `e.g. Rapid, Lucid Daily, 1-Step` : "Pick a firm first, then its program"}
+            />
+            <datalist id={`eval-types-${propFirmId || propFirmName || 'none'}`}>
+              {getPreviousEvalTypesForFirm(propFirmId, propFirmName).map((option, index) => (
+                <option key={index} value={option} />
+              ))}
+            </datalist>
+            {propFirmName?.trim() && getPreviousEvalTypesForFirm(propFirmId, propFirmName).length > 0 && (
+              <span className="text-[11px] text-fuchsia-400/70">
+                Previously used: {getPreviousEvalTypesForFirm(propFirmId, propFirmName).slice(0, 3).join(', ')}
+              </span>
+            )}
           </div>
 
           {!initial && (

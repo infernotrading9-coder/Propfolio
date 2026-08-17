@@ -36,6 +36,7 @@ export interface Challenge {
   activationFeeAmount?: number; // actual activation fee paid after passing, if applicable
   strategy?: string; // trading strategy used
   firmType?: FirmType; // type of firm: futures or CFD (for analytics)
+  evalType?: string; // program/eval type per firm (e.g. "Lucid Daily", "Rapid")
   monthlyPnL: Record<string, number>; // key: YYYY-MM, value: PnL
   weeklyPnL: Record<string, number>; // key: YYYY-WXX (e.g., 2024-W42), value: PnL
   phases: Record<PhaseName, PhaseStatus>;
@@ -118,4 +119,5 @@ export type NewChallengeInput = {
   status?: ChallengeStatus; // optional, defaults to 'active'
   strategy?: string;
   firmType?: FirmType; // type of firm: futures or CFD
+  evalType?: string; // program/eval type per firm
 };

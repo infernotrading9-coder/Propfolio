@@ -1,10 +1,11 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { NeonCard } from './NeonCard';
 import { Challenge, PropFirm } from '../types';
-import { PieChart, BarChart3, Target, Trophy } from 'lucide-react';
+import { PieChart, BarChart3, Target, Trophy, Sparkles } from 'lucide-react';
 
 type ChartView = 'firmAnalysis' | 'strategyPerformance' | 'challengeType' | 'topPerformers';
 type FirmView = 'exposure' | 'roi' | 'profit';
+type ChallengeTypeView = 'phases' | 'evalType';
 
 export const AdditionalCharts: React.FC<{ 
   challenges: Challenge[];
@@ -58,6 +59,7 @@ export const AdditionalCharts: React.FC<{
   }, []);
   const [activeView, setActiveView] = useState<ChartView>('firmAnalysis');
   const [firmView, setFirmView] = useState<FirmView>('roi');
+  const [challengeTypeView, setChallengeTypeView] = useState<ChallengeTypeView>('phases');
   const [isMobile, setIsMobile] = useState(false);
   
   useEffect(() => {
@@ -368,7 +370,7 @@ export const AdditionalCharts: React.FC<{
     });
   }, [challenges, selectedYear]);
 
-  // Challenge Type Performance Data
+  // Challenge Type Performance Data (by phases)
   const challengeTypeData = useMemo(() => {
     // Filter out invalid challenges first
     const validChallenges = challenges.filter(challenge => challenge);
@@ -417,6 +419,55 @@ export const AdditionalCharts: React.FC<{
     });
   }, [challenges, selectedYear]);
 
+  // Eval/Program Type Performance Data
+  const evalTypeData = useMemo(() => {
+    const validChallenges = challenges.filter(challenge => challenge && challenge.evalType?.trim());
+
+    const groups: Record<string, Challenge[]> = {};
+    validChallenges.forEach(c => {
+      const key = c.evalType!.trim();
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(c);
+    });
+
+    return Object.entries(groups).map(([name, group]) => {
+      const totalCost = group.reduce((sum, c) => {
+        const startYear = c?.startDate?.slice(0, 4);
+        return sum + (startYear === selectedYear ? (c?.cost || 0) : 0);
+      }, 0);
+      const totalPayouts = group.reduce((sum, c) => {
+        if (Array.isArray(c?.payouts)) {
+          return sum + c.payouts.reduce((pSum, p) => {
+            return p?.date?.slice(0, 4) === selectedYear ? pSum + (p?.amount || 0) : pSum;
+          }, 0);
+        }
+        return sum + (typeof c?.payouts === 'number' ? c.payouts : 0);
+      }, 0);
+      const pnl = totalPayouts - totalCost;
+      const roi = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
+      const profitableChallenges = group.filter(c => {
+        const startYear = c?.startDate?.slice(0, 4);
+        const payouts = Array.isArray(c?.payouts) 
+          ? c.payouts.reduce((sum, p) => sum + (p?.date?.slice(0, 4) === selectedYear ? (p?.amount || 0) : 0), 0) 
+          : (typeof c?.payouts === 'number' ? c.payouts : 0);
+        const cost = startYear === selectedYear ? (c?.cost || 0) : 0;
+        return payouts > cost;
+      }).length;
+
+      return {
+        name,
+        count: group.length,
+        pnl,
+        roi,
+        totalCost,
+        totalPayouts,
+        avgCost: group.length > 0 ? totalCost / group.length : 0,
+        profitableChallenges,
+        profitableRate: group.length > 0 ? (profitableChallenges / group.length) * 100 : 0
+      };
+    }).sort((a, b) => b.roi - a.roi);
+  }, [challenges, selectedYear]);
+
   // State for selected top performer
   const [selectedPerformer, setSelectedPerformer] = useState<string | null>(null);
 
@@ -450,6 +501,7 @@ export const AdditionalCharts: React.FC<{
           challengeNumber: challengeNumbers[challenge.id] || 0,
           firm: firm?.name || 'Unknown',
           accountSize: challenge.accountSize || 0,
+          evalType: challenge.evalType?.trim() || undefined,
           cost,
           payouts,
           profit,
@@ -515,16 +567,17 @@ export const AdditionalCharts: React.FC<{
     }
 
     if (activeView === 'challengeType') {
-      const ranked = [...challengeTypeData].sort((a, b) => b.roi - a.roi);
+      const data = challengeTypeView === 'evalType' ? evalTypeData : challengeTypeData;
+      const ranked = [...data].sort((a, b) => b.roi - a.roi);
       const best = ranked[0];
-      const profitableTotal = challengeTypeData.reduce((sum, type) => sum + type.profitableChallenges, 0);
-      const totalCount = challengeTypeData.reduce((sum, type) => sum + type.count, 0);
+      const profitableTotal = data.reduce((sum, type) => sum + type.profitableChallenges, 0);
+      const totalCount = data.reduce((sum, type) => sum + type.count, 0);
       return [
         {
-          label: 'Top Type',
+          label: challengeTypeView === 'evalType' ? 'Top Program' : 'Top Type',
           value: best?.name || 'No data',
-          detail: best ? `${best.roi.toFixed(1)}% ROI with ${best.profitableChallenges}/${best.count} profitable` : 'Add challenge data to compare',
-          accent: 'from-amber-500/25 to-orange-500/10'
+          detail: best ? `${best.roi.toFixed(1)}% ROI with ${best.profitableChallenges}/${best.count} profitable` : (challengeTypeView === 'evalType' ? 'Add Eval Types to compare programs' : 'Add challenge data to compare'),
+          accent: challengeTypeView === 'evalType' ? 'from-fuchsia-500/25 to-pink-500/10' : 'from-amber-500/25 to-orange-500/10'
         },
         {
           label: 'Profitable Accounts',
@@ -533,10 +586,10 @@ export const AdditionalCharts: React.FC<{
           accent: 'from-green-500/25 to-emerald-500/10'
         },
         {
-          label: 'Capital by Type',
-          value: formatCompactCurrency(challengeTypeData.reduce((sum, type) => sum + type.totalCost, 0)),
-          detail: 'Combined spend across all phase models',
-          accent: 'from-purple-500/25 to-fuchsia-500/10'
+          label: challengeTypeView === 'evalType' ? 'Capital by Program' : 'Capital by Type',
+          value: formatCompactCurrency(data.reduce((sum, type) => sum + type.totalCost, 0)),
+          detail: challengeTypeView === 'evalType' ? 'Combined spend across all programs' : 'Combined spend across all phase models',
+          accent: challengeTypeView === 'evalType' ? 'from-purple-500/25 to-fuchsia-500/10' : 'from-purple-500/25 to-fuchsia-500/10'
         }
       ];
     }
@@ -1403,8 +1456,16 @@ export const AdditionalCharts: React.FC<{
                             )}
                           </div>
                         </div>
-                        <div className="text-white/60 text-xs pl-14">
-                          {formatCompactCurrency(account.accountSize)}
+                        <div className="flex flex-wrap items-center gap-2 text-xs pl-14">
+                          <span className="text-white/60">
+                            {formatCompactCurrency(account.accountSize)}
+                          </span>
+                          {account.evalType && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-200 shadow-[0_0_10px_rgba(217,70,239,0.12)]">
+                              <Sparkles className="h-2.5 w-2.5" />
+                              {account.evalType}
+                            </span>
+                          )}
                         </div>
                       </div>
                       
@@ -1667,12 +1728,65 @@ export const AdditionalCharts: React.FC<{
   };
 
   const renderChallengeTypeChart = () => {
-    if (challengeTypeData.length === 0) {
+    const isEval = challengeTypeView === 'evalType';
+    const data = isEval ? evalTypeData : challengeTypeData;
+    const emptyHint = isEval
+      ? 'No program types yet. Add Eval Type when creating challenges to track performance here.'
+      : 'No challenge type data available';
+
+    // Sub-view toggle
+    const toggle = (
+      <div className="mb-5 flex justify-center">
+        <div className="relative rounded-full border border-white/15 bg-black/35 p-0.5">
+          <div
+            className="absolute top-0.5 h-8 rounded-full transition-all duration-300 ease-out"
+            style={{
+              width: isEval ? '120px' : '96px',
+              left: isEval ? '100px' : '2px',
+              background: isEval
+                ? 'linear-gradient(135deg, #d946ef, #a855f7)'
+                : 'linear-gradient(135deg, #fb923c, #f97316)',
+              boxShadow: isEval
+                ? '0 0 15px rgba(217,70,239,0.35), 0 0 30px rgba(168,85,247,0.2)'
+                : '0 0 15px rgba(251,146,60,0.35), 0 0 30px rgba(249,115,22,0.2)',
+            }}
+          />
+          <div className="relative flex">
+            <button
+              onClick={() => setChallengeTypeView('phases')}
+              className={`relative z-10 px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all duration-300 ${
+                !isEval ? 'text-white' : 'text-white/60 hover:text-white/80'
+              }`}
+              style={{ textShadow: !isEval ? '0 1px 2px rgba(0,0,0,0.7)' : 'none' }}
+            >
+              Phases
+            </button>
+            <button
+              onClick={() => setChallengeTypeView('evalType')}
+              className={`relative z-10 px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all duration-300 flex items-center gap-1.5 ${
+                isEval ? 'text-white' : 'text-white/60 hover:text-white/80'
+              }`}
+              style={{ textShadow: isEval ? '0 1px 2px rgba(0,0,0,0.7)' : 'none' }}
+            >
+              <Sparkles className="h-3 w-3" />
+              Programs
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+
+    if (data.length === 0) {
       return (
-        <div className="h-64 flex items-center justify-center text-white/60">
+        <div className="h-64 flex flex-col items-center justify-center text-white/60">
+          {toggle}
           <div className="text-center">
-            <Target className="w-12 h-12 mx-auto mb-2 opacity-50" />
-            <div>No challenge type data available</div>
+            {isEval ? (
+              <Sparkles className="w-12 h-12 mx-auto mb-2 opacity-50 text-fuchsia-400" />
+            ) : (
+              <Target className="w-12 h-12 mx-auto mb-2 opacity-50" />
+            )}
+            <div>{emptyHint}</div>
           </div>
         </div>
       );
@@ -1682,16 +1796,24 @@ export const AdditionalCharts: React.FC<{
     if (isMobile) {
       return (
         <div className="space-y-3">
+          {toggle}
           <div className="text-center mb-4">
-            <div className="text-white font-medium">Challenge Type Performance</div>
-            <div className="text-white/60 text-sm">Performance by phase count</div>
+            <div className="text-white font-medium">
+              {isEval ? 'Program / Eval Performance' : 'Challenge Type Performance'}
+            </div>
+            <div className="text-white/60 text-sm">
+              {isEval ? 'Performance by eval type' : 'Performance by phase count'}
+            </div>
           </div>
           
           <div className="space-y-2">
-            {challengeTypeData.map((type) => (
+            {data.map((type) => (
               <div key={type.name} className="bg-white/5 rounded-lg p-3 border border-white/10">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-white font-medium">{type.name} Challenges</span>
+                  <span className="text-white font-medium flex items-center gap-2">
+                    {isEval && <Sparkles className="h-3.5 w-3.5 text-fuchsia-400" />}
+                    {type.name}{!isEval ? ' Challenges' : ''}
+                  </span>
                   <span className={`text-lg font-bold ${
                     type.roi >= 0 ? 'text-green-400' : 'text-red-400'
                   }`}>
@@ -1731,21 +1853,24 @@ export const AdditionalCharts: React.FC<{
       );
     }
 
-    const maxROI = Math.max(...challengeTypeData.map(c => Math.abs(c.roi)), 100);
+    const maxROI = Math.max(...data.map(c => Math.abs(c.roi)), 100);
     const chartWidth = 400;
     const barHeight = 50;
     const spacing = 80;
-    const labelWidth = 120;
+    const labelWidth = 160;
 
     return (
-      <div className="w-full flex justify-center">
-        <div className="min-h-[400px] flex items-center justify-center max-w-full">
-          <svg width="100%" viewBox={`0 0 ${chartWidth + labelWidth + 100} ${challengeTypeData.length * spacing + 60}`} height={challengeTypeData.length * spacing + 60} className="max-w-full" preserveAspectRatio="xMidYMid meet">
-            {challengeTypeData.map((type, index) => {
+      <div className="w-full flex flex-col items-center">
+        {toggle}
+        <div className="min-h-[400px] flex items-center justify-center max-w-full w-full">
+          <svg width="100%" viewBox={`0 0 ${chartWidth + labelWidth + 100} ${data.length * spacing + 60}`} height={data.length * spacing + 60} className="max-w-full" preserveAspectRatio="xMidYMid meet">
+            {data.map((type, index) => {
               const barWidth = Math.abs(type.roi / maxROI) * chartWidth;
               const barY = 40 + index * spacing;
               const barX = labelWidth + 20;
-              const color = type.roi >= 0 ? '#10b981' : '#ef4444';
+              const color = isEval
+                ? (type.roi >= 0 ? '#a855f7' : '#ec4899')
+                : (type.roi >= 0 ? '#10b981' : '#ef4444');
 
               return (
                 <g key={type.name}>
@@ -1755,7 +1880,7 @@ export const AdditionalCharts: React.FC<{
                     y={barY + barHeight/2 + 5}
                     textAnchor="end"
                     fill="white"
-                    fontSize="14"
+                    fontSize="13"
                     fontWeight="bold"
                     opacity="0"
                   >
@@ -1844,7 +1969,7 @@ export const AdditionalCharts: React.FC<{
                     x={barX + 150}
                     y={barY + barHeight + 15}
                     textAnchor="start"
-                    fill={type.pnl >= 0 ? '#10b981' : '#ef4444'}
+                    fill={isEval ? (type.pnl >= 0 ? '#a855f7' : '#ec4899') : (type.pnl >= 0 ? '#10b981' : '#ef4444')}
                     fontSize="10"
                     fontWeight="bold"
                     opacity="0"
@@ -1891,7 +2016,7 @@ export const AdditionalCharts: React.FC<{
               x1={labelWidth + 20}
               y1="30"
               x2={labelWidth + 20}
-              y2={challengeTypeData.length * spacing + 30}
+              y2={data.length * spacing + 30}
               stroke="rgba(255,255,255,0.2)"
               strokeWidth="1"
               strokeDasharray="3,3"

@@ -65,6 +65,7 @@ export const challenges = pgTable('challenges', {
   activationFeeAmount: decimal('activation_fee_amount', { precision: 10, scale: 2 }),
   strategy: text('strategy'),
   firmType: text('firm_type'),
+  evalType: text('eval_type'),
   totalPhases: integer('total_phases').default(3).notNull(),
   phase1Completed: boolean('phase1_completed').default(false),
   phase1CompletedAt: timestamp('phase1_completed_at'),
