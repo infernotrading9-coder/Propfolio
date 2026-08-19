@@ -588,7 +588,7 @@ export const ShareableStatsCard: React.FC<ShareableStatsCardProps> = ({
       phase3: renderMetricTile('phase3', 'Phase 3 Pass', `${((stats.phase3PassRate ?? 0) * 100).toFixed(0)}%`, 'rgba(34, 197, 94, 0.25)', 'linear-gradient(45deg, #22c55e, #4ade80, #86efac, #22c55e)', 'text-green-300', '0 0 10px rgba(34, 197, 94, 0.8)'),
       capital: renderMetricTile('capital', 'Capital Invested', `$${formatMoney(stats.totalSpent)}`, 'rgba(248, 113, 113, 0.25)', 'linear-gradient(45deg, #ef4444, #f87171, #fca5a5, #ef4444)', 'text-red-400', '0 0 10px rgba(248, 113, 113, 0.8)', true),
       payouts: renderMetricTile('payouts', 'Total Payouts', `$${formatMoney(stats.totalPayouts)}`, 'rgba(34, 197, 94, 0.25)', 'linear-gradient(45deg, #10b981, #34d399, #6ee7b7, #10b981)', 'text-green-400', '0 0 10px rgba(34, 197, 94, 0.8)', true),
-      avgTime: renderMetricTile('avgTime', 'Avg Time to Live', `${stats.averageTimeToLive > 0 ? `${Math.round(stats.averageTimeToLive)}d` : 'N/A'}`, 'rgba(168, 85, 247, 0.25)', 'linear-gradient(45deg, #a855f7, #c084fc, #e9d5ff, #a855f7)', 'text-purple-400', '0 0 10px rgba(168, 85, 247, 0.8)'),
+      avgTime: renderMetricTile('avgTime', 'Avg Time to Funded', `${stats.averageTimeToLive > 0 ? `${Math.round(stats.averageTimeToLive)}d` : 'N/A'}`, 'rgba(168, 85, 247, 0.25)', 'linear-gradient(45deg, #a855f7, #c084fc, #e9d5ff, #a855f7)', 'text-purple-400', '0 0 10px rgba(168, 85, 247, 0.8)'),
     };
     return defs;
   }, [stats, timeframe]);

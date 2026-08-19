@@ -281,14 +281,14 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
       textColor: 'text-cyan-300',
     },
     {
-      title: 'Cost Per Live Account',
-      value: stats.costPerLiveAccount > 0 ? `$${stats.costPerLiveAccount.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'No live accounts',
+      title: 'Cost Per Funded Account',
+      value: stats.costPerLiveAccount > 0 ? `$${stats.costPerLiveAccount.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'No funded accounts',
       icon: <Calculator className="w-8 h-8 text-orange-300 drop-shadow-neon-orange" />,
       glow: 'orange',
       textColor: 'text-orange-300',
     },
     {
-      title: 'Avg Time to Live',
+      title: 'Avg Time to Funded',
       value: stats.averageTimeToLive > 0 ? `${Math.round(stats.averageTimeToLive)} days` : 'Complete phases first',
       icon: <Clock className="w-8 h-8 text-amber-300 drop-shadow-neon-amber" />,
       glow: 'amber',
@@ -321,7 +321,7 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
     });
   }
   statItems.push({
-    title: 'Live Accounts',
+    title: 'Funded Accounts',
     value: `${liveCount} / ${eligible1Count}`,
     icon: <Trophy className="w-8 h-8 text-pink-300 drop-shadow-neon-pink" />,
     glow: 'pink',

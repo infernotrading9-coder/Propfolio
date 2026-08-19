@@ -28,7 +28,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({
     { key: 'phase1', label: 'Phase 1 Pass' },
     { key: 'phase2', label: 'Phase 2 Pass' },
     { key: 'phase3', label: 'Phase 3 Pass' },
-    { key: 'avgTime', label: 'Avg Time to Live' },
+    { key: 'avgTime', label: 'Avg Time to Funded' },
   ];
   const [timeframe, setTimeframe] = useState<'month' | 'week' | 'year' | 'all-time'>('month');
   const [selectedStats, setSelectedStats] = useState<ShareStatKey[]>(['capital', 'payouts']);
