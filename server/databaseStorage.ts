@@ -103,6 +103,7 @@ export const loadState = async (userId: string): Promise<AppState> => {
       activationFeeAmount: challenge.activationFeeAmount ? parseFloat(challenge.activationFeeAmount.toString()) : undefined,
       firmType: (challenge as any).firmType || undefined,
       evalType: (challenge as any).evalType || undefined,
+      liveAccount: !!(challenge as any).liveAccount,
       totalPhases: ((challenge.totalPhases as any) || 3) as 1 | 2 | 3,
       strategy: challenge.strategy || '',
       status: (challenge.status as Challenge['status']) || 'active',
@@ -194,6 +195,7 @@ export const addChallenge = async (userId: string, challengeData: any) => {
       activationFeeAmount: challengeData.activationFeeAmount === undefined ? null : challengeData.activationFeeAmount.toString(),
       firmType: challengeData.firmType || null,
       evalType: challengeData.evalType || null,
+      liveAccount: !!challengeData.liveAccount,
       totalPhases: challengeData.totalPhases || 3,
       strategy: challengeData.strategy || '',
       status: challengeData.status || 'active',
@@ -219,6 +221,7 @@ export const addChallenge = async (userId: string, challengeData: any) => {
       activationFeeAmount: row.activationFeeAmount ? parseFloat(row.activationFeeAmount as any) : undefined,
       firmType: (row as any).firmType || undefined,
       evalType: (row as any).evalType || undefined,
+      liveAccount: !!(row as any).liveAccount,
       totalPhases: ((row.totalPhases as any) || 3) as 1 | 2 | 3,
       strategy: (row.strategy as any) || '',
       status: (row.status as any) || 'active',
@@ -262,6 +265,7 @@ export const updateChallenge = async (challengeId: string, updates: Partial<Chal
     if (typeof updates.firmType === 'string') mapped.firmType = updates.firmType;
     if (typeof updates.evalType === 'string') mapped.evalType = updates.evalType;
     if (typeof updates.evalType === 'undefined' && 'evalType' in updates) mapped.evalType = updates.evalType || null;
+    if (typeof updates.liveAccount === 'boolean') mapped.liveAccount = updates.liveAccount;
     if (typeof updates.status === 'string') mapped.status = updates.status;
 
     // Phase fields (if present in updates.phases, map to DB columns)

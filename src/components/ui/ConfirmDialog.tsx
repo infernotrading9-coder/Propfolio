@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle, X } from 'lucide-react';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -8,7 +8,7 @@ interface ConfirmDialogProps {
   message: string;
   confirmText?: string;
   cancelText?: string;
-  variant?: 'danger' | 'warning' | 'info';
+  variant?: 'danger' | 'warning' | 'info' | 'success';
   onConfirm: () => void;
   onCancel: () => void;
   loading?: boolean;
@@ -43,6 +43,12 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       iconColor: 'text-cyan-400',
       confirmButton: 'bg-cyan-600 hover:bg-cyan-500 focus:ring-cyan-500',
       glow: 'shadow-[0_0_25px_rgba(34,211,238,0.3)]'
+    },
+    success: {
+      icon: CheckCircle,
+      iconColor: 'text-emerald-400',
+      confirmButton: 'bg-emerald-600 hover:bg-emerald-500 focus:ring-emerald-500',
+      glow: 'shadow-[0_0_25px_rgba(16,185,129,0.3)]'
     }
   };
 

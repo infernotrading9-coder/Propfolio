@@ -37,6 +37,7 @@ export interface Challenge {
   strategy?: string; // trading strategy used
   firmType?: FirmType; // type of firm: futures or CFD (for analytics)
   evalType?: string; // program/eval type per firm (e.g. "Lucid Daily", "Rapid")
+  liveAccount?: boolean; // true after user promotes a FUNDED (all-phases-done) account to a real live trading account
   monthlyPnL: Record<string, number>; // key: YYYY-MM, value: PnL
   weeklyPnL: Record<string, number>; // key: YYYY-WXX (e.g., 2024-W42), value: PnL
   phases: Record<PhaseName, PhaseStatus>;
@@ -120,4 +121,5 @@ export type NewChallengeInput = {
   strategy?: string;
   firmType?: FirmType; // type of firm: futures or CFD
   evalType?: string; // program/eval type per firm
+  liveAccount?: boolean; // explicit live-account tier (applies once funded account is promoted to real trading)
 };

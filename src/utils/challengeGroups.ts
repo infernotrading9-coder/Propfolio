@@ -13,6 +13,12 @@ export const isChallengeLive = (challenge: Challenge): boolean => {
   return !!challenge.phases.phase1?.completed && !!challenge.phases.phase2?.completed && !!challenge.phases.phase3?.completed;
 };
 
+export const isChallengeFunded = isChallengeLive;
+
+export const isActualLiveAccount = (challenge: Challenge): boolean => {
+  return isChallengeFunded(challenge) && !!challenge.liveAccount;
+};
+
 export const getFinalPhaseForChallenge = (challenge: Challenge): 'phase1' | 'phase2' | 'phase3' => {
   if (challenge.totalPhases === 1) return 'phase1';
   if (challenge.totalPhases === 2) return 'phase2';

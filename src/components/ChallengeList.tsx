@@ -1,19 +1,22 @@
 import React from 'react';
 import { Challenge, PropFirm } from '../types';
 import { Button } from './ui/Button';
-import { BarChart3, Briefcase, CheckCircle2, ChevronLeft, ChevronRight, Circle, Flame, Layers3, Pencil, Settings, Sparkles, XCircle } from 'lucide-react';
+import { BarChart3, Briefcase, CheckCircle2, ChevronLeft, ChevronRight, Circle, Flame, Layers3, Pencil, Rocket, Settings, Sparkles, Wallet, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PhaseOutcomePrompt } from './PhaseOutcomePrompt';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { apiClient } from '../utils/apiClient';
 import { archiveFailedChallenge } from '../utils/calendarStorage';
-import { getFinalPhaseForChallenge, getNextIncompletePhase, isChallengeLive } from '../utils/challengeGroups';
+import { getFinalPhaseForChallenge, getNextIncompletePhase, isActualLiveAccount, isChallengeFunded } from '../utils/challengeGroups';
 
 type FailConfirmState = {
   ids: string[];
   phase: 'phase1' | 'phase2' | 'phase3';
-  date: string;
+  date?: string;
 };
+
+const PAGE_SIZE_STORAGE_KEY = 'challenge_list_items_per_page';
+const DEFAULT_PAGE_SIZE = 50;
 
 export const ChallengeList: React.FC<{
   challenges: Challenge[];
@@ -39,7 +42,27 @@ export const ChallengeList: React.FC<{
 }) => {
   const [loadingPhase] = React.useState<string | null>(null);
   const [currentPage, setCurrentPage] = React.useState(1);
-  const [itemsPerPage, setItemsPerPage] = React.useState(5);
+
+  const readInitialPageSize = (): number => {
+    try {
+      const stored = localStorage.getItem(PAGE_SIZE_STORAGE_KEY);
+      if (stored === 'all' || stored === 'All') return Number.MAX_SAFE_INTEGER;
+      const parsed = parseInt(stored || '', 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    } catch {}
+    return DEFAULT_PAGE_SIZE;
+  };
+
+  const [itemsPerPage, setItemsPerPageRaw] = React.useState<number>(readInitialPageSize);
+  const setItemsPerPage = (size: number | 'all' | 'All') => {
+    const next = (size === 'all' || size === 'All') ? Number.MAX_SAFE_INTEGER : Number(size);
+    setItemsPerPageRaw(next);
+    setCurrentPage(1);
+    try {
+      localStorage.setItem(PAGE_SIZE_STORAGE_KEY, (size === 'all' || size === 'All') ? 'All' : String(size));
+    } catch {}
+  };
+
   const [showPageSizeSelector, setShowPageSizeSelector] = React.useState(false);
   const [selectedChallengeIds, setSelectedChallengeIds] = React.useState<Set<string>>(new Set());
   const [phasePromptOpen, setPhasePromptOpen] = React.useState(false);
@@ -47,6 +70,7 @@ export const ChallengeList: React.FC<{
   const [phasePromptPhase, setPhasePromptPhase] = React.useState<'phase1' | 'phase2' | 'phase3'>('phase1');
   const [failConfirm, setFailConfirm] = React.useState<FailConfirmState | null>(null);
   const [loadingFailConfirm, setLoadingFailConfirm] = React.useState(false);
+  const [promoteConfirmIds, setPromoteConfirmIds] = React.useState<string[] | null>(null);
 
   const firmName = React.useCallback(
     (id: string) => firms.find((firm) => firm.id === id)?.name ?? 'Unknown',
@@ -80,8 +104,8 @@ export const ChallengeList: React.FC<{
       const activeB = b.status !== 'failed' ? 1 : 0;
       if (activeA !== activeB) return activeB - activeA;
 
-      const liveA = isChallengeLive(a) ? 1 : 0;
-      const liveB = isChallengeLive(b) ? 1 : 0;
+      const liveA = isActualLiveAccount(a) ? 2 : isChallengeFunded(a) ? 1 : 0;
+      const liveB = isActualLiveAccount(b) ? 2 : isChallengeFunded(b) ? 1 : 0;
       if (liveA !== liveB) return liveB - liveA;
 
       const aStart = a.startDate ? new Date(a.startDate).getTime() : 0;
@@ -277,14 +301,20 @@ export const ChallengeList: React.FC<{
   };
 
   const renderChallengeCard = (challenge: Challenge) => {
-    const isLive = isChallengeLive(challenge);
+    const isFunded = isChallengeFunded(challenge);
+    const isRealLive = isActualLiveAccount(challenge);
     const challengeNumber = challengeNumberMap.get(challenge.id) ?? 0;
     const inBatch = (challenge.purchaseGroupSize ?? 1) > 1;
     const label = challenge.purchaseGroupIndex ? `Account ${challenge.purchaseGroupIndex}` : challenge.brokerName;
     const isSelected = selectedChallengeIds.has(challenge.id);
-    const liveSelectedIds = actionableSelected.filter(isChallengeLive).map((item) => item.id);
+    const fundedOrLiveFilter = (c: Challenge) => isChallengeFunded(c);
+    const liveSelectedIds = actionableSelected.filter(fundedOrLiveFilter).map((item) => item.id);
     const liveFailTargetIds = isSelected && liveSelectedIds.length > 1 ? liveSelectedIds : [challenge.id];
     const liveFailButtonLabel = isSelected && liveSelectedIds.length > 1 ? `Fail Selected (${liveSelectedIds.length})` : 'Fail';
+
+    const promotedIds = actionableSelected.filter(c => isChallengeFunded(c) && !isActualLiveAccount(c)).map(c => c.id);
+    const promoteTargetIds = isSelected && promotedIds.length > 1 ? promotedIds : (!isRealLive && isFunded ? [challenge.id] : []);
+    const promoteButtonLabel = isSelected && promotedIds.length > 1 ? `Promote Selected (${promotedIds.length})` : 'Promote → Live';
 
     const resolvedFirmType = challenge.firmType ?? firms.find(f => f.id === challenge.propFirmId)?.firmType;
 
@@ -298,17 +328,21 @@ export const ChallengeList: React.FC<{
       >
         <div
           className={`relative rounded-xl border p-5 backdrop-blur-sm transition-all duration-300 ${
-            isLive
-              ? 'border-emerald-400/40 bg-gradient-to-br from-gray-900/90 to-gray-800/60 shadow-[0_0_40px_rgba(16,185,129,0.2)] hover:border-emerald-400/60'
-              : selectedChallengeIds.has(challenge.id)
-                ? 'border-cyan-400/40 bg-gradient-to-br from-gray-900/90 to-gray-800/60 shadow-[0_0_30px_rgba(6,182,212,0.15)]'
-                : 'border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/60 hover:border-cyan-400/30 hover:shadow-[0_0_30px_rgba(6,182,212,0.15)]'
+            isRealLive
+              ? 'border-emerald-400/50 bg-gradient-to-br from-gray-900/95 to-emerald-950/30 shadow-[0_0_48px_rgba(16,185,129,0.32)] hover:border-emerald-400/80'
+              : isFunded
+                ? 'border-amber-400/40 bg-gradient-to-br from-gray-900/90 to-amber-950/20 shadow-[0_0_36px_rgba(251,191,36,0.18)] hover:border-amber-400/60'
+                : selectedChallengeIds.has(challenge.id)
+                  ? 'border-cyan-400/40 bg-gradient-to-br from-gray-900/90 to-gray-800/60 shadow-[0_0_30px_rgba(6,182,212,0.15)]'
+                  : 'border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/60 hover:border-cyan-400/30 hover:shadow-[0_0_30px_rgba(6,182,212,0.15)]'
           }`}
         >
           <div className={`absolute inset-0 rounded-xl ${
-            isLive
-              ? 'bg-gradient-to-r from-emerald-500/5 via-green-500/5 to-emerald-500/5'
-              : 'bg-gradient-to-r from-cyan-500/0 via-purple-500/0 to-cyan-500/0 hover:from-cyan-500/5 hover:via-purple-500/5 hover:to-cyan-500/5'
+            isRealLive
+              ? 'bg-gradient-to-r from-emerald-500/10 via-green-500/6 to-emerald-500/10'
+              : isFunded
+                ? 'bg-gradient-to-r from-amber-500/8 via-yellow-500/5 to-amber-500/8'
+                : 'bg-gradient-to-r from-cyan-500/0 via-purple-500/0 to-cyan-500/0 hover:from-cyan-500/5 hover:via-purple-500/5 hover:to-cyan-500/5'
           }`} />
 
           <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -360,10 +394,16 @@ export const ChallengeList: React.FC<{
                           {resolvedFirmType.toUpperCase()}
                         </span>
                       )}
-                      {isLive && (
-                        <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-emerald-400/60 bg-gradient-to-r from-emerald-500/30 to-green-500/30 px-3 py-1">
-                          <Flame className="h-4 w-4 text-emerald-300" />
-                          <span className="text-xs font-black tracking-wider text-emerald-200">LIVE</span>
+                      {isFunded && !isRealLive && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-amber-400/60 bg-gradient-to-r from-amber-500/25 to-yellow-500/20 px-3 py-1 shadow-[0_0_18px_rgba(251,191,36,0.18)]">
+                          <Wallet className="h-4 w-4 text-amber-300" />
+                          <span className="text-xs font-black tracking-wider text-amber-200">FUNDED</span>
+                        </span>
+                      )}
+                      {isRealLive && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-emerald-400/70 bg-gradient-to-r from-emerald-500/35 via-green-500/30 to-emerald-500/35 px-3 py-1 shadow-[0_0_28px_rgba(16,185,129,0.35)]">
+                          <Flame className="h-4 w-4 text-emerald-200 drop-shadow-[0_0_8px_rgba(16,185,129,0.9)]" />
+                          <span className="text-xs font-black tracking-wider text-emerald-100">LIVE</span>
                         </span>
                       )}
                       {challenge.status === 'failed' && (
@@ -390,7 +430,18 @@ export const ChallengeList: React.FC<{
 
             <div className="flex flex-wrap items-center gap-2">
               {renderPhaseButtons(challenge)}
-              {isLive && challenge.status !== 'failed' && onFailLiveAccount && (
+              {isFunded && !isRealLive && challenge.status !== 'failed' && (
+                <Button
+                  size="sm"
+                  variant="success"
+                  onClick={() => setPromoteConfirmIds(promoteTargetIds)}
+                  leftIcon={<Rocket className="w-4 h-4" />}
+                  className="px-3 !bg-gradient-to-r !from-amber-500/20 !to-emerald-500/20 hover:!from-amber-500/30 hover:!to-emerald-500/30 border-amber-400/40 text-amber-100 hover:text-emerald-100"
+                >
+                  {promoteButtonLabel}
+                </Button>
+              )}
+              {isFunded && challenge.status !== 'failed' && onFailLiveAccount && (
                 <Button
                   size="sm"
                   variant="danger"
@@ -401,7 +452,7 @@ export const ChallengeList: React.FC<{
                   {liveFailButtonLabel}
                 </Button>
               )}
-              {isLive && challenge.status !== 'failed' && (
+              {isFunded && challenge.status !== 'failed' && (
                 <Button size="sm" variant="success" onClick={() => onEdit(challenge)} className="px-3">
                   Add Payout
                 </Button>
@@ -503,25 +554,34 @@ export const ChallengeList: React.FC<{
                 className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 transition-all duration-200 hover:border-cyan-400/30 hover:bg-white/10 hover:text-white"
               >
                 <Settings className="h-3 w-3" />
-                {itemsPerPage} per page
+              {itemsPerPage === Number.MAX_SAFE_INTEGER
+                ? `All ${sortedForDisplay.length}`
+                : `${itemsPerPage} per page`}
               </button>
               {showPageSizeSelector && (
                 <div className="absolute left-0 top-full z-10 mt-2 overflow-hidden rounded-lg border border-white/20 bg-gray-900/95 shadow-[0_0_30px_rgba(6,182,212,0.2)] backdrop-blur-md">
-                  {[5, 10, 20, 50].map((size) => (
-                    <button
-                      key={size}
-                      onClick={() => {
-                        setItemsPerPage(size);
-                        setCurrentPage(1);
-                        setShowPageSizeSelector(false);
-                      }}
-                      className={`block w-full px-4 py-2.5 text-left text-xs transition-colors hover:bg-cyan-500/10 ${
-                        itemsPerPage === size ? 'bg-gradient-to-r from-cyan-500/20 to-purple-500/20 font-semibold text-cyan-200' : 'text-white/70'
-                      }`}
-                    >
-                      {size} per page
-                    </button>
-                  ))}
+                  {([5, 10, 20, 50, 'All'] as const).map((size) => {
+                    const matchesAll = size === 'All' && itemsPerPage === Number.MAX_SAFE_INTEGER;
+                    const matchesNumeric = typeof size === 'number' && itemsPerPage === size;
+                    const display = size === 'All' ? `All ${sortedForDisplay.length}` : `${size} per page`;
+                    return (
+                      <button
+                        key={String(size)}
+                        onClick={() => {
+                          setItemsPerPage(size);
+                          setCurrentPage(1);
+                          setShowPageSizeSelector(false);
+                        }}
+                        className={`block w-full px-4 py-2.5 text-left text-xs transition-colors hover:bg-cyan-500/10 ${
+                          matchesAll || matchesNumeric
+                            ? 'bg-gradient-to-r from-cyan-500/20 to-purple-500/20 font-semibold text-cyan-200'
+                            : 'text-white/70'
+                        }`}
+                      >
+                        {display}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -719,6 +779,38 @@ export const ChallengeList: React.FC<{
           }
         }}
         onCancel={() => setFailConfirm(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={!!promoteConfirmIds}
+        title="Promote to Live Account"
+        message={`Promote ${(promoteConfirmIds?.length ?? 0) > 1 ? 'these ' + promoteConfirmIds?.length + ' funded accounts' : 'this funded account'} to a real live trading account? This can be toggled back any time by editing the challenge.`}
+        confirmText="Promote to Live"
+        cancelText="Cancel"
+        variant="success"
+        onConfirm={async () => {
+          if (!promoteConfirmIds || promoteConfirmIds.length === 0) return;
+          try {
+            for (const id of promoteConfirmIds) {
+              const challenge = validChallenges.find(c => c.id === id);
+              if (!challenge) continue;
+              const updated: Challenge = { ...challenge, liveAccount: true };
+              await apiClient.updateChallenge(updated);
+              onChallengeUpdate(updated);
+            }
+            setSelectedChallengeIds(prev => {
+              const next = new Set(prev);
+              promoteConfirmIds.forEach(id => next.delete(id));
+              return next;
+            });
+          } catch (error) {
+            console.error('Promote to live failed:', error);
+            alert('Failed to promote to live account. Please try again.');
+          } finally {
+            setPromoteConfirmIds(null);
+          }
+        }}
+        onCancel={() => setPromoteConfirmIds(null)}
       />
     </>
   );

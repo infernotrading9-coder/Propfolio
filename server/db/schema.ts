@@ -66,6 +66,7 @@ export const challenges = pgTable('challenges', {
   strategy: text('strategy'),
   firmType: text('firm_type'),
   evalType: text('eval_type'),
+  liveAccount: boolean('live_account').default(false),
   totalPhases: integer('total_phases').default(3).notNull(),
   phase1Completed: boolean('phase1_completed').default(false),
   phase1CompletedAt: timestamp('phase1_completed_at'),

@@ -24,7 +24,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({
   const statOptions: { key: ShareStatKey; label: string }[] = [
     { key: 'capital', label: 'Capital Invested' },
     { key: 'payouts', label: 'Total Payouts' },
-    { key: 'live', label: 'Live Rate' },
+    { key: 'live', label: 'Funded Pass Rate' },
     { key: 'phase1', label: 'Phase 1 Pass' },
     { key: 'phase2', label: 'Phase 2 Pass' },
     { key: 'phase3', label: 'Phase 3 Pass' },

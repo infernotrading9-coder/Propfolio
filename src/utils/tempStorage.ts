@@ -212,6 +212,7 @@ export async function loadState(userId: string): Promise<AppState> {
         activationFeeAmount,
         firmType: ch.firmType,
         evalType: ch.evalType,
+        liveAccount: !!ch.liveAccount,
         strategy: ch.strategy,
         payouts: newPayouts
       };
@@ -224,6 +225,7 @@ export async function loadState(userId: string): Promise<AppState> {
       activationFeeAmount,
       firmType: ch.firmType,
       evalType: ch.evalType,
+      liveAccount: !!ch.liveAccount,
       strategy: ch.strategy,
     };
   });
@@ -267,6 +269,7 @@ export async function addChallenge(userId: string, input: NewChallengeInput): Pr
     brokerName: input.brokerName.trim(),
     firmType: input.firmType,
     evalType: input.evalType,
+    liveAccount: !!input.liveAccount,
     purchaseGroupId: input.purchaseGroupId,
     purchaseGroupLabel: input.purchaseGroupLabel,
     purchaseGroupSize: input.purchaseGroupSize,

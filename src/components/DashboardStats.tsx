@@ -267,7 +267,7 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
       textColor: roiIsPositive ? 'text-green-300' : 'text-red-300',
     },
     {
-      title: 'Live Account Rate',
+      title: 'Funded Pass Rate',
       value: `${(stats.liveAccountsRate * 100).toFixed(1)}%`,
       icon: <Trophy className="w-8 h-8 text-pink-300 drop-shadow-neon-pink" />,
       glow: 'pink',

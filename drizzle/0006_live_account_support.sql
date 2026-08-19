@@ -1,0 +1,1 @@
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS live_account BOOLEAN DEFAULT false;
