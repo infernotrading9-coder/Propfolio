@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { GoogleOAuthButton } from '../GoogleOAuthButton';
 import { EMAIL_PASSWORD_USE_NETLIFY_IDENTITY } from '../../lib/appFlags';
+import { getFriendlyGoogleAuthError } from '../../utils/authErrors';
 
 function emitAuthDebug(type: string, detail: Record<string, unknown> = {}) {
   try {
@@ -96,13 +97,14 @@ const Login: React.FC = () => {
         window.location.replace('/dashboard');
       }, 150);
     } catch (err: any) {
-      setError('Google authentication failed: ' + err.message);
+      setError(getFriendlyGoogleAuthError(err));
       setLoading(false);
     }
   };
 
-  const handleGoogleError = () => {
-    setError('Google authentication failed. Please try again.');
+  const handleGoogleError = (error?: unknown) => {
+    setError(getFriendlyGoogleAuthError(error));
+    setLoading(false);
   };
 
   return (

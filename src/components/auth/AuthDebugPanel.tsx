@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { AUTH_DEBUG_PANEL_ENABLED } from '../../lib/appFlags';
 import netlifyIdentity from 'netlify-identity-widget';
+import { getNetlifyIdentityApiUrl } from '../../utils/netlifyIdentityConfig';
 
 type DebugEvent = Record<string, unknown>;
 
@@ -64,7 +65,8 @@ const AuthDebugPanel: React.FC = () => {
         email: user?.email || user?.user_metadata?.email || user?.profile?.email || null,
         name: user?.user_metadata?.full_name || user?.user_metadata?.name || user?.full_name || user?.profile?.name || null,
         provider: user?.app_metadata?.provider || user?.user_metadata?.provider || null,
-        apiUrl: (import.meta as any).env?.VITE_IDENTITY_API_URL || 'auto-detect',
+        apiUrl: getNetlifyIdentityApiUrl() || 'auto-detect',
+        netlifySiteURL: localStorage.getItem('netlifySiteURL'),
         currentUser: !!user,
         userMetadata: user?.user_metadata || null,
         appMetadata: user?.app_metadata || null,
@@ -78,7 +80,8 @@ const AuthDebugPanel: React.FC = () => {
           authDebugQuery: params.get('authDebug'),
           online: navigator.onLine,
           userAgent: navigator.userAgent,
-          apiUrl: (import.meta as any).env?.VITE_IDENTITY_API_URL || 'auto-detect',
+          apiUrl: getNetlifyIdentityApiUrl() || 'auto-detect',
+          netlifySiteURL: localStorage.getItem('netlifySiteURL'),
           currentUser: null,
         };
       } catch {

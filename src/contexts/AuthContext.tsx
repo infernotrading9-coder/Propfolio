@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import netlifyIdentity from 'netlify-identity-widget';
 import { createUser, findUserByEmail, validatePassword } from '../utils/tempAuth';
 import { EMAIL_PASSWORD_USE_NETLIFY_IDENTITY, FREE_ACCESS_MODE } from '../lib/appFlags';
+import { getNetlifyIdentityApiUrl } from '../utils/netlifyIdentityConfig';
 
 interface User {
   id: string;
@@ -435,7 +436,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   useEffect(() => {
-    const apiUrl = (import.meta as any).env?.VITE_IDENTITY_API_URL;
+    const apiUrl = getNetlifyIdentityApiUrl();
     const config: any = {};
     if (apiUrl) {
       config.APIUrl = apiUrl;

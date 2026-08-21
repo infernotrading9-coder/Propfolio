@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { GoogleOAuthButton } from '../GoogleOAuthButton';
 import { EMAIL_PASSWORD_USE_NETLIFY_IDENTITY, FREE_ACCESS_MODE } from '../../lib/appFlags';
+import { getFriendlyGoogleAuthError } from '../../utils/authErrors';
 
 const Signup: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -104,13 +105,14 @@ const Signup: React.FC = () => {
         navigate('/dashboard', { replace: true });
       }, 150);
     } catch (err: any) {
-      setError('Google authentication failed: ' + err.message);
+      setError(getFriendlyGoogleAuthError(err));
       setLoading(false);
     }
   };
 
-  const handleGoogleError = () => {
-    setError('Google authentication failed. Please try again.');
+  const handleGoogleError = (error?: unknown) => {
+    setError(getFriendlyGoogleAuthError(error));
+    setLoading(false);
   };
 
   return (

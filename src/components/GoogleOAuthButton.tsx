@@ -1,11 +1,25 @@
 import React, { useEffect } from 'react';
 import netlifyIdentity from 'netlify-identity-widget';
+import { extractErrorMessage } from '../utils/authErrors';
+import { getNetlifyIdentityApiUrl } from '../utils/netlifyIdentityConfig';
 
 interface GoogleOAuthButtonProps {
   onSuccess: (credential: string) => void;
-  onError: () => void;
+  onError: (error?: unknown) => void;
   text?: string;
   disabled?: boolean;
+}
+
+function emitAuthDebug(type: string, detail: Record<string, unknown> = {}) {
+  try {
+    window.dispatchEvent(new CustomEvent('authDebug', {
+      detail: {
+        type,
+        timestamp: new Date().toISOString(),
+        ...detail,
+      }
+    }));
+  } catch {}
 }
 
 export const GoogleOAuthButton: React.FC<GoogleOAuthButtonProps> = ({
@@ -15,7 +29,7 @@ export const GoogleOAuthButton: React.FC<GoogleOAuthButtonProps> = ({
   disabled = false
 }) => {
   useEffect(() => {
-    const apiUrl = (import.meta as any).env?.VITE_IDENTITY_API_URL;
+    const apiUrl = getNetlifyIdentityApiUrl();
     const config: any = {};
     if (apiUrl) {
       config.APIUrl = apiUrl;
@@ -25,14 +39,22 @@ export const GoogleOAuthButton: React.FC<GoogleOAuthButtonProps> = ({
     const onLogin = () => {
       // Close the modal and call success callback after a small delay to ensure state updates
       netlifyIdentity.close();
+      emitAuthDebug('google:widget-login', {
+        apiUrl: apiUrl || 'auto-detect',
+      });
       setTimeout(() => {
         try {
           onSuccess('netlify-identity');
         } catch {}
       }, 100);
     };
-    const onErrorHandler = () => {
-      try { onError(); } catch {}
+    const onErrorHandler = (error?: unknown) => {
+      emitAuthDebug('google:widget-error', {
+        apiUrl: apiUrl || 'auto-detect',
+        netlifySiteURL: localStorage.getItem('netlifySiteURL'),
+        message: extractErrorMessage(error),
+      });
+      try { onError(error); } catch {}
     };
     netlifyIdentity.on('login', onLogin as any);
     netlifyIdentity.on('error', onErrorHandler as any);
@@ -44,6 +66,10 @@ export const GoogleOAuthButton: React.FC<GoogleOAuthButtonProps> = ({
 
   const handleClick = () => {
     if (disabled) return;
+    emitAuthDebug('google:widget-open', {
+      apiUrl: getNetlifyIdentityApiUrl() || 'auto-detect',
+      netlifySiteURL: localStorage.getItem('netlifySiteURL'),
+    });
     netlifyIdentity.open('login');
   };
 
