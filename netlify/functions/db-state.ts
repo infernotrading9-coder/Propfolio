@@ -37,6 +37,7 @@ export const handler: Handler = async (event) => {
       id: c.id,
       propFirmId: c.firmId,
       brokerName: c.brokerName || 'Trading Account',
+      accountLast4: c.accountLast4 || undefined,
       purchaseGroupId: c.purchaseGroupId || undefined,
       purchaseGroupLabel: c.purchaseGroupLabel || undefined,
       purchaseGroupSize: c.purchaseGroupSize || undefined,

@@ -112,6 +112,7 @@ export function addChallenge(state: AppState, input: NewChallengeInput): { state
     id: uuidv4(),
     propFirmId: input.propFirmId,
     brokerName: input.brokerName.trim(),
+    accountLast4: input.accountLast4?.trim() || undefined,
     firmType: input.firmType,
     evalType: input.evalType,
     liveAccount: !!input.liveAccount,

@@ -152,6 +152,7 @@ export const ChallengeForm: React.FC<{
   });
   const [accountQuantity, setAccountQuantity] = React.useState<number>(initial ? (initial.purchaseGroupSize ?? 1) : 1);
   const [accountQuantityStr, setAccountQuantityStr] = React.useState(String(initial ? (initial.purchaseGroupSize ?? 1) : 1));
+  const [accountLast4, setAccountLast4] = React.useState(initial?.accountLast4 ?? '');
   const [purchaseGroupLabel, setPurchaseGroupLabel] = React.useState(initial?.purchaseGroupLabel ?? '');
   
   // Refresh date when buildingMode changes or when component mounts in build mode
@@ -254,6 +255,7 @@ export const ChallengeForm: React.FC<{
           ...initial,
           propFirmId: finalPropFirmId,
           brokerName: initial.brokerName || 'Trading Account',
+          accountLast4: accountLast4.trim() || undefined,
           purchaseGroupId: initial.purchaseGroupId,
           purchaseGroupLabel: initial.purchaseGroupLabel,
           purchaseGroupSize: initial.purchaseGroupSize,
@@ -284,6 +286,7 @@ export const ChallengeForm: React.FC<{
         onSubmit({
           propFirmId: finalPropFirmId,
           brokerName: 'Trading Account',
+          accountLast4: accountLast4.trim() || undefined,
           purchaseGroupLabel: purchaseGroupLabel.trim() || undefined,
           accountQuantity,
           accountSize,
@@ -315,6 +318,7 @@ export const ChallengeForm: React.FC<{
         setEvalType('');
         setAccountQuantity(1);
         setAccountQuantityStr('1');
+        setAccountLast4('');
         setPurchaseGroupLabel('');
         // Reset the cleared flags
         setAccountSizeCleared(false);
@@ -411,7 +415,24 @@ export const ChallengeForm: React.FC<{
               <span className="text-xs text-green-400">✨ New firm "{propFirmName}" will be created</span>
             )}
           </div>
-        
+
+          {/* Account # (last 4) */}
+          <div className="flex min-w-0 flex-col gap-1">
+            <label className="text-xs text-white/60">Account # (last 4)</label>
+            <input
+              type="text"
+              maxLength={4}
+              value={accountLast4}
+              onChange={e => {
+                setAccountLast4(e.target.value.replace(/\D/g, ''));
+                setErrors(prev => ({ ...prev, accountLast4: '' }));
+              }}
+              className={inputClasses('accountLast4')}
+              disabled={formDisabled}
+              placeholder="e.g., 0287"
+            />
+          </div>
+       
           {/* Account Size - Second */}
           <div className="flex min-w-0 flex-col gap-1">
             <label className="text-xs text-white/60">Account Size</label>

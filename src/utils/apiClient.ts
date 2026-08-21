@@ -89,6 +89,7 @@ class ApiClient {
         body: JSON.stringify({
           propFirmId: mappedFirmId,
           brokerName: challenge.brokerName,
+          accountLast4: challenge.accountLast4,
           purchaseGroupId: challenge.purchaseGroupId,
           purchaseGroupLabel: challenge.purchaseGroupLabel,
           purchaseGroupSize: challenge.purchaseGroupSize,

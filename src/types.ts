@@ -24,6 +24,7 @@ export interface Challenge {
   id: string;
   propFirmId: string;
   brokerName: string; // user-input broker name
+  accountLast4?: string; // last 4 digits of account number, links to Focus Hub
   purchaseGroupId?: string;
   purchaseGroupLabel?: string;
   purchaseGroupSize?: number;
@@ -105,6 +106,7 @@ export type NewFirmInput = { name: string; firmType?: FirmType };
 export type NewChallengeInput = {
   propFirmId: string;
   brokerName: string;
+  accountLast4?: string; // last 4 digits of account number, links to Focus Hub
   purchaseGroupId?: string;
   purchaseGroupLabel?: string;
   purchaseGroupSize?: number;

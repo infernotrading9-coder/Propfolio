@@ -29,7 +29,8 @@ export const handler: Handler = async (event) => {
         liveAccount,
         totalPhases,
         strategy,
-        status
+        status,
+        accountLast4
       } = input
 
       let firmId = propFirmId
@@ -58,12 +59,14 @@ export const handler: Handler = async (event) => {
         totalPhases: Number(totalPhases) || 3,
         strategy: strategy || '',
         status: status || 'active',
+        accountLast4: accountLast4 || null,
       } as any)
 
       const challenge = {
         id: row.id,
         propFirmId: row.firmId,
         brokerName: row.brokerName || 'Trading Account',
+        accountLast4: (row as any).accountLast4 || undefined,
         purchaseGroupId: row.purchaseGroupId || undefined,
         purchaseGroupLabel: row.purchaseGroupLabel || undefined,
         purchaseGroupSize: row.purchaseGroupSize || undefined,
@@ -118,6 +121,7 @@ export const handler: Handler = async (event) => {
       if (updates.liveAccount !== undefined) dbUpdates.liveAccount = !!updates.liveAccount
       if (updates.totalPhases !== undefined) dbUpdates.totalPhases = updates.totalPhases
       if (updates.strategy !== undefined) dbUpdates.strategy = updates.strategy
+      if (updates.accountLast4 !== undefined) dbUpdates.accountLast4 = updates.accountLast4 || null
       if (updates.status) dbUpdates.status = updates.status
       
       // Handle phase fields - convert ISO strings to Date objects
