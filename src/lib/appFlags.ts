@@ -9,7 +9,14 @@ const browserAuthDebugEnabled = (() => {
   if (typeof window === 'undefined') return false;
   try {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('authDebug') === '1') return true;
+    if (params.get('authDebug') === '1') {
+      window.localStorage.setItem('propfolio_auth_debug', '1');
+      return true;
+    }
+    if (params.get('authDebug') === '0') {
+      window.localStorage.removeItem('propfolio_auth_debug');
+      return false;
+    }
     return window.localStorage.getItem('propfolio_auth_debug') === '1';
   } catch {
     return false;

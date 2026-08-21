@@ -90,6 +90,26 @@ const AuthDebugPanel: React.FC = () => {
     }
   }, [currentUser, location.pathname, events.length]);
 
+  const latestApiRequest = useMemo(
+    () => events.find(event => event?.type === 'api:request') || null,
+    [events]
+  );
+
+  const latestApiResponse = useMemo(
+    () => events.find(event => event?.type === 'api:response') || null,
+    [events]
+  );
+
+  const latestApiError = useMemo(
+    () => events.find(event => event?.type === 'api:error') || null,
+    [events]
+  );
+
+  const latestDbStateEvent = useMemo(
+    () => events.find(event => typeof event?.type === 'string' && String(event.type).startsWith('db-state:')) || null,
+    [events]
+  );
+
   useEffect(() => {
     const handler = (event: Event) => {
       const custom = event as CustomEvent;
@@ -209,6 +229,7 @@ const AuthDebugPanel: React.FC = () => {
         <div className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-1">
           <div>Path: <span className="text-cyan-200">{location.pathname}</span></div>
           <div>Loading: <span className="text-cyan-200">{String(loading)}</span></div>
+          <div>Auth Debug Enabled: <span className="text-cyan-200">{localStorage.getItem('propfolio_auth_debug') === '1' ? 'yes' : 'no'}</span></div>
           <div>Current User ID: <span className="text-cyan-200">{(currentUser as any)?.id || 'none'}</span></div>
           <div>Current User: <span className="text-cyan-200">{currentUser?.email || 'none'}</span></div>
           <div>Current Name: <span className="text-cyan-200">{currentUser?.name || 'none'}</span></div>
@@ -221,6 +242,18 @@ const AuthDebugPanel: React.FC = () => {
           <div className="text-white/70 font-medium mb-2">Identity Snapshot</div>
           <pre className="whitespace-pre-wrap break-all rounded-lg bg-white/5 p-2 border border-white/5 text-[11px] text-white/80">
             {JSON.stringify(identitySnapshot, null, 2)}
+          </pre>
+        </div>
+
+        <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div className="text-white/70 font-medium mb-2">API Snapshot</div>
+          <pre className="whitespace-pre-wrap break-all rounded-lg bg-white/5 p-2 border border-white/5 text-[11px] text-white/80">
+            {JSON.stringify({
+              latestApiRequest,
+              latestApiResponse,
+              latestApiError,
+              latestDbStateEvent,
+            }, null, 2)}
           </pre>
         </div>
 
