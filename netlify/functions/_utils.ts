@@ -64,5 +64,24 @@ export const getUserFromSession = async (event: Parameters<Handler>[0]) => {
     return user || null
   }
 
+  // 4) Header fallback when the browser has email but not an identity id yet
+  if (headerEmail) {
+    let user = await userService.getByEmail(headerEmail as string)
+    if (!user) {
+      try {
+        user = await userService.create({
+          id: crypto.randomUUID(),
+          email: headerEmail as string,
+          name: headerName as any,
+        } as any)
+      } catch (e) {
+        try {
+          user = await userService.getByEmail(headerEmail as string)
+        } catch {}
+      }
+    }
+    return user || null
+  }
+
   return null
 }
