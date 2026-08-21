@@ -39,6 +39,8 @@ const Dashboard: React.FC = () => {
       return null;
     }
   }, [currentUser]);
+  const effectiveUserKey = effectiveUser?.id || effectiveUser?.email || null;
+  const canUseServerSession = Boolean(effectiveUser?.id || effectiveUser?.email);
   
   const [state, setState] = React.useState<AppState>({
     firms: [],
@@ -96,14 +98,14 @@ const Dashboard: React.FC = () => {
   // Load data from database when user changes
   React.useEffect(() => {
     const loadData = async () => {
-      if (!effectiveUser?.id) {
+      if (!canUseServerSession || !effectiveUserKey) {
         setLoading(false);
         return;
       }
       
       try {
-        console.log('📁 Loading data via API for user:', effectiveUser.id);
-        const loadedState = await apiClient.loadState(effectiveUser.id);
+        console.log('📁 Loading data via API for user:', effectiveUserKey);
+        const loadedState = await apiClient.loadState(effectiveUserKey);
         console.log('✅ Data loaded successfully:', loadedState);
         setState(loadedState);
       } catch (error) {
@@ -116,13 +118,13 @@ const Dashboard: React.FC = () => {
     };
     
     loadData();
-  }, [effectiveUser?.id, effectiveUser?.email, effectiveUser?.name]);
+  }, [canUseServerSession, effectiveUserKey, effectiveUser?.name]);
   
   // Helper function to refresh state after database operations
   const refreshState = async () => {
-    if (!effectiveUser?.id) return;
+    if (!canUseServerSession || !effectiveUserKey) return;
     try {
-      const newState = await apiClient.loadState(effectiveUser.id);
+      const newState = await apiClient.loadState(effectiveUserKey);
       setState(newState);
     } catch (error) {
       console.error('Error refreshing state:', error);
