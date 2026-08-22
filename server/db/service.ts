@@ -1,6 +1,6 @@
 import { eq, and, desc, asc } from 'drizzle-orm';
 import { db } from './connection';
-import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, trades, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts } from './schema';
+import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, trades, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState } from './schema';
 
 // Type aliases for the original schema
 type User = typeof users.$inferSelect;
@@ -646,5 +646,27 @@ export const budgetAccountService = {
 
   async delete(id: string): Promise<void> {
     await db.delete(budgetAccounts).where(eq(budgetAccounts.id, id));
+  },
+};
+
+// Budget state operations (full BudgetFlow state as JSONB, one row per user)
+export const budgetStateService = {
+  async getByUserId(userId: string): Promise<any | null> {
+    const result = await db.select().from(budgetState).where(eq(budgetState.userId, userId)).limit(1);
+    return result[0]?.state ?? null;
+  },
+
+  async upsert(userId: string, state: any): Promise<any> {
+    const existing = await db.select().from(budgetState).where(eq(budgetState.userId, userId)).limit(1);
+    if (existing[0]) {
+      const updated = await db
+        .update(budgetState)
+        .set({ state, updatedAt: new Date() })
+        .where(eq(budgetState.userId, userId))
+        .returning();
+      return updated[0].state;
+    }
+    const inserted = await db.insert(budgetState).values({ userId, state }).returning();
+    return inserted[0].state;
   },
 };

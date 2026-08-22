@@ -26,9 +26,10 @@ import { RulesCompliancePrompt } from './RulesCompliancePrompt';
 import { ListChecks } from 'lucide-react';
 import { TradesView } from './TradesView';
 import { AccountsView } from './AccountsView';
+import BudgetTab, { type BudgetState } from './BudgetTab';
 import { inferHighestMilestone, inferOutcomeType } from '../utils/challengeLifecycle';
 
-type ViewMode = 'prop' | 'calendar' | 'trades' | 'accounts';
+type ViewMode = 'prop' | 'calendar' | 'trades' | 'accounts' | 'budget';
 
 const Dashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -161,6 +162,52 @@ const Dashboard: React.FC = () => {
   const [serverCalAccounts, setServerCalAccounts] = React.useState<Array<{ id: string; name: string; challengeId?: string; isActive: boolean; createdAt: string }>>([]);
   const [serverCalEntries, setServerCalEntries] = React.useState<Record<string, Array<{ id: string; date: string; followedRules: boolean | null; ruleCompliance?: Record<string, boolean> | null; notes?: string }>>>({});
   const [serverCalLoaded, setServerCalLoaded] = React.useState(false);
+
+  // ─── Budget tab state (BudgetFlow), persisted server-side as JSONB ─────────
+  const [budgetState, setBudgetState] = React.useState<BudgetState | undefined>(undefined);
+  const [budgetLoaded, setBudgetLoaded] = React.useState(false);
+
+  const budgetAuthHeaders = React.useCallback(() => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    try {
+      const raw = localStorage.getItem('user');
+      if (raw) {
+        const u = JSON.parse(raw);
+        if (u?.id) headers['X-User-Id'] = String(u.id);
+        if (u?.email) headers['X-User-Email'] = String(u.email);
+        if (u?.name) headers['X-User-Name'] = String(u.name);
+      }
+    } catch {}
+    return headers;
+  }, []);
+
+  React.useEffect(() => {
+    if (!effectiveUserKey || budgetLoaded) return;
+    (async () => {
+      try {
+        const res = await fetch('/.netlify/functions/db-budget-state', {
+          headers: budgetAuthHeaders(),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.state) setBudgetState(data.state as BudgetState);
+        }
+      } catch (e) {
+        console.error('Failed to load budget state', e);
+      } finally {
+        setBudgetLoaded(true);
+      }
+    })();
+  }, [effectiveUserKey, budgetLoaded, budgetAuthHeaders]);
+
+  const handleBudgetChange = React.useCallback((next: BudgetState) => {
+    setBudgetState(next);
+    fetch('/.netlify/functions/db-budget-state', {
+      method: 'PUT',
+      headers: budgetAuthHeaders(),
+      body: JSON.stringify({ state: next }),
+    }).catch((e) => console.error('Failed to save budget state', e));
+  }, [budgetAuthHeaders]);
 
   // Load server calendar accounts + entries, and migrate localStorage data
   React.useEffect(() => {
@@ -939,14 +986,18 @@ const Dashboard: React.FC = () => {
             <button onClick={() => setView('prop')} className={`px-4 py-2 rounded-md border ${view==='prop' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Prop Firm Dashboard</button>
             <button onClick={() => setView('accounts')} className={`px-4 py-2 rounded-md border ${view==='accounts' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Accounts</button>
             <button onClick={() => setView('trades')} className={`px-4 py-2 rounded-md border ${view==='trades' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Trades</button>
+            <button onClick={() => setView('budget')} className={`px-4 py-2 rounded-md border ${view==='budget' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Budget</button>
           </div>
           <a href="/" className="inline-block mb-2 hover:scale-105 transition-transform duration-200">
-            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='accounts' ? 'Trading Accounts' : view==='trades' ? 'Trade Log' : 'Propfolio'}</h1>
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='accounts' ? 'Trading Accounts' : view==='trades' ? 'Trade Log' : view==='budget' ? 'Budget' : 'Propfolio'}</h1>
           </a>
-          <p className="text-white/70 mt-2">{view==='accounts' ? 'Manage your trading accounts and daily order' : view==='trades' ? 'Log trades and track win rate, R:R, behaviors, and P&L' : 'Track Challenges, Trading Rules, and ROI'}</p>
+          <p className="text-white/70 mt-2">{view==='accounts' ? 'Manage your trading accounts and daily order' : view==='trades' ? 'Log trades and track win rate, R:R, behaviors, and P&L' : view==='budget' ? 'Track income, expenses, accounts, debts, and savings goals' : 'Track Challenges, Trading Rules, and ROI'}</p>
         </header>
 
         <div className="space-y-6">
+          {view === 'budget' && (
+            <BudgetTab state={budgetState} onChange={handleBudgetChange} />
+          )}
           {view === 'trades' && (
             <TradesView
               apiBase="/.netlify/functions"

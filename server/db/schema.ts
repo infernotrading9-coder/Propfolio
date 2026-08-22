@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, boolean, decimal, uuid } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, boolean, decimal, uuid, jsonb } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Users table (matches existing structure)
@@ -248,6 +248,15 @@ export const budgetAccounts = pgTable('budget_accounts', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+// Full BudgetFlow state as JSONB (one row per user)
+export const budgetState = pgTable('budget_state', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull().unique(),
+  state: jsonb('state').notNull().default({}),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 // Export types
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -277,3 +286,5 @@ export type BudgetTransaction = typeof budgetTransactions.$inferSelect;
 export type NewBudgetTransaction = typeof budgetTransactions.$inferInsert;
 export type BudgetAccount = typeof budgetAccounts.$inferSelect;
 export type NewBudgetAccount = typeof budgetAccounts.$inferInsert;
+export type BudgetStateRow = typeof budgetState.$inferSelect;
+export type NewBudgetStateRow = typeof budgetState.$inferInsert;
