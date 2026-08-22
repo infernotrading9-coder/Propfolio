@@ -219,6 +219,35 @@ export const userStateRelations = relations(userState, ({ one }) => ({
   selectedFirm: one(firms, { fields: [userState.selectedFirmId], references: [firms.id] }),
 }));
 
+// Budget transactions table (migrated from BudgetFlow localStorage)
+export const budgetTransactions = pgTable('budget_transactions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  date: text('date'), // YYYY-MM-DD
+  description: text('description'),
+  amount: decimal('amount', { precision: 10, scale: 2 }),
+  category: text('category'),
+  subcategory: text('subcategory'),
+  accountName: text('account_name'),
+  type: text('type'), // 'income' | 'expense' | 'transfer' | 'adjustment'
+  expenseGroup: text('expense_group').default('living'), // 'living' | 'trading'
+  excluded: boolean('excluded').default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// Budget accounts table (migrated from BudgetFlow localStorage)
+export const budgetAccounts = pgTable('budget_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  name: text('name'),
+  balance: decimal('balance', { precision: 10, scale: 2 }).default('0'),
+  type: text('type').default('checking'),
+  debt: boolean('debt').default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 // Export types
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -244,3 +273,7 @@ export type CalendarAccount = typeof calendarAccounts.$inferSelect;
 export type NewCalendarAccount = typeof calendarAccounts.$inferInsert;
 export type CalendarEntry = typeof calendarEntries.$inferSelect;
 export type NewCalendarEntry = typeof calendarEntries.$inferInsert;
+export type BudgetTransaction = typeof budgetTransactions.$inferSelect;
+export type NewBudgetTransaction = typeof budgetTransactions.$inferInsert;
+export type BudgetAccount = typeof budgetAccounts.$inferSelect;
+export type NewBudgetAccount = typeof budgetAccounts.$inferInsert;

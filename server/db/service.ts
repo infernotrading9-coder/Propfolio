@@ -1,6 +1,6 @@
 import { eq, and, desc, asc } from 'drizzle-orm';
 import { db } from './connection';
-import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, trades, accountDailyOrder, calendarAccounts, calendarEntries } from './schema';
+import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, trades, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts } from './schema';
 
 // Type aliases for the original schema
 type User = typeof users.$inferSelect;
@@ -27,6 +27,10 @@ type CalendarAccount = typeof calendarAccounts.$inferSelect;
 type NewCalendarAccount = typeof calendarAccounts.$inferInsert;
 type CalendarEntry = typeof calendarEntries.$inferSelect;
 type NewCalendarEntry = typeof calendarEntries.$inferInsert;
+type BudgetTransaction = typeof budgetTransactions.$inferSelect;
+type NewBudgetTransaction = typeof budgetTransactions.$inferInsert;
+type BudgetAccount = typeof budgetAccounts.$inferSelect;
+type NewBudgetAccount = typeof budgetAccounts.$inferInsert;
 
 // User operations
 export const userService = {
@@ -574,5 +578,73 @@ export const dashboardService = {
 
   async updateSelectedFirm(userId: string, firmId: string | null): Promise<void> {
     await userStateService.upsert(userId, { selectedFirmId: firmId });
+  },
+};
+
+// Budget transaction operations
+export const budgetTransactionService = {
+  async getByUserId(userId: string): Promise<BudgetTransaction[]> {
+    return db
+      .select()
+      .from(budgetTransactions)
+      .where(eq(budgetTransactions.userId, userId))
+      .orderBy(desc(budgetTransactions.date), desc(budgetTransactions.createdAt));
+  },
+
+  async getById(id: string): Promise<BudgetTransaction | null> {
+    const result = await db.select().from(budgetTransactions).where(eq(budgetTransactions.id, id)).limit(1);
+    return result[0] || null;
+  },
+
+  async create(userId: string, data: Omit<NewBudgetTransaction, 'userId'>): Promise<BudgetTransaction> {
+    const result = await db.insert(budgetTransactions).values({ ...data, userId }).returning();
+    return result[0];
+  },
+
+  async update(id: string, data: Partial<NewBudgetTransaction>): Promise<BudgetTransaction> {
+    const result = await db
+      .update(budgetTransactions)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(budgetTransactions.id, id))
+      .returning();
+    return result[0];
+  },
+
+  async delete(id: string): Promise<void> {
+    await db.delete(budgetTransactions).where(eq(budgetTransactions.id, id));
+  },
+};
+
+// Budget account operations
+export const budgetAccountService = {
+  async getByUserId(userId: string): Promise<BudgetAccount[]> {
+    return db
+      .select()
+      .from(budgetAccounts)
+      .where(eq(budgetAccounts.userId, userId))
+      .orderBy(asc(budgetAccounts.createdAt));
+  },
+
+  async getById(id: string): Promise<BudgetAccount | null> {
+    const result = await db.select().from(budgetAccounts).where(eq(budgetAccounts.id, id)).limit(1);
+    return result[0] || null;
+  },
+
+  async create(userId: string, data: Omit<NewBudgetAccount, 'userId'>): Promise<BudgetAccount> {
+    const result = await db.insert(budgetAccounts).values({ ...data, userId }).returning();
+    return result[0];
+  },
+
+  async update(id: string, data: Partial<NewBudgetAccount>): Promise<BudgetAccount> {
+    const result = await db
+      .update(budgetAccounts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(budgetAccounts.id, id))
+      .returning();
+    return result[0];
+  },
+
+  async delete(id: string): Promise<void> {
+    await db.delete(budgetAccounts).where(eq(budgetAccounts.id, id));
   },
 };
