@@ -91,6 +91,60 @@ export const payouts = pgTable('payouts', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// Trading accounts table (migrated from Focus Hub blobs)
+export const tradingAccounts = pgTable('trading_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  name: text('name').notNull(), // e.g. "Acct 0006"
+  firm: text('firm').notNull(), // e.g. "Tradify", "Apex"
+  accountNumberLast4: text('account_number_last4'), // last 4 digits
+  accountSize: decimal('account_size', { precision: 12, scale: 2 }).notNull().default('0'),
+  balance: decimal('balance', { precision: 12, scale: 2 }).notNull().default('0'),
+  drawdownUsed: decimal('drawdown_used', { precision: 12, scale: 2 }).notNull().default('0'),
+  highWaterMark: decimal('high_water_mark', { precision: 12, scale: 2 }).notNull().default('0'),
+  maxDrawdown: decimal('max_drawdown', { precision: 12, scale: 2 }).default('0'),
+  dailyDrawdown: decimal('daily_drawdown', { precision: 12, scale: 2 }).default('0'),
+  riskPerTrade: decimal('risk_per_trade', { precision: 12, scale: 2 }).default('0'),
+  rules: text('rules').array(), // array of rule strings
+  notes: text('notes'),
+  status: text('status').default('active'), // 'active', 'paused', 'failed', 'passed'
+  phase: text('phase').default('challenge'), // 'challenge', 'funded', 'live'
+  platform: text('platform'),
+  groupName: text('group_name'),
+  sortOrder: integer('sort_order').default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Trades table - individual trade log
+export const trades = pgTable('trades', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  accountId: uuid('account_id').references(() => tradingAccounts.id).notNull(),
+  direction: text('direction'), // 'long' or 'short'
+  instrument: text('instrument'), // e.g. "NQ", "ES", "CL"
+  entryPrice: decimal('entry_price', { precision: 12, scale: 4 }),
+  exitPrice: decimal('exit_price', { precision: 12, scale: 4 }),
+  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(), // P&L in dollars
+  result: text('result').notNull(), // 'win' or 'loss'
+  riskReward: decimal('risk_reward', { precision: 6, scale: 2 }), // e.g. 2.5 = 2.5R
+  rulesFollowed: boolean('rules_followed').default(true),
+  notes: text('notes'),
+  tradeDate: timestamp('trade_date').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Daily account ordering - which accounts to trade first each day
+export const accountDailyOrder = pgTable('account_daily_order', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  orderDate: text('order_date').notNull(), // YYYY-MM-DD
+  orderedAccountIds: text('ordered_account_ids').array().notNull(), // array of trading_accounts IDs in priority order
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // User state table for storing user preferences
 export const userState = pgTable('user_state', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -151,3 +205,9 @@ export type Payout = typeof payouts.$inferSelect;
 export type NewPayout = typeof payouts.$inferInsert;
 export type UserState = typeof userState.$inferSelect;
 export type NewUserState = typeof userState.$inferInsert;
+export type TradingAccount = typeof tradingAccounts.$inferSelect;
+export type NewTradingAccount = typeof tradingAccounts.$inferInsert;
+export type Trade = typeof trades.$inferSelect;
+export type NewTrade = typeof trades.$inferInsert;
+export type AccountDailyOrder = typeof accountDailyOrder.$inferSelect;
+export type NewAccountDailyOrder = typeof accountDailyOrder.$inferInsert;

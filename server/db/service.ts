@@ -1,6 +1,6 @@
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, asc } from 'drizzle-orm';
 import { db } from './connection';
-import { users, subscriptions, firms, challenges, userState, payouts, sessions } from './schema';
+import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, trades, accountDailyOrder } from './schema';
 
 // Type aliases for the original schema
 type User = typeof users.$inferSelect;
@@ -17,6 +17,12 @@ type Payout = typeof payouts.$inferSelect;
 type NewPayout = typeof payouts.$inferInsert;
 type Session = typeof sessions.$inferSelect;
 type NewSession = typeof sessions.$inferInsert;
+type TradingAccount = typeof tradingAccounts.$inferSelect;
+type NewTradingAccount = typeof tradingAccounts.$inferInsert;
+type Trade = typeof trades.$inferSelect;
+type NewTrade = typeof trades.$inferInsert;
+type AccountDailyOrder = typeof accountDailyOrder.$inferSelect;
+type NewAccountDailyOrder = typeof accountDailyOrder.$inferInsert;
 
 // User operations
 export const userService = {
@@ -233,6 +239,159 @@ export const userStateService = {
     } else {
       return this.create(userId, stateData as Omit<NewUserState, 'userId'>);
     }
+  },
+};
+
+// Trading account operations
+export const tradingAccountService = {
+  async getByUserId(userId: string): Promise<TradingAccount[]> {
+    return db
+      .select()
+      .from(tradingAccounts)
+      .where(eq(tradingAccounts.userId, userId))
+      .orderBy(asc(tradingAccounts.sortOrder), desc(tradingAccounts.createdAt));
+  },
+
+  async getById(id: string): Promise<TradingAccount | null> {
+    const result = await db.select().from(tradingAccounts).where(eq(tradingAccounts.id, id)).limit(1);
+    return result[0] || null;
+  },
+
+  async create(userId: string, data: Omit<NewTradingAccount, 'userId'>): Promise<TradingAccount> {
+    const result = await db.insert(tradingAccounts).values({ ...data, userId }).returning();
+    return result[0];
+  },
+
+  async update(id: string, data: Partial<NewTradingAccount>): Promise<TradingAccount> {
+    const result = await db
+      .update(tradingAccounts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(tradingAccounts.id, id))
+      .returning();
+    return result[0];
+  },
+
+  async delete(id: string): Promise<void> {
+    await db.delete(tradingAccounts).where(eq(tradingAccounts.id, id));
+  },
+
+  async updateBalance(id: string, balance: number, drawdownUsed: number, highWaterMark: number): Promise<TradingAccount> {
+    return this.update(id, { 
+      balance: String(balance), 
+      drawdownUsed: String(drawdownUsed), 
+      highWaterMark: String(highWaterMark) 
+    } as any);
+  },
+
+  async reorder(userId: string, orderedIds: string[]): Promise<void> {
+    for (let i = 0; i < orderedIds.length; i++) {
+      await db
+        .update(tradingAccounts)
+        .set({ sortOrder: i, updatedAt: new Date() })
+        .where(and(eq(tradingAccounts.id, orderedIds[i]), eq(tradingAccounts.userId, userId)));
+    }
+  },
+};
+
+// Trade operations
+export const tradeService = {
+  async getByUserId(userId: string, limit?: number): Promise<Trade[]> {
+    if (limit) {
+      return db.select().from(trades).where(eq(trades.userId, userId)).orderBy(desc(trades.tradeDate)).limit(limit);
+    }
+    return db.select().from(trades).where(eq(trades.userId, userId)).orderBy(desc(trades.tradeDate));
+  },
+
+  async getByAccountId(accountId: string): Promise<Trade[]> {
+    return db.select().from(trades).where(eq(trades.accountId, accountId)).orderBy(desc(trades.tradeDate));
+  },
+
+  async create(userId: string, data: Omit<NewTrade, 'userId'>): Promise<Trade> {
+    const result = await db.insert(trades).values({ ...data, userId }).returning();
+    return result[0];
+  },
+
+  async delete(id: string): Promise<void> {
+    await db.delete(trades).where(eq(trades.id, id));
+  },
+
+  async getStats(userId: string): Promise<{
+    totalTrades: number;
+    wins: number;
+    losses: number;
+    winRate: number;
+    totalPnL: number;
+    avgRR: number;
+    avgWin: number;
+    avgLoss: number;
+    bestTrade: number;
+    worstTrade: number;
+  }> {
+    const allTrades = await db.select().from(trades).where(eq(trades.userId, userId));
+    const wins = allTrades.filter(t => t.result === 'win');
+    const losses = allTrades.filter(t => t.result === 'loss');
+    const totalPnL = allTrades.reduce((sum, t) => sum + parseFloat(String(t.amount)), 0);
+    const rrValues = allTrades.filter(t => t.riskReward).map(t => parseFloat(String(t.riskReward)));
+    const winAmounts = wins.map(t => parseFloat(String(t.amount)));
+    const lossAmounts = losses.map(t => parseFloat(String(t.amount)));
+    return {
+      totalTrades: allTrades.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRate: allTrades.length > 0 ? (wins.length / allTrades.length) * 100 : 0,
+      totalPnL,
+      avgRR: rrValues.length > 0 ? rrValues.reduce((a, b) => a + b, 0) / rrValues.length : 0,
+      avgWin: winAmounts.length > 0 ? winAmounts.reduce((a, b) => a + b, 0) / winAmounts.length : 0,
+      avgLoss: lossAmounts.length > 0 ? lossAmounts.reduce((a, b) => a + b, 0) / lossAmounts.length : 0,
+      bestTrade: winAmounts.length > 0 ? Math.max(...winAmounts) : 0,
+      worstTrade: lossAmounts.length > 0 ? Math.min(...lossAmounts) : 0,
+    };
+  },
+};
+
+// Daily account order operations
+export const accountDailyOrderService = {
+  async getByDate(userId: string, date: string): Promise<AccountDailyOrder | null> {
+    const result = await db
+      .select()
+      .from(accountDailyOrder)
+      .where(and(eq(accountDailyOrder.userId, userId), eq(accountDailyOrder.orderDate, date)))
+      .limit(1);
+    return result[0] || null;
+  },
+
+  async getByUserId(userId: string): Promise<AccountDailyOrder[]> {
+    return db
+      .select()
+      .from(accountDailyOrder)
+      .where(eq(accountDailyOrder.userId, userId))
+      .orderBy(desc(accountDailyOrder.orderDate));
+  },
+
+  async upsert(userId: string, data: { orderDate: string; orderedAccountIds: string[]; notes?: string }): Promise<AccountDailyOrder> {
+    const existing = await this.getByDate(userId, data.orderDate);
+    if (existing) {
+      const result = await db
+        .update(accountDailyOrder)
+        .set({ 
+          orderedAccountIds: data.orderedAccountIds, 
+          notes: data.notes || null,
+          updatedAt: new Date() 
+        })
+        .where(eq(accountDailyOrder.id, existing.id))
+        .returning();
+      return result[0];
+    } else {
+      const result = await db
+        .insert(accountDailyOrder)
+        .values({ ...data, userId })
+        .returning();
+      return result[0];
+    }
+  },
+
+  async delete(id: string): Promise<void> {
+    await db.delete(accountDailyOrder).where(eq(accountDailyOrder.id, id));
   },
 };
 

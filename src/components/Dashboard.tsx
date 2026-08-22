@@ -24,8 +24,10 @@ import { DebugWindow } from './DebugWindow';
 import { RulesManagementModal } from './RulesManagementModal';
 import { RulesCompliancePrompt } from './RulesCompliancePrompt';
 import { ListChecks } from 'lucide-react';
+import { TradesView } from './TradesView';
+import { AccountsView } from './AccountsView';
 
-type ViewMode = 'prop' | 'calendar';
+type ViewMode = 'prop' | 'calendar' | 'trades' | 'accounts';
 
 const Dashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -853,18 +855,56 @@ const Dashboard: React.FC = () => {
 
           <div className="mb-4 flex flex-wrap items-center justify-center gap-3">
             <button onClick={() => setView('prop')} className={`px-4 py-2 rounded-md border ${view==='prop' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Prop Firm Dashboard</button>
+            <button onClick={() => setView('trades')} className={`px-4 py-2 rounded-md border ${view==='trades' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Trades</button>
+            <button onClick={() => setView('accounts')} className={`px-4 py-2 rounded-md border ${view==='accounts' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Accounts</button>
             {ruleCalendarEnabled && (
               <button onClick={() => setView('calendar')} className={`px-4 py-2 rounded-md border ${view==='calendar' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Rule Calendar</button>
             )}
           </div>
           <a href="/" className="inline-block mb-2 hover:scale-105 transition-transform duration-200">
-            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='calendar' && ruleCalendarEnabled ? 'Rule Calendar' : 'Propfolio'}</h1>
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='calendar' && ruleCalendarEnabled ? 'Rule Calendar' : view==='trades' ? 'Trade Log' : view==='accounts' ? 'Trading Accounts' : 'Propfolio'}</h1>
           </a>
-          <p className="text-white/70 mt-2">{view==='calendar' && ruleCalendarEnabled ? 'Track your challenge phases and trading activity' : 'Track Challenges, Trading Rules, and ROI'}</p>
+          <p className="text-white/70 mt-2">{view==='calendar' && ruleCalendarEnabled ? 'Track your challenge phases and trading activity' : view==='trades' ? 'Log trades and track win rate, R:R, and P&L' : view==='accounts' ? 'Manage your trading accounts and daily order' : 'Track Challenges, Trading Rules, and ROI'}</p>
         </header>
 
         <div className="space-y-6">
-          {view !== 'calendar' || !ruleCalendarEnabled ? (
+          {view === 'trades' && (
+            <TradesView
+              apiBase="/.netlify/functions"
+              getAuthHeaders={() => {
+                const headers: Record<string, string> = {};
+                try {
+                  const raw = localStorage.getItem('user');
+                  if (raw) {
+                    const u = JSON.parse(raw);
+                    if (u?.id) headers['X-User-Id'] = String(u.id);
+                    if (u?.email) headers['X-User-Email'] = String(u.email);
+                    if (u?.name) headers['X-User-Name'] = String(u.name);
+                  }
+                } catch {}
+                return headers;
+              }}
+            />
+          )}
+          {view === 'accounts' && (
+            <AccountsView
+              apiBase="/.netlify/functions"
+              getAuthHeaders={() => {
+                const headers: Record<string, string> = {};
+                try {
+                  const raw = localStorage.getItem('user');
+                  if (raw) {
+                    const u = JSON.parse(raw);
+                    if (u?.id) headers['X-User-Id'] = String(u.id);
+                    if (u?.email) headers['X-User-Email'] = String(u.email);
+                    if (u?.name) headers['X-User-Name'] = String(u.name);
+                  }
+                } catch {}
+                return headers;
+              }}
+            />
+          )}
+          {view === 'prop' ? (
             <>
               <PropFirmPicker
                 firms={state.firms}
