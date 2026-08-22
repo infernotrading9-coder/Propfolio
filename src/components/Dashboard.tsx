@@ -156,6 +156,66 @@ const Dashboard: React.FC = () => {
   });
   React.useEffect(() => { saveCalendar(calendar); }, [calendar]);
 
+  // Server-backed calendar accounts + entries (for AccountsView combined calendar)
+  const [serverCalAccounts, setServerCalAccounts] = React.useState<Array<{ id: string; name: string; challengeId?: string; isActive: boolean; createdAt: string }>>([]);
+  const [serverCalEntries, setServerCalEntries] = React.useState<Record<string, Array<{ id: string; date: string; followedRules: boolean | null; ruleCompliance?: Record<string, boolean> | null; notes?: string }>>>({});
+  const [serverCalLoaded, setServerCalLoaded] = React.useState(false);
+
+  // Load server calendar accounts + entries, and migrate localStorage data
+  React.useEffect(() => {
+    if (!effectiveUserKey || serverCalLoaded) return;
+    (async () => {
+      const data = await apiClient.loadCalendarAccounts();
+      if (data && data.accounts.length > 0) {
+        setServerCalAccounts(data.accounts);
+        setServerCalEntries(data.entries || {});
+      } else if (data && data.accounts.length === 0) {
+        // No server data yet — try migrating from localStorage
+        const localCal = loadCalendar();
+        if (localCal.accounts.length > 0) {
+          console.log('Migrating calendar data from localStorage to server...');
+          for (const acct of localCal.accounts) {
+            const result = await apiClient.createCalendarAccount(acct.name);
+            if (result?.account) {
+              const newId = result.account.id;
+              const acctData = localCal.accountData.find(d => d.accountId === acct.id);
+              if (acctData) {
+                for (const entry of acctData.entries) {
+                  await apiClient.upsertCalendarEntry(newId, entry.date, entry.followedRules ?? null, entry.ruleCompliance || null, entry.notes);
+                }
+              }
+            }
+          }
+          // Reload from server
+          const migrated = await apiClient.loadCalendarAccounts();
+          if (migrated) {
+            setServerCalAccounts(migrated.accounts);
+            setServerCalEntries(migrated.entries);
+          }
+        }
+      }
+      setServerCalLoaded(true);
+    })();
+  }, [effectiveUserKey, serverCalLoaded]);
+
+  // Handle upsert from the combined calendar in AccountsView
+  const handleServerCalEntryUpsert = React.useCallback(async (accountId: string, date: string, followedRules: boolean | null) => {
+    // Optimistic update
+    setServerCalEntries(prev => {
+      const existing = prev[accountId] || [];
+      const idx = existing.findIndex(e => e.date === date);
+      if (idx >= 0) {
+        const updated = [...existing];
+        updated[idx] = { ...updated[idx], followedRules };
+        return { ...prev, [accountId]: updated };
+      } else {
+        return { ...prev, [accountId]: [...existing, { id: crypto.randomUUID(), date, followedRules }] };
+      }
+    });
+    // Save to server
+    await apiClient.upsertCalendarEntry(accountId, date, followedRules);
+  }, []);
+
   // Ensure calendar accounts exist for all challenges (Phase 1) and Live accounts.
   // Batch changes into a single calendar update to avoid repeated expensive re-renders.
   React.useEffect(() => {
@@ -899,6 +959,9 @@ const Dashboard: React.FC = () => {
                 } catch {}
                 return headers;
               }}
+              calendarAccounts={serverCalAccounts}
+              calendarEntriesByAccount={serverCalEntries}
+              onCalendarEntryUpsert={handleServerCalEntryUpsert}
             />
           )}
           {view === 'prop' ? (

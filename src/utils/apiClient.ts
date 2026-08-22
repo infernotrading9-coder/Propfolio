@@ -14,6 +14,7 @@ function mapEndpoint(endpoint: string): string {
     '/payouts': '/db-payouts',
     '/mark-phase': '/db-phase',
     '/challenges/bulk-status': '/db-bulk',
+    '/calendar': '/db-calendar',
     // Auth (legacy email/password)
     '/auth/login': '/auth-login',
     '/auth/signup': '/auth-signup',
@@ -447,6 +448,55 @@ class ApiClient {
         updates: { phaseRules: completePhaseRules } 
       }) 
     });
+  }
+
+  // Calendar accounts + entries (server-backed)
+  async loadCalendarAccounts(): Promise<{
+    accounts: Array<{ id: string; name: string; challengeId?: string; isActive: boolean; createdAt: string }>;
+    entries: Record<string, Array<{ id: string; date: string; followedRules: boolean | null; ruleCompliance: Record<string, boolean> | null; notes?: string }>>;
+  } | null> {
+    if (this.useLocal()) return null;
+    try {
+      return await this.makeRequest('/calendar?action=all');
+    } catch {
+      return null;
+    }
+  }
+
+  async createCalendarAccount(name: string, challengeId?: string): Promise<{ account: any } | null> {
+    if (this.useLocal()) return null;
+    try {
+      return await this.makeRequest('/calendar', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'create-account', name, challengeId }),
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  async upsertCalendarEntry(calendarAccountId: string, date: string, followedRules: boolean | null, ruleCompliance?: Record<string, boolean> | null, notes?: string): Promise<void> {
+    if (this.useLocal()) return;
+    try {
+      await this.makeRequest('/calendar', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'upsert-entry', calendarAccountId, date, followedRules, ruleCompliance: ruleCompliance || null, notes: notes || null }),
+      });
+    } catch (e) {
+      console.error('Failed to upsert calendar entry:', e);
+    }
+  }
+
+  async deleteCalendarAccount(accountId: string): Promise<void> {
+    if (this.useLocal()) return;
+    try {
+      await this.makeRequest('/calendar', {
+        method: 'DELETE',
+        body: JSON.stringify({ accountId }),
+      });
+    } catch (e) {
+      console.error('Failed to delete calendar account:', e);
+    }
   }
 }
 

@@ -1,6 +1,6 @@
 import { eq, and, desc, asc } from 'drizzle-orm';
 import { db } from './connection';
-import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, trades, accountDailyOrder } from './schema';
+import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, trades, accountDailyOrder, calendarAccounts, calendarEntries } from './schema';
 
 // Type aliases for the original schema
 type User = typeof users.$inferSelect;
@@ -23,6 +23,10 @@ type Trade = typeof trades.$inferSelect;
 type NewTrade = typeof trades.$inferInsert;
 type AccountDailyOrder = typeof accountDailyOrder.$inferSelect;
 type NewAccountDailyOrder = typeof accountDailyOrder.$inferInsert;
+type CalendarAccount = typeof calendarAccounts.$inferSelect;
+type NewCalendarAccount = typeof calendarAccounts.$inferInsert;
+type CalendarEntry = typeof calendarEntries.$inferSelect;
+type NewCalendarEntry = typeof calendarEntries.$inferInsert;
 
 // User operations
 export const userService = {
@@ -441,6 +445,102 @@ export const accountDailyOrderService = {
 
   async delete(id: string): Promise<void> {
     await db.delete(accountDailyOrder).where(eq(accountDailyOrder.id, id));
+  },
+};
+
+// Calendar account operations (rule compliance calendars)
+export const calendarAccountService = {
+  async getByUserId(userId: string): Promise<CalendarAccount[]> {
+    return db
+      .select()
+      .from(calendarAccounts)
+      .where(eq(calendarAccounts.userId, userId))
+      .orderBy(asc(calendarAccounts.createdAt));
+  },
+
+  async getById(id: string): Promise<CalendarAccount | null> {
+    const result = await db.select().from(calendarAccounts).where(eq(calendarAccounts.id, id)).limit(1);
+    return result[0] || null;
+  },
+
+  async create(userId: string, data: { name: string; challengeId?: string }): Promise<CalendarAccount> {
+    const result = await db
+      .insert(calendarAccounts)
+      .values({ userId, name: data.name, challengeId: data.challengeId as any } as NewCalendarAccount)
+      .returning();
+    return result[0];
+  },
+
+  async delete(id: string): Promise<void> {
+    await db.delete(calendarAccounts).where(eq(calendarAccounts.id, id));
+  },
+
+  async setActive(id: string, isActive: boolean): Promise<void> {
+    await db.update(calendarAccounts).set({ isActive }).where(eq(calendarAccounts.id, id));
+  },
+};
+
+// Calendar entry operations (daily rule compliance per calendar account)
+export const calendarEntryService = {
+  async getByAccountId(calendarAccountId: string): Promise<CalendarEntry[]> {
+    return db
+      .select()
+      .from(calendarEntries)
+      .where(eq(calendarEntries.calendarAccountId, calendarAccountId))
+      .orderBy(asc(calendarEntries.date));
+  },
+
+  async getByUserId(userId: string): Promise<CalendarEntry[]> {
+    // Join through calendar_accounts to get all entries for a user
+    const accounts = await calendarAccountService.getByUserId(userId);
+    const accountIds = accounts.map(a => a.id);
+    if (accountIds.length === 0) return [];
+    const allEntries: CalendarEntry[] = [];
+    for (const aid of accountIds) {
+      const entries = await db.select().from(calendarEntries).where(eq(calendarEntries.calendarAccountId, aid));
+      allEntries.push(...entries);
+    }
+    return allEntries;
+  },
+
+  async upsert(calendarAccountId: string, data: { date: string; followedRules: boolean | null; ruleCompliance?: Record<string, boolean> | null; notes?: string | null }): Promise<CalendarEntry> {
+    const existing = await db
+      .select()
+      .from(calendarEntries)
+      .where(and(eq(calendarEntries.calendarAccountId, calendarAccountId), eq(calendarEntries.date, data.date)))
+      .limit(1);
+
+    const ruleComplianceStr = data.ruleCompliance ? JSON.stringify(data.ruleCompliance) : null;
+
+    if (existing.length > 0) {
+      const result = await db
+        .update(calendarEntries)
+        .set({
+          followedRules: data.followedRules,
+          ruleCompliance: ruleComplianceStr,
+          notes: data.notes || null,
+          updatedAt: new Date(),
+        })
+        .where(eq(calendarEntries.id, existing[0].id))
+        .returning();
+      return result[0];
+    } else {
+      const result = await db
+        .insert(calendarEntries)
+        .values({
+          calendarAccountId,
+          date: data.date,
+          followedRules: data.followedRules,
+          ruleCompliance: ruleComplianceStr,
+          notes: data.notes || null,
+        } as NewCalendarEntry)
+        .returning();
+      return result[0];
+    }
+  },
+
+  async deleteByAccountId(calendarAccountId: string): Promise<void> {
+    await db.delete(calendarEntries).where(eq(calendarEntries.calendarAccountId, calendarAccountId));
   },
 };
 

@@ -136,6 +136,28 @@ export const trades = pgTable('trades', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// Calendar accounts — rule-tracking calendars linked to challenges/phases
+export const calendarAccounts = pgTable('calendar_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  name: text('name').notNull(), // e.g. "Tradify - Challenge #1 - Phase 1"
+  challengeId: uuid('challenge_id'), // optional link to challenges table
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Calendar entries — daily rule compliance per calendar account
+export const calendarEntries = pgTable('calendar_entries', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  calendarAccountId: uuid('calendar_account_id').references(() => calendarAccounts.id).notNull(),
+  date: text('date').notNull(), // YYYY-MM-DD
+  followedRules: boolean('followed_rules'), // true = followed, false = broken, null = no trade
+  ruleCompliance: text('rule_compliance'), // JSON string: { ruleId: true/false }
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // Daily account ordering - which accounts to trade first each day
 export const accountDailyOrder = pgTable('account_daily_order', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -213,3 +235,7 @@ export type Trade = typeof trades.$inferSelect;
 export type NewTrade = typeof trades.$inferInsert;
 export type AccountDailyOrder = typeof accountDailyOrder.$inferSelect;
 export type NewAccountDailyOrder = typeof accountDailyOrder.$inferInsert;
+export type CalendarAccount = typeof calendarAccounts.$inferSelect;
+export type NewCalendarAccount = typeof calendarAccounts.$inferInsert;
+export type CalendarEntry = typeof calendarEntries.$inferSelect;
+export type NewCalendarEntry = typeof calendarEntries.$inferInsert;
