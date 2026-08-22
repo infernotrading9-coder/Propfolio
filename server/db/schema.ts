@@ -129,6 +129,8 @@ export const trades = pgTable('trades', {
   result: text('result').notNull(), // 'win' or 'loss'
   riskReward: decimal('risk_reward', { precision: 6, scale: 2 }), // e.g. 2.5 = 2.5R
   rulesFollowed: boolean('rules_followed').default(true),
+  rulesBroken: text('rules_broken').array().default([]),
+  behaviors: text('behaviors').array().default([]),
   notes: text('notes'),
   tradeDate: timestamp('trade_date').defaultNow().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),

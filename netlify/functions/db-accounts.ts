@@ -23,9 +23,10 @@ export const handler: Handler = async (event) => {
         return json(200, { orders })
       }
 
-      // Get all trading accounts
+      // Get active trading accounts only
       const accounts = await tradingAccountService.getByUserId(user.id)
-      return json(200, { accounts })
+      const activeAccounts = accounts.filter((a: any) => a.status === 'active')
+      return json(200, { accounts: activeAccounts })
     }
 
     if (event.httpMethod === 'POST') {

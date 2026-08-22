@@ -326,6 +326,8 @@ export const tradeService = {
     avgLoss: number;
     bestTrade: number;
     worstTrade: number;
+    behaviorStats: { behavior: string; count: number; wins: number; losses: number; winRate: number; totalPnL: number }[];
+    ruleCompliance: { rule: string; total: number; broken: number; complianceRate: number }[];
   }> {
     const allTrades = await db.select().from(trades).where(eq(trades.userId, userId));
     const wins = allTrades.filter(t => t.result === 'win');
@@ -334,6 +336,51 @@ export const tradeService = {
     const rrValues = allTrades.filter(t => t.riskReward).map(t => parseFloat(String(t.riskReward)));
     const winAmounts = wins.map(t => parseFloat(String(t.amount)));
     const lossAmounts = losses.map(t => parseFloat(String(t.amount)));
+
+    // Behavior stats
+    const behaviorMap = new Map<string, { count: number; wins: number; losses: number; pnl: number }>();
+    for (const t of allTrades) {
+      const behaviors = (t.behaviors as string[]) || [];
+      for (const b of behaviors) {
+        if (!behaviorMap.has(b)) behaviorMap.set(b, { count: 0, wins: 0, losses: 0, pnl: 0 });
+        const s = behaviorMap.get(b)!;
+        s.count++;
+        if (t.result === 'win') s.wins++; else s.losses++;
+        s.pnl += parseFloat(String(t.amount));
+      }
+    }
+    const behaviorStats = Array.from(behaviorMap.entries()).map(([behavior, s]) => ({
+      behavior,
+      count: s.count,
+      wins: s.wins,
+      losses: s.losses,
+      winRate: s.count > 0 ? (s.wins / s.count) * 100 : 0,
+      totalPnL: s.pnl,
+    })).sort((a, b) => b.count - a.count);
+
+    // Rule compliance stats
+    const ruleMap = new Map<string, { total: number; broken: number }>();
+    for (const t of allTrades) {
+      const broken = (t.rulesBroken as string[]) || [];
+      for (const r of broken) {
+        if (!ruleMap.has(r)) ruleMap.set(r, { total: 0, broken: 0 });
+        const s = ruleMap.get(r)!;
+        s.total++;
+        s.broken++;
+      }
+    }
+    const ruleCompliance = Array.from(ruleMap.entries()).map(([rule, s]) => ({
+      rule,
+      total: s.total,
+      broken: s.broken,
+      complianceRate: 0, // will be filled in below
+    }));
+    // Also count total trades where rules were checked
+    const totalRulesChecked = allTrades.length;
+    for (const rc of ruleCompliance) {
+      rc.complianceRate = totalRulesChecked > 0 ? ((totalRulesChecked - rc.broken) / totalRulesChecked) * 100 : 100;
+    }
+
     return {
       totalTrades: allTrades.length,
       wins: wins.length,
@@ -345,6 +392,8 @@ export const tradeService = {
       avgLoss: lossAmounts.length > 0 ? lossAmounts.reduce((a, b) => a + b, 0) / lossAmounts.length : 0,
       bestTrade: winAmounts.length > 0 ? Math.max(...winAmounts) : 0,
       worstTrade: lossAmounts.length > 0 ? Math.min(...lossAmounts) : 0,
+      behaviorStats,
+      ruleCompliance,
     };
   },
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { TrendingUp, TrendingDown, Target, Activity, DollarSign, Percent, ArrowUpRight, ArrowDownRight, Trash2, Trophy } from 'lucide-react';
+import { TrendingUp, TrendingDown, Target, Activity, DollarSign, Percent, ArrowUpRight, ArrowDownRight, Trash2, Trophy, Brain, Shield, ShieldAlert } from 'lucide-react';
 
 interface Trade {
   id: string;
@@ -14,9 +14,20 @@ interface Trade {
   result: 'win' | 'loss';
   riskReward?: string | null;
   rulesFollowed?: boolean;
+  rulesBroken?: string[] | null;
+  behaviors?: string[] | null;
   notes?: string | null;
   tradeDate: string;
   createdAt: string;
+}
+
+interface BehaviorStat {
+  behavior: string;
+  count: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  totalPnL: number;
 }
 
 interface TradeStats {
@@ -30,6 +41,8 @@ interface TradeStats {
   avgLoss: number;
   bestTrade: number;
   worstTrade: number;
+  behaviorStats: BehaviorStat[];
+  ruleCompliance: { rule: string; total: number; broken: number; complianceRate: number }[];
 }
 
 interface TradingAccount {
@@ -50,6 +63,11 @@ interface TradesViewProps {
   getAuthHeaders: () => Record<string, string>;
 }
 
+const COMMON_BEHAVIORS = [
+  'no-sl', 'sleepy', 'stoned', 'headache', 'revenge', 'fomo',
+  'patient', 'disciplined', 'rushed', 'news', 'tilt', 'confident'
+];
+
 export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders }) => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [stats, setStats] = useState<TradeStats | null>(null);
@@ -58,7 +76,6 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
   const [showAddForm, setShowAddForm] = useState(false);
   const [filterAccount, setFilterAccount] = useState<string>('all');
 
-  // Form state
   const [formData, setFormData] = useState({
     accountId: '',
     direction: 'long',
@@ -69,6 +86,8 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
     result: 'win',
     riskReward: '',
     rulesFollowed: true,
+    rulesBroken: [] as string[],
+    behaviors: [] as string[],
     notes: '',
   });
 
@@ -85,7 +104,6 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
       const accountsData = await accountsRes.json();
 
       if (tradesData.trades) {
-        // Enrich trades with account info
         const accountMap = new Map<string, any>(accountsData.accounts?.map((a: any) => [a.id, a]) || []);
         setTrades(tradesData.trades.map((t: Trade) => ({
           ...t,
@@ -120,11 +138,13 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
           result: formData.result,
           riskReward: formData.riskReward ? parseFloat(formData.riskReward) : null,
           rulesFollowed: formData.rulesFollowed,
+          rulesBroken: formData.rulesBroken,
+          behaviors: formData.behaviors,
           notes: formData.notes || null,
         }),
       });
       setShowAddForm(false);
-      setFormData({ accountId: '', direction: 'long', instrument: '', entryPrice: '', exitPrice: '', amount: '', result: 'win', riskReward: '', rulesFollowed: true, notes: '' });
+      setFormData({ accountId: '', direction: 'long', instrument: '', entryPrice: '', exitPrice: '', amount: '', result: 'win', riskReward: '', rulesFollowed: true, rulesBroken: [], behaviors: [], notes: '' });
       loadData();
     } catch (e) { console.error('Failed to add trade:', e); }
   };
@@ -138,6 +158,20 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
       });
       loadData();
     } catch (e) { console.error('Failed to delete trade:', e); }
+  };
+
+  const toggleBehavior = (b: string) => {
+    setFormData(prev => ({
+      ...prev,
+      behaviors: prev.behaviors.includes(b) ? prev.behaviors.filter(x => x !== b) : [...prev.behaviors, b],
+    }));
+  };
+
+  const toggleRuleBroken = (r: string) => {
+    setFormData(prev => ({
+      ...prev,
+      rulesBroken: prev.rulesBroken.includes(r) ? prev.rulesBroken.filter(x => x !== r) : [...prev.rulesBroken, r],
+    }));
   };
 
   const filteredTrades = filterAccount === 'all' ? trades : trades.filter(t => t.accountId === filterAccount);
@@ -163,6 +197,74 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
           <StatCard label="Losses" value={stats.losses.toString()} icon={<TrendingDown className="w-5 h-5" />} color="text-red-400" />
           <StatCard label="Best Trade" value={`+$${stats.bestTrade.toFixed(2)}`} icon={<ArrowUpRight className="w-5 h-5" />} color="text-neon-lime" />
           <StatCard label="Worst Trade" value={`-$${Math.abs(stats.worstTrade).toFixed(2)}`} icon={<ArrowDownRight className="w-5 h-5" />} color="text-red-400" />
+        </div>
+      )}
+
+      {/* Behavioral Impact Stats */}
+      {stats && stats.behaviorStats && stats.behaviorStats.length > 0 && (
+        <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-6">
+          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            <Brain className="w-5 h-5 text-neon-purple" />
+            Behavioral Impact
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-400 border-b border-gray-700">
+                  <th className="text-left py-2 px-3">Behavior</th>
+                  <th className="text-center py-2 px-3">Trades</th>
+                  <th className="text-center py-2 px-3">W/L</th>
+                  <th className="text-right py-2 px-3">Win Rate</th>
+                  <th className="text-right py-2 px-3">P&L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.behaviorStats.map((bs) => (
+                  <tr key={bs.behavior} className="border-b border-gray-800">
+                    <td className="py-2 px-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${bs.winRate >= 50 ? 'bg-neon-lime/20 text-neon-lime' : 'bg-red-400/20 text-red-400'}`}>
+                        {bs.behavior}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-center text-gray-300">{bs.count}</td>
+                    <td className="py-2 px-3 text-center text-gray-300">{bs.wins}W / {bs.losses}L</td>
+                    <td className={`py-2 px-3 text-right font-semibold ${bs.winRate >= 50 ? 'text-neon-lime' : 'text-red-400'}`}>{bs.winRate.toFixed(0)}%</td>
+                    <td className={`py-2 px-3 text-right font-semibold ${bs.totalPnL >= 0 ? 'text-neon-lime' : 'text-red-400'}`}>{bs.totalPnL >= 0 ? '+' : ''}${bs.totalPnL.toFixed(0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Rule Compliance Stats */}
+      {stats && stats.ruleCompliance && stats.ruleCompliance.length > 0 && (
+        <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-6">
+          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-neon-cyan" />
+            Rule Compliance
+          </h3>
+          <div className="space-y-3">
+            {stats.ruleCompliance.map((rc) => (
+              <div key={rc.rule} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className={`w-4 h-4 ${rc.complianceRate >= 80 ? 'text-neon-lime' : rc.complianceRate >= 50 ? 'text-neon-amber' : 'text-red-400'}`} />
+                  <span className="text-gray-300 text-sm">{rc.rule}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-gray-500 text-xs">{rc.broken} broken</span>
+                  <div className="w-32 h-2 bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${rc.complianceRate >= 80 ? 'bg-neon-lime' : rc.complianceRate >= 50 ? 'bg-neon-amber' : 'bg-red-400'}`}
+                      style={{ width: `${rc.complianceRate}%` }}
+                    />
+                  </div>
+                  <span className={`text-sm font-semibold w-12 text-right ${rc.complianceRate >= 80 ? 'text-neon-lime' : rc.complianceRate >= 50 ? 'text-neon-amber' : 'text-red-400'}`}>{rc.complianceRate.toFixed(0)}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -205,95 +307,78 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
             </div>
             <div>
               <label className="text-sm text-gray-400 mb-1 block">Direction</label>
-              <select
-                value={formData.direction}
-                onChange={(e) => setFormData({ ...formData, direction: e.target.value })}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-              >
-                <option value="long">Long</option>
-                <option value="short">Short</option>
+              <select value={formData.direction} onChange={(e) => setFormData({ ...formData, direction: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white">
+                <option value="long">Long</option><option value="short">Short</option>
               </select>
             </div>
             <div>
               <label className="text-sm text-gray-400 mb-1 block">Instrument</label>
-              <input
-                value={formData.instrument}
-                onChange={(e) => setFormData({ ...formData, instrument: e.target.value })}
-                placeholder="NQ, ES, CL..."
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-              />
+              <input value={formData.instrument} onChange={(e) => setFormData({ ...formData, instrument: e.target.value })} placeholder="NQ, ES, CL..."
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white" />
             </div>
             <div>
               <label className="text-sm text-gray-400 mb-1 block">Entry Price</label>
-              <input
-                value={formData.entryPrice}
-                onChange={(e) => setFormData({ ...formData, entryPrice: e.target.value })}
-                placeholder="0.00"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-              />
+              <input value={formData.entryPrice} onChange={(e) => setFormData({ ...formData, entryPrice: e.target.value })} placeholder="0.00"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white" />
             </div>
             <div>
               <label className="text-sm text-gray-400 mb-1 block">Exit Price</label>
-              <input
-                value={formData.exitPrice}
-                onChange={(e) => setFormData({ ...formData, exitPrice: e.target.value })}
-                placeholder="0.00"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-              />
+              <input value={formData.exitPrice} onChange={(e) => setFormData({ ...formData, exitPrice: e.target.value })} placeholder="0.00"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white" />
             </div>
             <div>
               <label className="text-sm text-gray-400 mb-1 block">P&L Amount ($)</label>
-              <input
-                type="number"
-                value={formData.amount}
-                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                placeholder="200"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-              />
+              <input type="number" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} placeholder="200"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white" />
             </div>
             <div>
               <label className="text-sm text-gray-400 mb-1 block">Result</label>
-              <select
-                value={formData.result}
-                onChange={(e) => setFormData({ ...formData, result: e.target.value as 'win' | 'loss' })}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-              >
-                <option value="win">Win</option>
-                <option value="loss">Loss</option>
+              <select value={formData.result} onChange={(e) => setFormData({ ...formData, result: e.target.value as 'win' | 'loss' })}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white">
+                <option value="win">Win</option><option value="loss">Loss</option>
               </select>
             </div>
             <div>
               <label className="text-sm text-gray-400 mb-1 block">Risk:Reward (R)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={formData.riskReward}
-                onChange={(e) => setFormData({ ...formData, riskReward: e.target.value })}
-                placeholder="2.5"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-              />
-            </div>
-            <div>
-              <label className="text-sm text-gray-400 mb-1 block">Rules Followed?</label>
-              <select
-                value={formData.rulesFollowed ? 'yes' : 'no'}
-                onChange={(e) => setFormData({ ...formData, rulesFollowed: e.target.value === 'yes' })}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-              >
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
+              <input type="number" step="0.1" value={formData.riskReward} onChange={(e) => setFormData({ ...formData, riskReward: e.target.value })} placeholder="2.5"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white" />
             </div>
           </div>
+
+          {/* Behaviors */}
+          <div>
+            <label className="text-sm text-gray-400 mb-2 block">Behaviors / Conditions (toggle all that apply)</label>
+            <div className="flex flex-wrap gap-2">
+              {COMMON_BEHAVIORS.map(b => (
+                <button key={b} onClick={() => toggleBehavior(b)}
+                  className={`text-xs px-3 py-1.5 rounded-full border transition ${formData.behaviors.includes(b) ? 'bg-neon-purple/30 border-neon-purple text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'}`}>
+                  {b}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Rules Broken */}
+          <div>
+            <label className="text-sm text-gray-400 mb-2 block">Rules Broken (toggle any you violated)</label>
+            <div className="flex flex-wrap gap-2">
+              {(accounts.find(a => a.id === formData.accountId)?.rules || []).map((r: string) => (
+                <button key={r} onClick={() => toggleRuleBroken(r)}
+                  className={`text-xs px-3 py-1.5 rounded-full border transition ${formData.rulesBroken.includes(r) ? 'bg-red-400/30 border-red-400 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'}`}>
+                  {r}
+                </button>
+              ))}
+              {!(accounts.find(a => a.id === formData.accountId)?.rules?.length) && (
+                <span className="text-gray-500 text-sm">No rules set for this account</span>
+              )}
+            </div>
+          </div>
+
           <div>
             <label className="text-sm text-gray-400 mb-1 block">Notes</label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              placeholder="Trade notes..."
-              rows={2}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-            />
+            <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Trade notes..."
+              rows={2} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white" />
           </div>
           <div className="flex gap-2">
             <button onClick={handleAddTrade} className="bg-neon-purple text-white px-6 py-2 rounded-lg font-medium hover:opacity-90">Save Trade</button>
@@ -319,7 +404,7 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
                 <th className="text-left py-2 px-3">Instrument</th>
                 <th className="text-right py-2 px-3">Amount</th>
                 <th className="text-right py-2 px-3">R:R</th>
-                <th className="text-center py-2 px-3">Rules</th>
+                <th className="text-left py-2 px-3">Behaviors</th>
                 <th className="text-left py-2 px-3">Notes</th>
                 <th></th>
               </tr>
@@ -339,10 +424,16 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
                     {t.result === 'win' ? '+' : '-'}${Math.abs(parseFloat(t.amount)).toFixed(2)}
                   </td>
                   <td className="py-2 px-3 text-right text-gray-300">{t.riskReward ? `${parseFloat(t.riskReward).toFixed(2)}R` : '-'}</td>
-                  <td className="py-2 px-3 text-center">
-                    {t.rulesFollowed ? <span className="text-neon-lime">✓</span> : <span className="text-red-400">✗</span>}
+                  <td className="py-2 px-3">
+                    {(t.behaviors || []).length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {(t.behaviors || []).map((b) => (
+                          <span key={b} className="text-xs bg-neon-purple/20 text-neon-purple px-1.5 py-0.5 rounded">{b}</span>
+                        ))}
+                      </div>
+                    ) : <span className="text-gray-600">-</span>}
                   </td>
-                  <td className="py-2 px-3 text-gray-500 max-w-xs truncate">{t.notes || '-'}</td>
+                  <td className="py-2 px-3 text-gray-500 max-w-xs truncate">{t.notes || (t.rulesBroken || []).join(', ') || '-'}</td>
                   <td className="py-2 px-3">
                     <button onClick={() => handleDeleteTrade(t.id)} className="text-gray-500 hover:text-red-400 transition">
                       <Trash2 className="w-4 h-4" />

@@ -40,6 +40,8 @@ export const handler: Handler = async (event) => {
         result,
         riskReward,
         rulesFollowed,
+        rulesBroken,
+        behaviors,
         notes,
         tradeDate,
       } = input
@@ -64,6 +66,8 @@ export const handler: Handler = async (event) => {
         result,
         riskReward: riskReward ? String(riskReward) : null,
         rulesFollowed: rulesFollowed !== false,
+        rulesBroken: rulesBroken || [],
+        behaviors: behaviors || [],
         notes: notes || null,
         tradeDate: tradeDate ? new Date(tradeDate) : new Date(),
       } as any)
