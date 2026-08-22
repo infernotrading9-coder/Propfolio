@@ -964,7 +964,7 @@ const Dashboard: React.FC = () => {
               onCalendarEntryUpsert={handleServerCalEntryUpsert}
             />
           )}
-          {view === 'prop' ? (
+          {view === 'prop' && (
             <>
               <PropFirmPicker
                 firms={state.firms}
@@ -1027,7 +1027,8 @@ const Dashboard: React.FC = () => {
 
               <AdditionalCharts challenges={visibleChallenges} firms={state.firms} selectedYear={selectedYear} />
             </>
-          ) : (
+          )}
+          {view === 'calendar' && (
             <>
               <BulkActions 
                 challenges={state.challenges}

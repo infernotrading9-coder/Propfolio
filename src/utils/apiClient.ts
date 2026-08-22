@@ -22,7 +22,9 @@ function mapEndpoint(endpoint: string): string {
     '/auth/session': '/auth-login',
     '/auth/google': '/auth-google',
   };
-  const path = map[endpoint] || endpoint;
+  const [basePath, query = ''] = endpoint.split('?');
+  const mappedBasePath = map[basePath] || basePath;
+  const path = query ? `${mappedBasePath}?${query}` : mappedBasePath;
   const sep = path.includes('?') ? '&' : '?';
   // Cache-bust to avoid stale CDN HTML from earlier bad redirects
   return `${path}${sep}v=${Date.now()}`;

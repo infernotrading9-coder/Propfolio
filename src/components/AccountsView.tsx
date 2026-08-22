@@ -753,18 +753,16 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
       )}
 
       {/* Combined Rule Calendar — at bottom */}
-      {calendarAccounts.length > 0 && (
-        <div className="mt-8">
-          <h3 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-purple-300 mb-4">
-            Rule Calendar — All Accounts
-          </h3>
-          <CombinedRuleCalendar
-            calAccounts={calendarAccounts}
-            calEntriesByAccount={calendarEntriesByAccount}
-            onEntryUpsert={onCalendarEntryUpsert || (() => {})}
-          />
-        </div>
-      )}
+      <div className="mt-8">
+        <h3 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-purple-300 mb-4">
+          Rule Calendar — All Accounts
+        </h3>
+        <CombinedRuleCalendar
+          calAccounts={calendarAccounts}
+          calEntriesByAccount={calendarEntriesByAccount}
+          onEntryUpsert={onCalendarEntryUpsert || (() => {})}
+        />
+      </div>
     </div>
   );
 };
