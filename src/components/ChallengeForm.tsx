@@ -1,8 +1,43 @@
 import React from 'react';
 import { NeonCard } from './NeonCard';
 import { Button } from './ui/Button';
-import { PropFirm, NewChallengeInput, Challenge, NewFirmInput, ChallengeStatus, FirmType } from '../types';
+import { PropFirm, NewChallengeInput, Challenge, NewFirmInput, ChallengeStatus, FirmType, ChallengeFailureReason, ChallengeMilestone, ChallengeOutcomeType } from '../types';
 import { CalendarDays, CircleDollarSign, Layers3, Plus, Save, Target, WalletCards, Sparkles } from 'lucide-react';
+
+const MILESTONE_OPTIONS: Array<{ value: ChallengeMilestone; label: string }> = [
+  { value: 'purchased', label: 'Purchased' },
+  { value: 'phase1_passed', label: 'Phase 1 Passed' },
+  { value: 'phase2_passed', label: 'Phase 2 Passed' },
+  { value: 'phase3_passed', label: 'Phase 3 Passed' },
+  { value: 'funded', label: 'Funded' },
+  { value: 'payout_received', label: 'Payout Received' },
+  { value: 'failed_after_payout', label: 'Failed After Payout' },
+];
+
+const OUTCOME_OPTIONS: Array<{ value: ChallengeOutcomeType; label: string }> = [
+  { value: 'active', label: 'Active' },
+  { value: 'failed_pre_phase', label: 'Failed Before Passing' },
+  { value: 'failed_after_phase1', label: 'Failed After Phase 1' },
+  { value: 'failed_after_phase2', label: 'Failed After Phase 2' },
+  { value: 'failed_after_phase3', label: 'Failed After Phase 3' },
+  { value: 'failed_after_funded', label: 'Failed After Funded' },
+  { value: 'payout_then_failed', label: 'Payout Then Failed' },
+  { value: 'funded_active', label: 'Funded Active' },
+  { value: 'payout_received', label: 'Payout Received' },
+  { value: 'unknown', label: 'Unknown' },
+];
+
+const FAILURE_REASON_OPTIONS: Array<{ value: ChallengeFailureReason; label: string }> = [
+  { value: 'rule_break', label: 'Rule Break' },
+  { value: 'max_drawdown', label: 'Max Drawdown Hit' },
+  { value: 'daily_loss', label: 'Daily Loss Hit' },
+  { value: 'tilt_revenge', label: 'Tilt / Revenge' },
+  { value: 'overtrading', label: 'Overtrading' },
+  { value: 'account_expired', label: 'Account Expired' },
+  { value: 'strategic_reset', label: 'Strategic Reset' },
+  { value: 'firm_platform_issue', label: 'Firm / Platform Issue' },
+  { value: 'unknown', label: 'Unknown' },
+];
 
 export const ChallengeForm: React.FC<{
   firms: PropFirm[];
@@ -154,6 +189,11 @@ export const ChallengeForm: React.FC<{
   const [accountQuantityStr, setAccountQuantityStr] = React.useState(String(initial ? (initial.purchaseGroupSize ?? 1) : 1));
   const [accountLast4, setAccountLast4] = React.useState(initial?.accountLast4 ?? '');
   const [purchaseGroupLabel, setPurchaseGroupLabel] = React.useState(initial?.purchaseGroupLabel ?? '');
+  const [highestMilestone, setHighestMilestone] = React.useState<string>(initial?.highestMilestone ?? '');
+  const [outcomeType, setOutcomeType] = React.useState<string>(initial?.outcomeType ?? '');
+  const [failureReason, setFailureReason] = React.useState<string>(initial?.failureReason ?? '');
+  const [failureDate, setFailureDate] = React.useState<string>(initial?.failureDate ?? '');
+  const [lifecycleNotes, setLifecycleNotes] = React.useState<string>(initial?.lifecycleNotes ?? '');
   
   // Refresh date when buildingMode changes or when component mounts in build mode
   React.useEffect(() => {
@@ -268,6 +308,11 @@ export const ChallengeForm: React.FC<{
           activationFeeAmount,
           totalPhases,
           status,
+          highestMilestone: highestMilestone || undefined,
+          outcomeType: outcomeType || undefined,
+          failureReason: failureReason || undefined,
+          failureDate: failureDate || undefined,
+          lifecycleNotes: lifecycleNotes.trim() || undefined,
           strategy: strategy.trim() || undefined,
           evalType: evalType.trim() || undefined,
           firmType
@@ -719,6 +764,51 @@ export const ChallengeForm: React.FC<{
           </div>
         </div>
         </div>
+
+        {initial && (
+          <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.04] p-4 sm:p-5">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-200">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">Lifecycle Outcome</h3>
+                <p className="text-xs text-white/45">Track the real story: highest milestone, final outcome, payout-before-failure, and why it failed.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="flex min-w-0 flex-col gap-1">
+                <label className="text-xs text-white/60">Highest Milestone</label>
+                <select value={highestMilestone} onChange={e => setHighestMilestone(e.target.value)} className={inputClasses('highestMilestone')} disabled={formDisabled}>
+                  <option value="">Auto / inferred</option>
+                  {MILESTONE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </div>
+              <div className="flex min-w-0 flex-col gap-1">
+                <label className="text-xs text-white/60">Outcome Type</label>
+                <select value={outcomeType} onChange={e => setOutcomeType(e.target.value)} className={inputClasses('outcomeType')} disabled={formDisabled}>
+                  <option value="">Auto / inferred</option>
+                  {OUTCOME_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </div>
+              <div className="flex min-w-0 flex-col gap-1">
+                <label className="text-xs text-white/60">Failure Reason</label>
+                <select value={failureReason} onChange={e => setFailureReason(e.target.value)} className={inputClasses('failureReason')} disabled={formDisabled}>
+                  <option value="">Not set</option>
+                  {FAILURE_REASON_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </div>
+              <div className="flex min-w-0 flex-col gap-1">
+                <label className="text-xs text-white/60">Failure Date</label>
+                <input type="date" value={failureDate} onChange={e => setFailureDate(e.target.value)} className={inputClasses('failureDate')} disabled={formDisabled} />
+              </div>
+              <div className="flex min-w-0 flex-col gap-1 md:col-span-2">
+                <label className="text-xs text-white/60">Lifecycle Notes</label>
+                <input type="text" value={lifecycleNotes} onChange={e => setLifecycleNotes(e.target.value)} className={inputClasses('lifecycleNotes')} disabled={formDisabled} placeholder="e.g., reached payout then failed after rule break" />
+              </div>
+            </div>
+          </div>
+        )}
         
         <div className="flex justify-stretch border-t border-white/10 pt-2 sm:justify-end">
           <Button

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { NeonCard } from './NeonCard';
 import { StatsSummary, Challenge } from '../types';
 import { Trophy, DollarSign, Percent, Wallet, Calculator, Clock } from 'lucide-react';
+import { getDisplayOutcome, getNetLifecyclePnl } from '../utils/challengeLifecycle';
 
 type PassBasis = 'start' | 'completion';
 
@@ -242,6 +243,13 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
       }
     }).length;
   }, [challenges, selectedYear, basis]);
+  const lifecycleStats = useMemo(() => {
+    const scoped = challenges.filter(c => c?.startDate?.slice(0, 4) === selectedYear);
+    const payoutThenFailed = scoped.filter(c => getDisplayOutcome(c) === 'payout_then_failed').length;
+    const reachedPayout = scoped.filter(c => ['payout_received', 'payout_then_failed'].includes(getDisplayOutcome(c))).length;
+    const netPositiveFailed = scoped.filter(c => c.status === 'failed' && getNetLifecyclePnl(c) > 0).length;
+    return { payoutThenFailed, reachedPayout, netPositiveFailed };
+  }, [challenges, selectedYear]);
   const roiIsPositive = stats.roi >= 0;
   
   const baseItems = [
@@ -326,6 +334,27 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
     icon: <Trophy className="w-8 h-8 text-pink-300 drop-shadow-neon-pink" />,
     glow: 'pink',
     textColor: 'text-pink-300',
+  });
+  statItems.push({
+    title: 'Reached Payout',
+    value: `${lifecycleStats.reachedPayout}`,
+    icon: <DollarSign className="w-8 h-8 text-emerald-300 drop-shadow-neon-green" />,
+    glow: 'green',
+    textColor: 'text-emerald-300',
+  });
+  statItems.push({
+    title: 'Payout Then Failed',
+    value: `${lifecycleStats.payoutThenFailed}`,
+    icon: <Trophy className="w-8 h-8 text-amber-300 drop-shadow-neon-amber" />,
+    glow: 'amber',
+    textColor: 'text-amber-300',
+  });
+  statItems.push({
+    title: 'Profitable Failures',
+    value: `${lifecycleStats.netPositiveFailed}`,
+    icon: <Calculator className="w-8 h-8 text-lime-300 drop-shadow-neon-lime" />,
+    glow: 'lime',
+    textColor: 'text-lime-300',
   });
 
   return (

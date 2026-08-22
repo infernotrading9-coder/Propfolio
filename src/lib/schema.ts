@@ -49,7 +49,12 @@ export const challenges = pgTable('challenges', {
   phase3Completed: boolean('phase3_completed').default(false),
   phase3CompletedAt: timestamp('phase3_completed_at'),
   status: text('status').default('active'), // 'active', 'passed', 'failed' - optional for backwards compatibility
-  accountLast4: text('account_last4'), // last 4 digits of account number, links to Focus Hub
+  highestMilestone: text('highest_milestone'),
+  outcomeType: text('outcome_type'),
+  failureReason: text('failure_reason'),
+  failureDate: text('failure_date'),
+  lifecycleNotes: text('lifecycle_notes'),
+  accountLast4: text('account_last4'), // last 4 digits of account number
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

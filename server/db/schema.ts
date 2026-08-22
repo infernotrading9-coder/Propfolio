@@ -75,7 +75,12 @@ export const challenges = pgTable('challenges', {
   phase3Completed: boolean('phase3_completed').default(false),
   phase3CompletedAt: timestamp('phase3_completed_at'),
   status: text('status').default('active'), // 'active', 'passed', 'failed'
-  accountLast4: text('account_last4'), // last 4 digits of account number, links to Focus Hub
+  highestMilestone: text('highest_milestone'), // purchased, phase1_passed, funded, payout_received, failed_after_payout
+  outcomeType: text('outcome_type'), // active, failed_pre_phase, payout_then_failed, funded_active, etc.
+  failureReason: text('failure_reason'), // rule_break, max_drawdown, daily_loss, tilt_revenge, etc.
+  failureDate: text('failure_date'), // YYYY-MM-DD
+  lifecycleNotes: text('lifecycle_notes'),
+  accountLast4: text('account_last4'), // last 4 digits of account number
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

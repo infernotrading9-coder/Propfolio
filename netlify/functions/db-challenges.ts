@@ -30,6 +30,11 @@ export const handler: Handler = async (event) => {
         totalPhases,
         strategy,
         status,
+        highestMilestone,
+        outcomeType,
+        failureReason,
+        failureDate,
+        lifecycleNotes,
         accountLast4
       } = input
 
@@ -59,6 +64,11 @@ export const handler: Handler = async (event) => {
         totalPhases: Number(totalPhases) || 3,
         strategy: strategy || '',
         status: status || 'active',
+        highestMilestone: highestMilestone || null,
+        outcomeType: outcomeType || null,
+        failureReason: failureReason || null,
+        failureDate: failureDate || null,
+        lifecycleNotes: lifecycleNotes || null,
         accountLast4: accountLast4 || null,
       } as any)
 
@@ -83,6 +93,11 @@ export const handler: Handler = async (event) => {
         totalPhases: (row.totalPhases || 3) as 1 | 2 | 3,
         strategy: row.strategy || '',
         status: (row.status as any) || 'active',
+        highestMilestone: (row as any).highestMilestone || undefined,
+        outcomeType: (row as any).outcomeType || undefined,
+        failureReason: (row as any).failureReason || undefined,
+        failureDate: (row as any).failureDate || undefined,
+        lifecycleNotes: (row as any).lifecycleNotes || undefined,
         phases: {
           phase1: { completed: !!row.phase1Completed, completedAt: row.phase1CompletedAt ? new Date(row.phase1CompletedAt).toISOString() : undefined },
           phase2: { completed: !!row.phase2Completed, completedAt: row.phase2CompletedAt ? new Date(row.phase2CompletedAt).toISOString() : undefined },
@@ -123,6 +138,11 @@ export const handler: Handler = async (event) => {
       if (updates.strategy !== undefined) dbUpdates.strategy = updates.strategy
       if (updates.accountLast4 !== undefined) dbUpdates.accountLast4 = updates.accountLast4 || null
       if (updates.status) dbUpdates.status = updates.status
+      if (updates.highestMilestone !== undefined) dbUpdates.highestMilestone = updates.highestMilestone || null
+      if (updates.outcomeType !== undefined) dbUpdates.outcomeType = updates.outcomeType || null
+      if (updates.failureReason !== undefined) dbUpdates.failureReason = updates.failureReason || null
+      if (updates.failureDate !== undefined) dbUpdates.failureDate = updates.failureDate || null
+      if (updates.lifecycleNotes !== undefined) dbUpdates.lifecycleNotes = updates.lifecycleNotes || null
       
       // Handle phase fields - convert ISO strings to Date objects
       if (updates.phases) {

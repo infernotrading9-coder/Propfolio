@@ -54,6 +54,11 @@ export const handler: Handler = async (event) => {
       totalPhases: (c.totalPhases || 3) as 1 | 2 | 3,
       strategy: c.strategy || '',
       status: (c.status as any) || 'active',
+      highestMilestone: c.highestMilestone || undefined,
+      outcomeType: c.outcomeType || undefined,
+      failureReason: c.failureReason || undefined,
+      failureDate: c.failureDate || undefined,
+      lifecycleNotes: c.lifecycleNotes || undefined,
       phases: {
         phase1: { completed: !!c.phase1Completed, completedAt: c.phase1CompletedAt ? new Date(c.phase1CompletedAt).toISOString() : undefined },
         phase2: { completed: !!c.phase2Completed, completedAt: c.phase2CompletedAt ? new Date(c.phase2CompletedAt).toISOString() : undefined },

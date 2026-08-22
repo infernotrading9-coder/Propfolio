@@ -8,6 +8,7 @@ import { ConfirmDialog } from './ui/ConfirmDialog';
 import { apiClient } from '../utils/apiClient';
 import { archiveFailedChallenge } from '../utils/calendarStorage';
 import { getFinalPhaseForChallenge, getNextIncompletePhase, isActualLiveAccount, isChallengeFunded } from '../utils/challengeGroups';
+import { getDisplayMilestone, getDisplayOutcome, getFailureReasonLabel, getLifecycleTone, getMilestoneLabel, getNetLifecyclePnl, getOutcomeLabel, inferHighestMilestone, inferOutcomeType } from '../utils/challengeLifecycle';
 
 type FailConfirmState = {
   ids: string[];
@@ -317,6 +318,17 @@ export const ChallengeList: React.FC<{
     const promoteButtonLabel = isSelected && promotedIds.length > 1 ? `Promote Selected (${promotedIds.length})` : 'Promote → Live';
 
     const resolvedFirmType = challenge.firmType ?? firms.find(f => f.id === challenge.propFirmId)?.firmType;
+    const lifecycleMilestone = getDisplayMilestone(challenge);
+    const lifecycleOutcome = getDisplayOutcome(challenge);
+    const lifecycleTone = getLifecycleTone(challenge);
+    const netLifecyclePnl = getNetLifecyclePnl(challenge);
+    const lifecycleToneClasses = lifecycleTone === 'emerald'
+      ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200'
+      : lifecycleTone === 'amber'
+        ? 'border-amber-400/40 bg-amber-500/10 text-amber-200'
+        : lifecycleTone === 'red'
+          ? 'border-red-400/40 bg-red-500/10 text-red-200'
+          : 'border-cyan-400/40 bg-cyan-500/10 text-cyan-200';
 
     return (
       <motion.div
@@ -411,6 +423,17 @@ export const ChallengeList: React.FC<{
                           Failed
                         </span>
                       )}
+                      <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${lifecycleToneClasses}`}>
+                        {getOutcomeLabel(lifecycleOutcome)}
+                      </span>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/70">
+                        Milestone: {getMilestoneLabel(lifecycleMilestone)}
+                      </span>
+                      {challenge.failureReason && (
+                        <span className="rounded-full border border-red-400/30 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-200">
+                          Why: {getFailureReasonLabel(challenge.failureReason)}
+                        </span>
+                      )}
                     </div>
                     <div className="text-sm font-semibold text-cyan-300">
                       {label} · ${Number(challenge.accountSize || 0).toLocaleString()} Account
@@ -424,6 +447,14 @@ export const ChallengeList: React.FC<{
                   <span>Cost: <span className="font-medium text-red-300/80">${Number(challenge.cost || 0).toFixed(2)}</span></span>
                   <span className="text-white/20">•</span>
                   <span>Payouts: <span className="font-medium text-green-300/80">${getTotalPayouts(challenge).toFixed(2)}</span></span>
+                  <span className="text-white/20">•</span>
+                  <span>Net: <span className={`font-medium ${netLifecyclePnl >= 0 ? 'text-emerald-300/90' : 'text-red-300/90'}`}>{netLifecyclePnl >= 0 ? '+' : ''}${netLifecyclePnl.toFixed(2)}</span></span>
+                  {challenge.failureDate && (
+                    <>
+                      <span className="text-white/20">•</span>
+                      <span>Failed: <span className="font-medium text-red-300/80">{challenge.failureDate}</span></span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -734,9 +765,11 @@ export const ChallengeList: React.FC<{
 
             for (const challenge of targetedChallenges) {
               await apiClient.markPhase(challenge.id, failConfirm.phase, false);
-              onChallengeUpdate({
+              const failedChallenge: Challenge = {
                 ...challenge,
                 status: 'failed',
+                failureDate: failConfirm.date || new Date().toISOString().slice(0, 10),
+                failureReason: challenge.failureReason || 'unknown',
                 phases: {
                   ...challenge.phases,
                   [failConfirm.phase]: {
@@ -745,10 +778,12 @@ export const ChallengeList: React.FC<{
                     completedAt: undefined,
                   },
                 },
-              });
+              };
+              failedChallenge.highestMilestone = inferHighestMilestone(failedChallenge);
+              failedChallenge.outcomeType = inferOutcomeType(failedChallenge);
+              await apiClient.updateChallenge(failedChallenge);
+              onChallengeUpdate(failedChallenge);
             }
-
-            await apiClient.bulkUpdateStatus(failConfirm.ids, 'failed');
 
             if (setCalendar && calendar) {
               setCalendar((prev: any) => ({
@@ -795,6 +830,8 @@ export const ChallengeList: React.FC<{
               const challenge = validChallenges.find(c => c.id === id);
               if (!challenge) continue;
               const updated: Challenge = { ...challenge, liveAccount: true };
+              updated.highestMilestone = inferHighestMilestone(updated);
+              updated.outcomeType = inferOutcomeType(updated);
               await apiClient.updateChallenge(updated);
               onChallengeUpdate(updated);
             }

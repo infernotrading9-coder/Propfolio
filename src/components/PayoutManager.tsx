@@ -5,6 +5,7 @@ import { NeonCard } from './NeonCard';
 import { Challenge, PayoutEntry } from '../types';
 import { Plus, Trash2, DollarSign, Edit2 } from 'lucide-react';
 import { apiClient } from '../utils/apiClient';
+import { inferHighestMilestone, inferOutcomeType } from '../utils/challengeLifecycle';
 
 interface PayoutManagerProps {
   challenge: Challenge;
@@ -85,7 +86,10 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
       const updatedChallenge = {
         ...challenge,
         payouts: [...currentPayouts, created]
-      };
+      } as Challenge;
+      updatedChallenge.highestMilestone = inferHighestMilestone(updatedChallenge);
+      updatedChallenge.outcomeType = inferOutcomeType(updatedChallenge);
+      try { await apiClient.updateChallenge(updatedChallenge); } catch (e) { console.error('Lifecycle update after payout failed:', e); }
       onUpdate(updatedChallenge);
       
       // Trigger success animation
@@ -116,11 +120,14 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
     const updatedChallenge = {
       ...challenge,
       payouts: newList
-    };
+    } as Challenge;
+    updatedChallenge.highestMilestone = inferHighestMilestone(updatedChallenge);
+    updatedChallenge.outcomeType = inferOutcomeType(updatedChallenge);
     onUpdate(updatedChallenge);
     
     try {
       await apiClient.removePayout(payoutId);
+      await apiClient.updateChallenge(updatedChallenge);
     } catch (error) {
       console.error('Remove payout error:', error);
       // Revert UI on failure
@@ -161,11 +168,14 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
     const updatedChallenge = {
       ...challenge,
       payouts: newList
-    };
+    } as Challenge;
+    updatedChallenge.highestMilestone = inferHighestMilestone(updatedChallenge);
+    updatedChallenge.outcomeType = inferOutcomeType(updatedChallenge);
     onUpdate(updatedChallenge);
     
     try {
       await apiClient.updatePayout(payoutId, amountNum, editDate);
+      await apiClient.updateChallenge(updatedChallenge);
       setEditingId(null);
     } catch (error) {
       console.error('Update payout error:', error);

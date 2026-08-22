@@ -26,6 +26,7 @@ import { RulesCompliancePrompt } from './RulesCompliancePrompt';
 import { ListChecks } from 'lucide-react';
 import { TradesView } from './TradesView';
 import { AccountsView } from './AccountsView';
+import { inferHighestMilestone, inferOutcomeType } from '../utils/challengeLifecycle';
 
 type ViewMode = 'prop' | 'calendar' | 'trades' | 'accounts';
 
@@ -567,17 +568,27 @@ const Dashboard: React.FC = () => {
     if (!effectiveUser?.id) return;
     
     try {
-      // Update database
-      await apiClient.bulkUpdateStatus(challengeIds, newStatus);
+      const lifecycleUpdates: Challenge[] = [];
+      for (const challenge of state.challenges.filter(c => challengeIds.includes(c.id))) {
+        const updated: Challenge = {
+          ...challenge,
+          status: newStatus,
+          failureDate: newStatus === 'failed' ? (challenge.failureDate || new Date().toISOString().slice(0, 10)) : challenge.failureDate,
+          failureReason: newStatus === 'failed' ? (challenge.failureReason || 'unknown') : challenge.failureReason,
+        };
+        updated.highestMilestone = inferHighestMilestone(updated);
+        updated.outcomeType = inferOutcomeType(updated);
+        lifecycleUpdates.push(updated);
+        await apiClient.updateChallenge(updated);
+      }
       
       // Update local state
       setState(prev => ({
         ...prev,
-        challenges: prev.challenges.map(challenge => 
-          challengeIds.includes(challenge.id)
-            ? { ...challenge, status: newStatus }
-            : challenge
-        )
+        challenges: prev.challenges.map(challenge => {
+          const updated = lifecycleUpdates.find(item => item.id === challenge.id);
+          return updated || challenge;
+        })
       }));
       
       // If marking as failed, archive calendar phases for these challenges
@@ -837,15 +848,26 @@ const Dashboard: React.FC = () => {
         };
       });
 
+      const failedLiveUpdates: Challenge[] = [];
       for (const { challenge } of liveSummaries) {
-        await apiClient.updateChallenge({ ...challenge, status: 'failed' as const });
+        const updated: Challenge = {
+          ...challenge,
+          status: 'failed' as const,
+          failureDate,
+          failureReason: challenge.failureReason || 'unknown',
+        };
+        updated.highestMilestone = inferHighestMilestone(updated);
+        updated.outcomeType = inferOutcomeType(updated);
+        failedLiveUpdates.push(updated);
+        await apiClient.updateChallenge(updated);
       }
 
       setState(prev => ({
         ...prev,
-        challenges: prev.challenges.map(c => 
-          selectedFailLiveIds.includes(c.id) ? { ...c, status: 'failed' as const } : c
-        )
+        challenges: prev.challenges.map(c => {
+          const updated = failedLiveUpdates.find(item => item.id === c.id);
+          return updated || c;
+        })
       }));
       
       setCalendar(prev => {
