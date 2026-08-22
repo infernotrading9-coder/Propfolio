@@ -1,4 +1,5 @@
 @import './dark-theme.css';
+@import './budget.css';
 
 @tailwind base;
 @tailwind components;
