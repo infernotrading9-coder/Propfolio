@@ -13,7 +13,7 @@ const getDatabaseUrl = (): string => {
   }
   
   // For Netlify Functions, use process.env (Node.js environment)
-  const url = process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL;
+  let url = process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL || '';
   if (!url) {
     throw new Error(
       'DATABASE_URL not found in environment variables.\n' +
@@ -21,6 +21,10 @@ const getDatabaseUrl = (): string => {
       'Get it from Neon: https://console.neon.tech/'
     );
   }
+  // @neondatabase/serverless doesn't support channel_binding — strip it
+  url = url.replace(/[?&]channel_binding=require/ig, '');
+  // Clean up any leftover ?& or && from the removal
+  url = url.replace(/[?&]{2,}/g, '?').replace(/[?&]$/, '');
   return url;
 };
 
