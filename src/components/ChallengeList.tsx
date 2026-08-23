@@ -697,9 +697,9 @@ export const ChallengeList: React.FC<{
                 typeof challenge.activationFeeAmount !== 'number' &&
                 getFinalPhaseForChallenge(challenge) === phasePromptPhase;
               const normalizedActivationFee = shouldAddActivationFee ? Number(activationFeeAmount ?? 0) : undefined;
-              const updatedCost = shouldAddActivationFee
-                ? Number(((challenge.initialCost ?? challenge.cost ?? 0) + (normalizedActivationFee ?? 0)).toFixed(2))
-                : challenge.cost;
+              // Activation fee stays tracked in activationFeeAmount — it is NOT folded into cost.
+              // Cost reflects only what was actually spent on the eval.
+              const updatedCost = challenge.cost;
 
               const passedChallenge: Challenge = {
                 ...challenge,

@@ -125,7 +125,7 @@ export const PhaseOutcomePrompt: React.FC<PhaseOutcomePromptProps> = ({ open, ph
                   </div>
                   {activationFeeError && <div className="mt-1 text-xs text-rose-300">{activationFeeError}</div>}
                   <div className="mt-1 text-xs text-white/45">
-                    This will be added to the total cost {accountCount > 1 ? 'for each selected account' : 'for this challenge'} after it reaches live.
+                    The activation fee is tracked separately — it is not included in the challenge cost.
                   </div>
                 </div>
               )}
