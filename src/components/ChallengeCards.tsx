@@ -27,7 +27,7 @@ export const ChallengeCards: React.FC<ChallengeCardsProps> = ({
   // Show active and passed challenges (not failed ones in main view)
   const activeChallenges = challenges.filter(c => {
     const status = (c.status as any) ?? 'active';
-    return status === 'active' || status === 'passed';
+    return status === 'active' || status === 'passed' || status === 'passed_inactive';
   });
   const archivedChallenges = challenges.filter(c => c.status === 'failed');
 
@@ -37,6 +37,15 @@ export const ChallengeCards: React.FC<ChallengeCardsProps> = ({
   };
 
   const getStatusInfo = (challenge: Challenge) => {
+    if (challenge.status === 'passed_inactive') {
+      return {
+        icon: <Clock className="w-4 h-4" />,
+        color: 'text-amber-400',
+        bgColor: 'bg-amber-500/20',
+        borderColor: 'border-amber-400/50',
+        label: 'Passed · Awaiting Activation'
+      };
+    }
     if (challenge.status === 'passed') {
       return {
         icon: <CheckCircle className="w-4 h-4" />,

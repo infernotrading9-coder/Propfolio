@@ -11,7 +11,7 @@ import { Statistics } from './Statistics';
 import { PayoutManager } from './PayoutManager';
 import { CustomPnLChart } from './CustomPnLChart';
 import { AdditionalCharts } from './AdditionalCharts';
-import { AppState, Challenge } from '../types';
+import { AppState, Challenge, ChallengeStatus } from '../types';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { AddChallengeModal } from './AddChallengeModal';
 // Switch to serverless API client
@@ -611,7 +611,7 @@ const Dashboard: React.FC = () => {
     setSelectedChallengeIds(new Set());
   };
   
-  const handleBulkStatusChange = async (challengeIds: string[], newStatus: 'active' | 'passed' | 'failed') => {
+  const handleBulkStatusChange = async (challengeIds: string[], newStatus: ChallengeStatus) => {
     if (!effectiveUser?.id) return;
     
     try {

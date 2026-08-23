@@ -12,6 +12,7 @@ export const LIFECYCLE_MILESTONE_LABELS: Record<string, string> = {
 
 export const OUTCOME_LABELS: Record<string, string> = {
   active: 'Active',
+  awaiting_activation: 'Passed · Awaiting Activation',
   failed_pre_phase: 'Failed Before Passing',
   failed_after_phase1: 'Failed After Phase 1',
   failed_after_phase2: 'Failed After Phase 2',
@@ -89,6 +90,7 @@ export const inferOutcomeType = (challenge: Challenge): string => {
     if (challenge.phases?.phase1?.completed) return 'failed_after_phase1';
     return 'failed_pre_phase';
   }
+  if (challenge.status === 'passed_inactive') return 'awaiting_activation';
   if (challenge.status === 'passed') return 'funded_active';
   return 'unknown';
 };
@@ -119,6 +121,7 @@ export const getFailureReasonLabel = (value?: string | null): string => {
 export const getLifecycleTone = (challenge: Challenge): 'emerald' | 'amber' | 'red' | 'cyan' => {
   const outcome = getDisplayOutcome(challenge);
   if (outcome === 'payout_then_failed' || outcome === 'payout_received') return 'emerald';
+  if (outcome === 'awaiting_activation') return 'amber';
   if (outcome.includes('failed')) return 'red';
   if (outcome.includes('funded')) return 'amber';
   return 'cyan';

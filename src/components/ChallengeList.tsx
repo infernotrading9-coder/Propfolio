@@ -703,7 +703,7 @@ export const ChallengeList: React.FC<{
 
               const passedChallenge: Challenge = {
                 ...challenge,
-                status: 'active',
+                status: shouldAddActivationFee ? 'passed_inactive' : 'active',
                 initialCost: challenge.initialCost ?? challenge.cost,
                 activationFeeAmount: shouldAddActivationFee ? normalizedActivationFee : challenge.activationFeeAmount,
                 cost: updatedCost,

@@ -48,7 +48,7 @@ export const challenges = pgTable('challenges', {
   phase2CompletedAt: timestamp('phase2_completed_at'),
   phase3Completed: boolean('phase3_completed').default(false),
   phase3CompletedAt: timestamp('phase3_completed_at'),
-  status: text('status').default('active'), // 'active', 'passed', 'failed' - optional for backwards compatibility
+  status: text('status').default('active'), // 'active', 'passed', 'passed_inactive', 'failed' - optional for backwards compatibility
   highestMilestone: text('highest_milestone'),
   outcomeType: text('outcome_type'),
   failureReason: text('failure_reason'),

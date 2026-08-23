@@ -120,6 +120,20 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
                 </div>
               </motion.button>
 
+              {/* Passed · Awaiting Activation Status */}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => handleStatusChange('passed_inactive')}
+                className="w-full flex items-center gap-3 p-4 rounded-lg bg-gradient-to-r from-amber-500/10 to-amber-600/10 hover:from-amber-500/20 hover:to-amber-600/20 border border-amber-400/30 hover:border-amber-400/50 transition-all duration-300"
+              >
+                <Clock className="w-5 h-5 text-amber-400" />
+                <div className="text-left">
+                  <div className="text-amber-200 font-medium">Passed · Awaiting Activation</div>
+                  <div className="text-amber-300/70 text-sm">Passed, activation fee not paid yet</div>
+                </div>
+              </motion.button>
+
               {/* Passed Status */}
               <motion.button
                 whileHover={{ scale: 1.02 }}

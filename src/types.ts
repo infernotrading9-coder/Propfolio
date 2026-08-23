@@ -12,9 +12,9 @@ export interface PayoutEntry {
   description?: string;
 }
 
-export type ChallengeStatus = 'active' | 'passed' | 'failed';
+export type ChallengeStatus = 'active' | 'passed' | 'passed_inactive' | 'failed';
 export type ChallengeMilestone = 'purchased' | 'phase1_passed' | 'phase2_passed' | 'phase3_passed' | 'funded' | 'payout_received' | 'failed_after_payout';
-export type ChallengeOutcomeType = 'active' | 'failed_pre_phase' | 'failed_after_phase1' | 'failed_after_phase2' | 'failed_after_phase3' | 'failed_after_funded' | 'payout_then_failed' | 'funded_active' | 'payout_received' | 'unknown';
+export type ChallengeOutcomeType = 'active' | 'awaiting_activation' | 'failed_pre_phase' | 'failed_after_phase1' | 'failed_after_phase2' | 'failed_after_phase3' | 'failed_after_funded' | 'payout_then_failed' | 'funded_active' | 'payout_received' | 'unknown';
 export type ChallengeFailureReason = 'rule_break' | 'max_drawdown' | 'daily_loss' | 'tilt_revenge' | 'overtrading' | 'account_expired' | 'strategic_reset' | 'firm_platform_issue' | 'unknown';
 
 export interface TradingRule {

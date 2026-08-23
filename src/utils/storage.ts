@@ -60,7 +60,7 @@ export function loadState(userId?: string): AppState {
         phases,
         payouts: Array.isArray(challenge.payouts) ? challenge.payouts : [],
         totalPhases: [1, 2, 3].includes(challenge.totalPhases) ? challenge.totalPhases : 2,
-        status: (['active', 'passed', 'failed'].includes((challenge as any).status)) ? (challenge as any).status : 'active',
+        status: (['active', 'passed', 'passed_inactive', 'failed'].includes((challenge as any).status)) ? (challenge as any).status : 'active',
         createdAt: challenge.createdAt || new Date().toISOString(),
       };
     }).filter(challenge => challenge.id && challenge.propFirmId); // Remove invalid challenges
