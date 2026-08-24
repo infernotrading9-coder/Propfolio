@@ -54,6 +54,7 @@ export interface Category {
   id: string;
   name: string;
   percent: number;
+  parentId?: string; // granular tags point to their bucket (needs/wants/investments); buckets have none
 }
 
 export interface Transaction {
@@ -691,6 +692,12 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
       }
     }
     Object.keys(map).forEach((k) => { map[k] = round2(map[k]); });
+    // Roll up granular tag spend into their parent bucket so bucket bars show combined spend
+    state.categories.forEach((c) => {
+      if (c.parentId && map[c.parentId] != null && map[c.id] != null) {
+        map[c.parentId] = round2(map[c.parentId] + map[c.id]);
+      }
+    });
     return map;
   }, [state.transactions, state.categories, state.accounts, state.excludePropFirm]);
 
