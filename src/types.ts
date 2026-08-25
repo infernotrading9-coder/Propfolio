@@ -137,4 +137,10 @@ export type NewChallengeInput = {
   firmType?: FirmType; // type of firm: futures or CFD
   evalType?: string; // program/eval type per firm
   liveAccount?: boolean; // explicit live-account tier (applies once funded account is promoted to real trading)
+  spawnAccountCard?: boolean; // also create a trading account card + budget expense (single-source purchase)
+  maxDrawdown?: number;
+  dailyDrawdown?: number;
+  riskPerTrade?: number;
+  rules?: string[];
+  budgetAccountId?: string; // which budget account paid for the eval
 };

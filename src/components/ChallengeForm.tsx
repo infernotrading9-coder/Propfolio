@@ -194,6 +194,10 @@ export const ChallengeForm: React.FC<{
   const [failureReason, setFailureReason] = React.useState<string>(initial?.failureReason ?? '');
   const [failureDate, setFailureDate] = React.useState<string>(initial?.failureDate ?? '');
   const [lifecycleNotes, setLifecycleNotes] = React.useState<string>(initial?.lifecycleNotes ?? '');
+  const [maxDrawdown, setMaxDrawdown] = React.useState<number>(0);
+  const [dailyDrawdown, setDailyDrawdown] = React.useState<number>(0);
+  const [maxDrawdownStr, setMaxDrawdownStr] = React.useState('');
+  const [dailyDrawdownStr, setDailyDrawdownStr] = React.useState('');
   
   // Refresh date when buildingMode changes or when component mounts in build mode
   React.useEffect(() => {
@@ -343,7 +347,11 @@ export const ChallengeForm: React.FC<{
           status: 'active',
           strategy: strategy.trim() || undefined,
           evalType: evalType.trim() || undefined,
-          firmType
+          firmType,
+          // Single-source purchase: spawn trading account card + budget expense.
+          spawnAccountCard: true,
+          maxDrawdown: maxDrawdown || undefined,
+          dailyDrawdown: dailyDrawdown || undefined,
         });
         
         // Save the start date as last used in build mode
@@ -642,7 +650,7 @@ export const ChallengeForm: React.FC<{
             </div>
           </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 xl:items-start">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6 xl:items-start">
           {/* Challenge Cost */}
           <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-black/15 p-3">
             <label className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-white/60">
@@ -685,6 +693,40 @@ export const ChallengeForm: React.FC<{
               />
             </div>
             {errors.cost && <span className="text-xs text-red-400">{errors.cost}</span>}
+          </div>
+
+          {/* Max Drawdown */}
+          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-black/15 p-3">
+            <label className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-white/60">
+              <Target className="h-3.5 w-3.5" />
+              Max DD ($)
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={maxDrawdownStr}
+              onChange={(e) => { setMaxDrawdownStr(e.target.value); setMaxDrawdown(e.target.value === '' ? 0 : Number(e.target.value)); }}
+              className={inputClasses('maxDrawdown')}
+              disabled={formDisabled}
+              placeholder="2000"
+            />
+          </div>
+
+          {/* Daily Drawdown */}
+          <div className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-white/10 bg-black/15 p-3">
+            <label className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-white/60">
+              <Target className="h-3.5 w-3.5" />
+              Daily DD ($)
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={dailyDrawdownStr}
+              onChange={(e) => { setDailyDrawdownStr(e.target.value); setDailyDrawdown(e.target.value === '' ? 0 : Number(e.target.value)); }}
+              className={inputClasses('dailyDrawdown')}
+              disabled={formDisabled}
+              placeholder="1000"
+            />
           </div>
 
           {/* Activation Fee */}

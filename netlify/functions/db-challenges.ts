@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
 import { propFirmService, challengeService, userStateService, payoutService } from '../../server/db/service'
+import { spawnAccountAndBudget } from '../../server/db/purchaseService'
 
 export const handler: Handler = async (event) => {
   try {
@@ -72,8 +73,32 @@ export const handler: Handler = async (event) => {
         accountLast4: accountLast4 || null,
       } as any)
 
+      // Single-source purchase: when the app's "Buy Eval" flow creates a challenge,
+      // also spawn the trading account card + budget expense.
+      let spawnedAccountId: string | undefined
+      if (input.spawnAccountCard) {
+        try {
+          const firmRow = await propFirmService.getById(firmId)
+          const spawned = await spawnAccountAndBudget(user.id, {
+            firmName: firmRow?.name || input.propFirmName || 'Prop Firm',
+            accountSize: Number(accountSize) || 0,
+            accountLast4: accountLast4 || null,
+            cost: Number(cost) || 0,
+            budgetAccountId: input.budgetAccountId,
+            maxDrawdown: input.maxDrawdown !== undefined ? Number(input.maxDrawdown) : 0,
+            dailyDrawdown: input.dailyDrawdown !== undefined ? Number(input.dailyDrawdown) : 0,
+            riskPerTrade: input.riskPerTrade !== undefined ? Number(input.riskPerTrade) : 0,
+            rules: input.rules || [],
+          })
+          spawnedAccountId = spawned.accountId
+        } catch (e) {
+          console.error('spawnAccountAndBudget failed:', e)
+        }
+      }
+
       const challenge = {
         id: row.id,
+        accountCardId: spawnedAccountId || undefined,
         propFirmId: row.firmId,
         brokerName: row.brokerName || 'Trading Account',
         accountLast4: (row as any).accountLast4 || undefined,

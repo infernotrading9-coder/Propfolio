@@ -340,7 +340,9 @@ export const tradeService = {
     const allTrades = await db.select().from(trades).where(eq(trades.userId, userId));
     const wins = allTrades.filter(t => t.result === 'win');
     const losses = allTrades.filter(t => t.result === 'loss');
-    const totalPnL = allTrades.reduce((sum, t) => sum + parseFloat(String(t.amount)), 0);
+    // Losses are stored as positive numbers; P&L must subtract them.
+    const signed = (t: Trade) => (t.result === 'loss' ? -1 : 1) * parseFloat(String(t.amount));
+    const totalPnL = allTrades.reduce((sum, t) => sum + signed(t), 0);
     const rrValues = allTrades.filter(t => t.riskReward).map(t => parseFloat(String(t.riskReward)));
     const winAmounts = wins.map(t => parseFloat(String(t.amount)));
     const lossAmounts = losses.map(t => parseFloat(String(t.amount)));
@@ -354,7 +356,7 @@ export const tradeService = {
         const s = behaviorMap.get(b)!;
         s.count++;
         if (t.result === 'win') s.wins++; else s.losses++;
-        s.pnl += parseFloat(String(t.amount));
+        s.pnl += signed(t);
       }
     }
     const behaviorStats = Array.from(behaviorMap.entries()).map(([behavior, s]) => ({
@@ -399,7 +401,7 @@ export const tradeService = {
       avgWin: winAmounts.length > 0 ? winAmounts.reduce((a, b) => a + b, 0) / winAmounts.length : 0,
       avgLoss: lossAmounts.length > 0 ? lossAmounts.reduce((a, b) => a + b, 0) / lossAmounts.length : 0,
       bestTrade: winAmounts.length > 0 ? Math.max(...winAmounts) : 0,
-      worstTrade: lossAmounts.length > 0 ? Math.min(...lossAmounts) : 0,
+      worstTrade: lossAmounts.length > 0 ? -Math.max(...lossAmounts) : 0,
       behaviorStats,
       ruleCompliance,
     };
@@ -656,17 +658,74 @@ export const budgetStateService = {
     return result[0]?.state ?? null;
   },
 
-  async upsert(userId: string, state: any): Promise<any> {
-    const existing = await db.select().from(budgetState).where(eq(budgetState.userId, userId)).limit(1);
-    if (existing[0]) {
-      const updated = await db
-        .update(budgetState)
-        .set({ state, updatedAt: new Date() })
-        .where(eq(budgetState.userId, userId))
-        .returning();
-      return updated[0].state;
+  /**
+   * Merge-based upsert — NEVER a wholesale replace.
+   *
+   * The client sends the entire BudgetState on every change. A stale tab can
+   * therefore carry an old/empty document and wipe fresh rows on save (this is
+   * how Daniel's transactions disappeared). So we merge by id:
+   *   - rows the server has that the client doesn't see → KEPT
+   *   - rows the client actually deleted → removed via `_deleted` ids
+   *   - rows present on both sides → client's version wins (it's the newer edit)
+   */
+  async upsert(userId: string, incoming: any): Promise<any> {
+    const existing = await this.getByUserId(userId);
+    if (!existing) {
+      const clean = this._stripMeta(incoming);
+      const inserted = await db.insert(budgetState).values({ userId, state: clean }).returning();
+      return inserted[0].state;
     }
-    const inserted = await db.insert(budgetState).values({ userId, state }).returning();
-    return inserted[0].state;
+
+    const { _deleted, ...inc } = incoming || {};
+    const merged = this._merge(existing, inc, _deleted || {});
+
+    const updated = await db
+      .update(budgetState)
+      .set({ state: merged, updatedAt: new Date() })
+      .where(eq(budgetState.userId, userId))
+      .returning();
+    return updated[0].state;
+  },
+
+  _stripMeta(state: any): any {
+    if (!state || typeof state !== 'object') return state;
+    const { _deleted, ...rest } = state;
+    return rest;
+  },
+
+  _mergeById(existing: any[] | undefined, incoming: any[] | undefined): any[] {
+    const map = new Map<string, any>();
+    for (const e of existing || []) if (e && e.id) map.set(String(e.id), e);
+    for (const i of incoming || []) if (i && i.id) map.set(String(i.id), i);
+    return Array.from(map.values());
+  },
+
+  _merge(existing: any, incoming: any, deleted: any): any {
+    const delTxn = new Set<string>(deleted.transactions || []);
+    const delAcct = new Set<string>(deleted.accounts || []);
+    const delGoal = new Set<string>(deleted.goals || []);
+    const delCat = new Set<string>(deleted.categories || []);
+    const clearAll = deleted.all === true;
+
+    const keepOrClear = (arrKey: string, delSet: Set<string>) => {
+      if (clearAll) return incoming[arrKey] || [];
+      return this._mergeById(existing[arrKey], incoming[arrKey]).filter((x: any) => !delSet.has(String(x.id)));
+    };
+
+    const merged: any = {
+      income: incoming.income ?? existing.income ?? 0,
+      autoIncome: incoming.autoIncome ?? existing.autoIncome ?? true,
+      excludePropFirm: incoming.excludePropFirm ?? existing.excludePropFirm ?? true,
+      categories: keepOrClear('categories', delCat),
+      transactions: keepOrClear('transactions', delTxn),
+      accounts: keepOrClear('accounts', delAcct),
+      savingsGoals: keepOrClear('savingsGoals', delGoal),
+      completedGoals: keepOrClear('completedGoals', delGoal),
+    };
+    // Preserve any other top-level keys the server holds (future-proofing).
+    for (const k of Object.keys(existing)) {
+      if (!(k in merged)) merged[k] = existing[k];
+    }
+    return this._stripMeta(merged);
   },
 };

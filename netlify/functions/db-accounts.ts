@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
 import { tradingAccountService, accountDailyOrderService } from '../../server/db/service'
+import { spawnChallengeAndBudgetFromAccount } from '../../server/db/purchaseService'
 
 export const handler: Handler = async (event) => {
   try {
@@ -56,6 +57,28 @@ export const handler: Handler = async (event) => {
           platform: platform || null,
           groupName: groupName || null,
         } as any)
+
+        // Account-first direction: if this is a new eval account, spawn the
+        // matching challenge + budget expense so everything stays connected.
+        if (input.spawnChallengeAndBudget) {
+          try {
+            await spawnChallengeAndBudgetFromAccount(user.id, {
+              firmName: firm,
+              accountSize: Number(accountSize) || 0,
+              accountLast4: accountNumberLast4 || null,
+              cost: Number(input.cost) || 0,
+              budgetAccountId: input.budgetAccountId,
+              maxDrawdown: maxDrawdown !== undefined ? Number(maxDrawdown) : 0,
+              dailyDrawdown: dailyDrawdown !== undefined ? Number(dailyDrawdown) : 0,
+              riskPerTrade: riskPerTrade !== undefined ? Number(riskPerTrade) : 0,
+              rules: rules || [],
+              strategy: input.strategy,
+              firmType: input.firmType,
+            })
+          } catch (e) {
+            console.error('spawnChallengeAndBudgetFromAccount failed:', e)
+          }
+        }
         return json(200, { account })
       }
 

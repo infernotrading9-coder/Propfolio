@@ -69,6 +69,7 @@ const HolographicAccountCard: React.FC<{
   const drawdown = parseFloat(acct.drawdownUsed);
   const hwm = parseFloat(acct.highWaterMark);
   const maxDD = acct.maxDrawdown ? parseFloat(acct.maxDrawdown) : 0;
+  const dailyDD = acct.dailyDrawdown ? parseFloat(acct.dailyDrawdown) : 0;
   const ddPercent = maxDD > 0 ? Math.min(100, (drawdown / maxDD) * 100) : 0;
   const profit = balance - hwm;
   const acctSizeNum = parseFloat(acct.accountSize);
@@ -130,10 +131,11 @@ const HolographicAccountCard: React.FC<{
 
           {isEditing ? (
             <div className="space-y-2">
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 <input type="number" value={editData.balance || ''} onChange={(e) => setEditField('balance', e.target.value)} placeholder="Balance" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
+                <input type="number" value={editData.maxDrawdown || ''} onChange={(e) => setEditField('maxDrawdown', e.target.value)} placeholder="Max DD" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
+                <input type="number" value={editData.dailyDrawdown || ''} onChange={(e) => setEditField('dailyDrawdown', e.target.value)} placeholder="Daily DD" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
                 <input type="number" value={editData.drawdownUsed || ''} onChange={(e) => setEditField('drawdownUsed', e.target.value)} placeholder="DD Used" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
-                <input type="number" value={editData.highWaterMark || ''} onChange={(e) => setEditField('highWaterMark', e.target.value)} placeholder="HWM" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
               </div>
               <div className="flex gap-2">
                 <button onClick={onSave} className="bg-neon-lime text-black px-3 py-1 rounded text-sm font-medium"><Save className="w-3 h-3 inline" /> Save</button>
@@ -143,14 +145,18 @@ const HolographicAccountCard: React.FC<{
           ) : (
             <>
               {/* Stats grid */}
-              <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="grid grid-cols-4 gap-2 text-center">
                 <div>
                   <div className="text-white/40 text-xs">Balance</div>
                   <div className="text-white font-semibold">${balance.toFixed(0)}</div>
                 </div>
                 <div>
-                  <div className="text-white/40 text-xs">HWM</div>
-                  <div className="text-white/70 font-medium">${hwm.toFixed(0)}</div>
+                  <div className="text-white/40 text-xs">Max DD</div>
+                  <div className={`font-medium ${maxDD > 0 && drawdown >= maxDD ? 'text-red-400' : 'text-white/70'}`}>${maxDD.toFixed(0)}</div>
+                </div>
+                <div>
+                  <div className="text-white/40 text-xs">Daily DD</div>
+                  <div className={`font-medium ${dailyDD > 0 && drawdown >= dailyDD ? 'text-red-400' : 'text-white/70'}`}>${dailyDD.toFixed(0)}</div>
                 </div>
                 <div>
                   <div className="text-white/40 text-xs">P&L</div>
@@ -504,7 +510,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
   const [orderedIds, setOrderedIds] = useState<string[]>([]);
 
   const [newAccount, setNewAccount] = useState({
-    name: '', firm: '', accountNumberLast4: '', accountSize: '', balance: '', maxDrawdown: '', dailyDrawdown: '', riskPerTrade: '', rules: '', notes: '', phase: 'challenge', platform: '', groupName: '',
+    name: '', firm: '', accountNumberLast4: '', accountSize: '', balance: '', maxDrawdown: '', dailyDrawdown: '', riskPerTrade: '', rules: '', notes: '', phase: 'challenge', platform: '', groupName: '', cost: '',
   });
 
   const [editData, setEditData] = useState<Partial<TradingAccount>>({});
@@ -543,10 +549,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
           maxDrawdown: parseFloat(newAccount.maxDrawdown) || 0,
           dailyDrawdown: parseFloat(newAccount.dailyDrawdown) || 0,
           riskPerTrade: parseFloat(newAccount.riskPerTrade) || 0,
+          // Single-source: adding an eval account also spawns its challenge + budget expense.
+          spawnChallengeAndBudget: true,
+          cost: parseFloat(newAccount.cost) || 0,
         }),
       });
       setShowAddAccount(false);
-      setNewAccount({ name: '', firm: '', accountNumberLast4: '', accountSize: '', balance: '', maxDrawdown: '', dailyDrawdown: '', riskPerTrade: '', rules: '', notes: '', phase: 'challenge', platform: '', groupName: '' });
+      setNewAccount({ name: '', firm: '', accountNumberLast4: '', accountSize: '', balance: '', maxDrawdown: '', dailyDrawdown: '', riskPerTrade: '', rules: '', notes: '', phase: 'challenge', platform: '', groupName: '', cost: '' });
       loadData();
     } catch (e) { console.error('Failed to add account:', e); }
   };
@@ -690,6 +699,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
             <FormField label="Last 4 Digits" value={newAccount.accountNumberLast4} onChange={(v) => setNewAccount({ ...newAccount, accountNumberLast4: v })} placeholder="0006" />
             <FormField label="Account Size ($)" value={newAccount.accountSize} onChange={(v) => setNewAccount({ ...newAccount, accountSize: v })} placeholder="50000" type="number" />
             <FormField label="Current Balance ($)" value={newAccount.balance} onChange={(v) => setNewAccount({ ...newAccount, balance: v })} placeholder="50000" type="number" />
+            <FormField label="Eval Cost ($) — logs budget expense" value={newAccount.cost} onChange={(v) => setNewAccount({ ...newAccount, cost: v })} placeholder="89" type="number" />
             <FormField label="Max Drawdown ($)" value={newAccount.maxDrawdown} onChange={(v) => setNewAccount({ ...newAccount, maxDrawdown: v })} placeholder="2000" type="number" />
             <FormField label="Daily Drawdown ($)" value={newAccount.dailyDrawdown} onChange={(v) => setNewAccount({ ...newAccount, dailyDrawdown: v })} placeholder="1000" type="number" />
             <FormField label="Risk Per Trade ($)" value={newAccount.riskPerTrade} onChange={(v) => setNewAccount({ ...newAccount, riskPerTrade: v })} placeholder="200" type="number" />

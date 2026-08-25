@@ -1,6 +1,8 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
 import { challengeService } from '../../server/db/service'
+import { db } from '../../server/db/connection'
+import { sql } from 'drizzle-orm'
 
 export const handler: Handler = async (event) => {
   try {
@@ -13,6 +15,19 @@ export const handler: Handler = async (event) => {
 
     for (const id of ids) {
       await challengeService.update(id, { status } as any)
+      // Keep the trading account card in sync (single source of truth):
+      // failing a challenge also marks its account card as lost.
+      if (status === 'failed') {
+        const challenge = await challengeService.getById(id)
+        const last4 = (challenge as any)?.accountLast4
+        if (last4) {
+          await db.execute(sql`
+            UPDATE trading_accounts
+            SET status = 'lost', updated_at = NOW()
+            WHERE user_id = ${user.id} AND account_number_last4 = ${last4} AND status IN ('active','paused')
+          `)
+        }
+      }
     }
     return json(204, {})
   } catch (e) {

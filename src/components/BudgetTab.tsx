@@ -77,6 +77,7 @@ export interface Transaction {
   fromSubId?: string;
   toSubId?: string;
   parentAccountId?: string;
+  isPropFirm?: boolean; // prop-firm trading cost (eval purchase) — toggleable in totals
 }
 
 export interface SavingsGoal {
@@ -101,6 +102,9 @@ export interface BudgetState {
   accounts: Account[];
   savingsGoals: SavingsGoal[];
   completedGoals: CompletedGoal[];
+  /** Non-persisted metadata: ids deleted in this client session, so the server
+   *  can remove them without ever clobbering rows the client didn't see. */
+  _deleted?: { transactions?: string[]; accounts?: string[]; goals?: string[]; categories?: string[]; all?: boolean };
 }
 
 export interface BudgetTabProps {
@@ -183,6 +187,13 @@ function isBorrowLiabilityLoan(acc: Account | null | undefined): boolean {
 function displayBalance(acc: Account | null | undefined): number {
   if (!acc) return 0;
   return round2(Number(acc.balance || 0));
+}
+
+function isPropFirmTxn(t: Transaction | null | undefined): boolean {
+  if (!t) return false;
+  if (t.isPropFirm) return true;
+  const name = String(t.name || '').toLowerCase();
+  return name.includes('prop firm') || name.includes('challenge') || name.includes('eval');
 }
 
 function calculateLoanAmortization(principal: number, apr: number, termMonths: number, fee: number) {
@@ -554,6 +565,17 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
   const [internalState, setInternalState] = useState<BudgetState>(propState || defaultBudgetState);
   const state = propState || internalState;
   const handleChange = onChange || ((newState: BudgetState) => setInternalState(newState));
+
+  // Track ids deleted in this session so the server can remove them without
+  // ever clobbering rows the client doesn't currently see.
+  const pendingDeletesRef = useRef<{ transactions: string[]; accounts: string[]; goals: string[]; categories: string[] }>({ transactions: [], accounts: [], goals: [], categories: [] });
+  const emitChange = useCallback((newState: BudgetState) => {
+    const deletes = pendingDeletesRef.current;
+    const hasDeletes = deletes.transactions.length > 0 || deletes.accounts.length > 0 || deletes.goals.length > 0 || deletes.categories.length > 0;
+    const out = hasDeletes ? { ...newState, _deleted: { transactions: [...deletes.transactions], accounts: [...deletes.accounts], goals: [...deletes.goals], categories: [...deletes.categories] } } : newState;
+    pendingDeletesRef.current = { transactions: [], accounts: [], goals: [], categories: [] };
+    handleChange(out);
+  }, [handleChange]);
   // ─── Modal state ─────────────────────────────────────────────────────────
   const [showTxnModal, setShowTxnModal] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
@@ -637,9 +659,8 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
       if (t.type !== 'expense') return a;
       const d = parseLocalDateString(t.date);
       if (d.getMonth() === m && d.getFullYear() === y) {
-        const name = String(t.name || '').toLowerCase();
         const catName = String((state.categories.find((c) => c.id === t.categoryId)?.name) || '').toLowerCase();
-        if (t.excluded || (state.excludePropFirm && (name.includes('prop firm') || name.includes('challenge') || catName.includes('prop firm')))) return a;
+        if (t.excluded || (state.excludePropFirm && (isPropFirmTxn(t) || catName.includes('prop firm')))) return a;
         return a + Number(t.amount || 0);
       }
       return a;
@@ -667,9 +688,8 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
       if (t.type !== 'expense') return;
       const d = parseLocalDateString(t.date);
       if (d.getMonth() === m && d.getFullYear() === y && map[t.categoryId!] != null) {
-        const name = String(t.name || '').toLowerCase();
         const catName = String((state.categories.find((c) => c.id === t.categoryId)?.name) || '').toLowerCase();
-        if (t.excluded || (state.excludePropFirm && (name.includes('prop firm') || name.includes('challenge') || catName.includes('prop firm')))) return;
+        if (t.excluded || (state.excludePropFirm && (isPropFirmTxn(t) || catName.includes('prop firm')))) return;
         map[t.categoryId!] += Number(t.amount || 0);
       }
     });
@@ -703,7 +723,7 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
 
   // totalSpent is available for future use; not currently rendered
   const _totalSpent = useMemo(() => round2(state.transactions
-    .filter((t) => t.type === 'expense' && !(t.excluded || (state.excludePropFirm && String(t.name || '').toLowerCase().includes('prop firm'))))
+    .filter((t) => t.type === 'expense' && !(t.excluded || (state.excludePropFirm && isPropFirmTxn(t))))
     .reduce((a, t) => a + Number(t.amount || 0), 0)), [state.transactions, state.excludePropFirm]);
   void _totalSpent;
 
@@ -725,9 +745,8 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
     const expensesByMonth: Record<string, number> = {};
     state.transactions.forEach((t) => {
       if (t.type !== 'expense') return;
-      const name = String(t.name || '').toLowerCase();
       const catName = String((state.categories.find((c) => c.id === t.categoryId)?.name) || '').toLowerCase();
-      if (t.excluded || (state.excludePropFirm && (name.includes('prop firm') || name.includes('challenge') || catName.includes('prop firm')))) return;
+      if (t.excluded || (state.excludePropFirm && (isPropFirmTxn(t) || catName.includes('prop firm')))) return;
       const d = parseLocalDateString(t.date);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       expensesByMonth[key] = (expensesByMonth[key] || 0) + Number(t.amount || 0);
@@ -798,13 +817,11 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
       const d = parseLocalDateString(t.date);
       const rawName = (t.name || '').trim() || 'Unnamed';
       if (d.getMonth() === m && d.getFullYear() === y) {
-        const name = rawName.toLowerCase();
-        if (t.excluded || (state.excludePropFirm && (name.includes('prop firm') || name.includes('challenge')))) return;
+        if (t.excluded || (state.excludePropFirm && isPropFirmTxn(t))) return;
         currentExpenses.push({ name: rawName, amount: Number(t.amount || 0), dayIndex: d.getDay() });
       }
       if (d.getMonth() === lastMonth && d.getFullYear() === lastMonthYear) {
-        const name = rawName.toLowerCase();
-        if (t.excluded || (state.excludePropFirm && (name.includes('prop firm') || name.includes('challenge')))) return;
+        if (t.excluded || (state.excludePropFirm && isPropFirmTxn(t))) return;
         lastMonthExpenses.push({ name: rawName, amount: Number(t.amount || 0) });
       }
     });
@@ -983,9 +1000,8 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
       if (dt.getFullYear() === view.getFullYear() && dt.getMonth() === view.getMonth()) {
         const key = formatLocalDate(dt);
         if (dailySpending[key] !== undefined) {
-          const name = String(t.name || '').toLowerCase();
           const catName = String((state.categories.find((c) => c.id === t.categoryId)?.name) || '').toLowerCase();
-          if (t.excluded || (state.excludePropFirm && (name.includes('prop firm') || name.includes('challenge') || catName.includes('prop firm')))) return;
+          if (t.excluded || (state.excludePropFirm && (isPropFirmTxn(t) || catName.includes('prop firm')))) return;
           dailySpending[key] += Number(t.amount || 0);
         }
       }
@@ -1015,23 +1031,34 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
   const saveAndRender = useCallback((newState: BudgetState) => {
     // Check goals completed
     let s = { ...newState };
+    const del = pendingDeletesRef.current;
+    const removedAcctIds: string[] = [];
+    const removedGoalIds: string[] = [];
     s.savingsGoals.forEach((goal) => {
       const account = s.accounts.find((a) => a.id === goal.accountId);
       if (account && account.balance >= goal.target) {
+        removedAcctIds.push(goal.accountId);
+        removedGoalIds.push(goal.id);
         s.accounts = s.accounts.filter((a) => a.id !== goal.accountId);
         s.savingsGoals = s.savingsGoals.filter((g) => g.id !== goal.id);
       }
     });
     // Check loans completed
     const epsilon = 0.005;
-    s.accounts = s.accounts.filter((acc) => {
+    const keptAccounts = s.accounts.filter((acc) => {
       if (!isLoanAccount(acc)) return true;
       const remaining = Math.abs(displayBalance(acc));
       const originalAmount = Math.abs(Number(acc.loanOriginal != null ? acc.loanOriginal : acc.balance || 0));
       return remaining > epsilon || originalAmount <= epsilon;
     });
-    handleChange(s);
-  }, [handleChange]);
+    for (const acc of s.accounts) {
+      if (!keptAccounts.includes(acc)) removedAcctIds.push(acc.id);
+    }
+    s.accounts = keptAccounts;
+    if (removedAcctIds.length) del.accounts.push(...removedAcctIds);
+    if (removedGoalIds.length) del.goals.push(...removedGoalIds);
+    emitChange(s);
+  }, [emitChange]);
 
   // ─── Transaction form submit ───────────────────────────────────────────────
   const handleSubmitTxn = useCallback((e: React.FormEvent) => {
@@ -1146,6 +1173,7 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
       }
     }
     s.transactions = s.transactions.filter((t) => t.id !== txn.id);
+    pendingDeletesRef.current.transactions.push(txn.id);
     saveAndRender(s);
   }, [state, saveAndRender]);
 
@@ -1250,6 +1278,7 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
   const handleDeleteAccount = useCallback((accId: string) => {
     if (!confirm('Delete this account?')) return;
     let s = { ...state, accounts: state.accounts.filter((a) => a.id !== accId) };
+    pendingDeletesRef.current.accounts.push(accId);
     saveAndRender(s);
   }, [state, saveAndRender]);
   void handleDeleteAccount;
@@ -1269,7 +1298,10 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
 
   // ─── Delete category ──────────────────────────────────────────────────────────
   const handleDeleteCategory = useCallback((id: string) => {
+    const removedTxns = state.transactions.filter((t) => t.categoryId === id).map((t) => t.id);
     let s = { ...state, categories: state.categories.filter((c) => c.id !== id), transactions: state.transactions.filter((t) => t.categoryId !== id) };
+    pendingDeletesRef.current.categories.push(id);
+    pendingDeletesRef.current.transactions.push(...removedTxns);
     saveAndRender(s);
   }, [state, saveAndRender]);
 
@@ -1295,8 +1327,12 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
     if (!confirm('Delete this goal?')) return;
     const goal = state.savingsGoals.find((g) => g.id === id);
     let s = { ...state, accounts: state.accounts, savingsGoals: state.savingsGoals };
-    if (goal?.accountId) s.accounts = s.accounts.filter((a) => a.id !== goal.accountId);
+    if (goal?.accountId) {
+      s.accounts = s.accounts.filter((a) => a.id !== goal.accountId);
+      pendingDeletesRef.current.accounts.push(goal.accountId);
+    }
     s.savingsGoals = s.savingsGoals.filter((g) => g.id !== id);
+    pendingDeletesRef.current.goals.push(id);
     saveAndRender(s);
   }, [state, saveAndRender]);
 
@@ -1334,7 +1370,8 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
       income: 0, autoIncome: true, excludePropFirm: true,
       categories: [{ id: uid(), name: 'Needs', percent: 95 }, { id: uid(), name: 'Wants', percent: 5 }],
       transactions: [], accounts: [], savingsGoals: [], completedGoals: [],
-    });
+      _deleted: { all: true },
+    } as any);
     setShowResetModal(false);
   }, [state, handleChange]);
 
@@ -1530,6 +1567,14 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
           <h1 style={{ fontSize: 22, margin: 0, letterSpacing: '0.3px', fontWeight: 700 }}>BudgetFlow</h1>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            className={`budget-btn ${state.excludePropFirm ? 'budget-btn-ghost' : 'budget-btn-primary'}`}
+            onClick={handleToggleExcludePropFirm}
+            title="Show or hide prop-firm trading costs (eval purchases) in totals"
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            {state.excludePropFirm ? '👁 Hide Prop-Firm Costs' : '👁 Show Prop-Firm Costs'}
+          </button>
           <button className="budget-btn budget-btn-ghost" onClick={() => setShowSettingsModal(true)}>⚙️</button>
           <button className="budget-btn budget-btn-primary" onClick={openAddTxnModal}>Add Transaction</button>
         </div>
@@ -1890,9 +1935,8 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
                 paginatedTransactions.items.map((t) => {
                   const catById = Object.fromEntries(state.categories.map((c) => [c.id, c.name]));
                   let catName: string, amtStr: string, color: string;
-                  const nameLower = String(t.name || '').toLowerCase();
                   const catLower = String(catById[t.categoryId || ''] || '').toLowerCase();
-                  const autoExcluded = !!state.excludePropFirm && (nameLower.includes('prop firm') || nameLower.includes('challenge') || catLower.includes('prop firm'));
+                  const autoExcluded = !!state.excludePropFirm && (isPropFirmTxn(t) || catLower.includes('prop firm'));
                   const isExcluded = !!t.excluded || autoExcluded;
                   if (t.type === 'income') {
                     catName = 'Income'; amtStr = `+${fmt.format(Number(t.amount || 0))}`; color = '#a3e635';
