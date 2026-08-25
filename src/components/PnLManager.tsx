@@ -1,4 +1,5 @@
 import React from 'react';
+import { todayLocalISO } from '../utils/dates';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from './ui/Button';
 import { NeonCard } from './NeonCard';
@@ -21,7 +22,7 @@ function getWeekNumber(date: Date): string {
 export const PnLManager: React.FC<PnLManagerProps> = ({ challenge, onUpdate }) => {
   const [activeTab, setActiveTab] = React.useState<'weekly' | 'monthly'>('weekly');
   const [amount, setAmount] = React.useState('');
-  const [date, setDate] = React.useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = React.useState(todayLocalISO());
   const [loading, setLoading] = React.useState(false);
   const [errors, setErrors] = React.useState<Record<string, string>>({});
 
@@ -76,7 +77,7 @@ export const PnLManager: React.FC<PnLManagerProps> = ({ challenge, onUpdate }) =
       
       // Reset form
       setAmount('');
-      setDate(new Date().toISOString().slice(0, 10));
+      setDate(todayLocalISO());
       setErrors({});
     } catch (error) {
       console.error('Add PnL error:', error);

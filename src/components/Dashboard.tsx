@@ -1,4 +1,5 @@
 import React from 'react';
+import { todayLocalISO } from '../utils/dates';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { DashboardStats } from './DashboardStats';
@@ -67,7 +68,7 @@ const Dashboard: React.FC = () => {
   const [selectedComplianceDate, setSelectedComplianceDate] = React.useState<string | null>(null);
   const [isFailLiveModalOpen, setIsFailLiveModalOpen] = React.useState(false);
   const [selectedFailLiveIds, setSelectedFailLiveIds] = React.useState<string[]>([]);
-  const [failureDate, setFailureDate] = React.useState<string>(new Date().toISOString().slice(0, 10));
+  const [failureDate, setFailureDate] = React.useState<string>(todayLocalISO());
   const [selectedYear, setSelectedYear] = React.useState<string>(new Date().getFullYear().toString());
   
   // Bulk actions state for build mode
@@ -620,7 +621,7 @@ const Dashboard: React.FC = () => {
         const updated: Challenge = {
           ...challenge,
           status: newStatus,
-          failureDate: newStatus === 'failed' ? (challenge.failureDate || new Date().toISOString().slice(0, 10)) : challenge.failureDate,
+          failureDate: newStatus === 'failed' ? (challenge.failureDate || todayLocalISO()) : challenge.failureDate,
           failureReason: newStatus === 'failed' ? (challenge.failureReason || 'unknown') : challenge.failureReason,
         };
         updated.highestMilestone = inferHighestMilestone(updated);
@@ -1756,7 +1757,7 @@ const Dashboard: React.FC = () => {
                   type="date"
                   value={failureDate}
                   onChange={(e) => setFailureDate(e.target.value)}
-                  max={new Date().toISOString().slice(0, 10)}
+                  max={todayLocalISO()}
                   className="w-full px-3 py-2 bg-white/5 border border-white/20 rounded-lg text-white focus:border-red-400/50 focus:outline-none focus:ring-2 focus:ring-red-500/30"
                 />
               </div>

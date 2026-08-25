@@ -1,4 +1,5 @@
 import React from 'react';
+import { todayLocalISO } from '../utils/dates';
 import { NeonCard } from './NeonCard';
 import { Button } from './ui/Button';
 import { PropFirm, NewChallengeInput, Challenge, NewFirmInput, ChallengeStatus, FirmType, ChallengeFailureReason, ChallengeMilestone, ChallengeOutcomeType } from '../types';
@@ -136,9 +137,9 @@ export const ChallengeForm: React.FC<{
   const getLastUsedDate = (): string => {
     try {
       const stored = localStorage.getItem('last_challenge_date');
-      return stored || new Date().toISOString().slice(0, 10);
+      return stored || todayLocalISO();
     } catch {
-      return new Date().toISOString().slice(0, 10);
+      return todayLocalISO();
     }
   };
   

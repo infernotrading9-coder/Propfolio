@@ -48,6 +48,19 @@ interface SpawnOpts {
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
+/**
+ * Render a JS string array as a Postgres array literal (e.g. `{"a","b"}`), safe to
+ * bind as a single parameter and cast with `::text[]`. Returns `{}` for empty input.
+ * Needed because interpolating a JS array into drizzle's sql template produces a row
+ * constructor, not an array — and an empty one produces invalid SQL `()`.
+ */
+function toPgTextArray(values?: string[] | null): string {
+  const list = Array.isArray(values) ? values.filter((v) => v !== null && v !== undefined) : [];
+  if (list.length === 0) return '{}';
+  const escaped = list.map((v) => `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+  return `{${escaped.join(',')}}`;
+}
+
 async function findOrCreateFirm(userId: string, name: string, firmType?: string): Promise<{ id: string; name: string }> {
   const found = await db.execute(sql`SELECT id, name FROM firms WHERE user_id = ${userId} AND lower(name) = lower(${name}) LIMIT 1`);
   if (found && found.rows && found.rows.length > 0) {
@@ -100,6 +113,7 @@ export async function spawnAccountAndBudget(
     cost?: number;
     budgetAccountId?: string;
     challengeId?: string | null;
+    purchaseDate?: string;
   } & SpawnOpts
 ): Promise<{ accountId: string; calendarAccountId: string | null }> {
   const accountSize = Math.max(0, Math.round(Number(opts.accountSize) || 0));
@@ -110,6 +124,12 @@ export async function spawnAccountAndBudget(
   const sortOrder = sortRes.rows?.[0]?.n ?? 1;
   const accountId = randomUUID();
 
+  // rules is a text[] column. Interpolating a JS array into the sql template
+  // renders a row constructor — `()` for an empty array, which is invalid SQL and
+  // used to make this INSERT fail silently inside its caller's try/catch. Build a
+  // proper Postgres array literal instead and bind it as a single string param.
+  const rulesLiteral = toPgTextArray(opts.rules);
+
   await db.execute(sql`
     INSERT INTO trading_accounts (
       id, user_id, name, firm, account_number_last4, account_size, balance, drawdown_used,
@@ -117,7 +137,7 @@ export async function spawnAccountAndBudget(
     ) VALUES (
       ${accountId}, ${userId}, ${name}, ${opts.firmName}, ${last4}, ${String(accountSize)}, ${String(accountSize)}, '0',
       ${String(accountSize)}, ${String(opts.maxDrawdown || 0)}, ${String(opts.dailyDrawdown || 0)}, ${String(opts.riskPerTrade || 0)},
-      ${opts.rules || []}, 'active', 'challenge', ${sortOrder}, NOW(), NOW()
+      ${rulesLiteral}::text[], 'active', 'challenge', ${sortOrder}, NOW(), NOW()
     )
   `);
 
@@ -127,6 +147,7 @@ export async function spawnAccountAndBudget(
       name: `Eval — ${opts.firmName} ${Math.round(accountSize / 1000)}K`,
       amount: cost,
       accountId: opts.budgetAccountId || 'acc_sofi',
+      date: opts.purchaseDate,
     });
   }
 
@@ -147,7 +168,7 @@ export async function spawnAccountAndBudget(
 }
 
 /** The complete purchase flow: challenge + account card + budget expense. */
-export async function purchaseEval(input: PurchaseEvalInput): Promise<{ challengeId: string; accountId: string; firmId: string; firmName: string }> {
+export async function purchaseEval(input: PurchaseEvalInput): Promise<{ challengeId: string; accountId: string; calendarAccountId: string | null; firmId: string; firmName: string }> {
   const { userId } = input;
   const accountSize = Math.max(0, Math.round(Number(input.accountSize) || 0));
   const cost = round2(input.cost || 0);
@@ -178,20 +199,21 @@ export async function purchaseEval(input: PurchaseEvalInput): Promise<{ challeng
     )
   `);
 
-  const { accountId } = await spawnAccountAndBudget(userId, {
+  const { accountId, calendarAccountId } = await spawnAccountAndBudget(userId, {
     firmName: firm.name,
     accountSize,
     accountLast4: input.accountLast4,
     cost,
     budgetAccountId: input.budgetAccountId,
     challengeId,
+    purchaseDate: today,
     maxDrawdown: input.maxDrawdown,
     dailyDrawdown: input.dailyDrawdown,
     riskPerTrade: input.riskPerTrade,
     rules: input.rules,
   });
 
-  return { challengeId, accountId, firmId: firm.id, firmName: firm.name };
+  return { challengeId, accountId, calendarAccountId, firmId: firm.id, firmName: firm.name };
 }
 
 /** When an account card is created first, spawn the matching challenge + budget expense. */

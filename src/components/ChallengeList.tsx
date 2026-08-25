@@ -1,4 +1,5 @@
 import React from 'react';
+import { todayLocalISO } from '../utils/dates';
 import { Challenge, PropFirm } from '../types';
 import { Button } from './ui/Button';
 import { BarChart3, Briefcase, CheckCircle2, ChevronLeft, ChevronRight, Circle, Flame, Layers3, Pencil, Rocket, Settings, Sparkles, Wallet, XCircle } from 'lucide-react';
@@ -555,7 +556,7 @@ export const ChallengeList: React.FC<{
                     setFailConfirm({
                       ids: actionableSelected.map((challenge) => challenge.id),
                       phase: selectedNextPhases[0],
-                      date: new Date().toISOString().slice(0, 10),
+                      date: todayLocalISO(),
                     });
                   }}
                 >
@@ -768,7 +769,7 @@ export const ChallengeList: React.FC<{
               const failedChallenge: Challenge = {
                 ...challenge,
                 status: 'failed',
-                failureDate: failConfirm.date || new Date().toISOString().slice(0, 10),
+                failureDate: failConfirm.date || todayLocalISO(),
                 failureReason: challenge.failureReason || 'unknown',
                 phases: {
                   ...challenge.phases,

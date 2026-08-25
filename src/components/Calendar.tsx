@@ -1,6 +1,7 @@
 import React from 'react';
 import { DayEntry } from '../utils/calendarStorage';
 import { NeonCard } from './NeonCard';
+import { toLocalISODate, parseLocalDate, todayLocalISO } from '../utils/dates';
 import { Rocket, TrendingDown, Minus, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const getAllDaysInMonth = (year: number, month: number): { date: string; dayOfWeek: number; isCurrentMonth: boolean }[] => {
@@ -21,7 +22,7 @@ const getAllDaysInMonth = (year: number, month: number): { date: string; dayOfWe
     const currentDate = new Date(startDate);
     currentDate.setDate(startDate.getDate() + i);
     
-    const iso = currentDate.toISOString().slice(0, 10);
+    const iso = toLocalISODate(currentDate);
     const dayOfWeek = currentDate.getDay();
     const isCurrentMonth = currentDate.getMonth() === month;
     
@@ -195,8 +196,8 @@ export const Calendar: React.FC<{
             
           const label = status === true ? 'Rules Followed' : status === false ? 'Rules Broken' : 'No Trade';
           const Icon = status === true ? Rocket : status === false ? TrendingDown : Minus;
-          const dayNum = new Date(d).getDate();
-          const today = new Date().toISOString().slice(0, 10);
+          const dayNum = parseLocalDate(d).getDate();
+          const today = todayLocalISO();
           const isToday = d === today;
           
           return (

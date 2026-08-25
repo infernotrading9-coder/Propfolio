@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { todayLocalISO } from '../utils/dates';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar, X } from 'lucide-react';
 
@@ -15,7 +16,7 @@ export const PhaseDateModal: React.FC<PhaseDateModalProps> = ({ isOpen, title, o
 
   useEffect(() => {
     if (isOpen) {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayLocalISO();
       setDate(defaultDate || today);
     }
   }, [isOpen, defaultDate]);

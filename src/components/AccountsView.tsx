@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Wallet, ArrowUp, ArrowDown, GripVertical, Calendar, Edit3, Save, X, Trash2, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Minus } from 'lucide-react';
 import { NeonCard } from './NeonCard';
+import { toLocalISODate, todayLocalISO, parseLocalDate } from '../utils/dates';
 
 interface TradingAccount {
   id: string;
@@ -226,7 +227,7 @@ const getAllDaysInMonth = (year: number, month: number) => {
   for (let i = 0; i < 42; i++) {
     const d = new Date(startDate);
     d.setDate(startDate.getDate() + i);
-    days.push({ date: d.toISOString().slice(0, 10), isCurrentMonth: d.getMonth() === month });
+    days.push({ date: toLocalISODate(d), isCurrentMonth: d.getMonth() === month });
   }
   return days;
 };
@@ -259,7 +260,7 @@ const CombinedRuleCalendar: React.FC<{
     return map;
   }, [calAccounts, calEntriesByAccount]);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalISO();
 
   const handleDayClick = (date: string) => {
     if (selectedDate === date) {
@@ -356,7 +357,7 @@ const CombinedRuleCalendar: React.FC<{
             : 'bg-gradient-to-br from-amber-500/15 to-orange-500/25 border-amber-400/50 text-amber-100 shadow-[0_0_15px_rgba(245,158,11,0.3)]';
 
           const color = isCurrentMonth ? baseColor : 'bg-gradient-to-br from-white/3 to-white/5 border-white/10 text-white/30 opacity-60';
-          const dayNum = new Date(d).getDate();
+          const dayNum = parseLocalDate(d).getDate();
 
           return (
             <div
@@ -530,7 +531,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
     try {
       const [accountsRes, orderRes] = await Promise.all([
         fetch(`${apiBase}/db-accounts`, { headers: getAuthHeaders() }),
-        fetch(`${apiBase}/db-accounts?action=daily-order&date=${new Date().toISOString().slice(0, 10)}`, { headers: getAuthHeaders() }),
+        fetch(`${apiBase}/db-accounts?action=daily-order&date=${todayLocalISO()}`, { headers: getAuthHeaders() }),
       ]);
       const accountsData = await accountsRes.json();
       const orderData = await orderRes.json();
@@ -600,7 +601,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
       await fetch(`${apiBase}/db-accounts`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'set-daily-order', orderDate: new Date().toISOString().slice(0, 10), orderedAccountIds: orderedIds }),
+        body: JSON.stringify({ action: 'set-daily-order', orderDate: todayLocalISO(), orderedAccountIds: orderedIds }),
       });
       setOrderMode(false);
       loadData();

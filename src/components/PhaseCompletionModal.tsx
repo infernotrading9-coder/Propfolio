@@ -1,4 +1,5 @@
 import React from 'react';
+import { todayLocalISO } from '../utils/dates';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Calendar } from 'lucide-react';
 import { Button } from './ui/Button';
@@ -18,7 +19,7 @@ export const PhaseCompletionModal: React.FC<PhaseCompletionModalProps> = ({
 }) => {
   const [step, setStep] = React.useState<'choice' | 'date'>('choice');
   const [passed, setPassed] = React.useState<boolean | null>(null);
-  const [date, setDate] = React.useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = React.useState(todayLocalISO());
   const [loading, setLoading] = React.useState(false);
 
   // Reset state when modal opens
@@ -26,7 +27,7 @@ export const PhaseCompletionModal: React.FC<PhaseCompletionModalProps> = ({
     if (isOpen) {
       setStep('choice');
       setPassed(null);
-      setDate(new Date().toISOString().slice(0, 10));
+      setDate(todayLocalISO());
       setLoading(false);
     }
   }, [isOpen]);
