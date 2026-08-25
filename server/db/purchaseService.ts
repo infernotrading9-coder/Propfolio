@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { db } from './connection';
 import { randomUUID } from 'crypto';
+import { sessionStart } from './drawdownModel';
 
 /**
  * purchaseService — the ONE place a prop-firm eval purchase gets created.
@@ -114,6 +115,8 @@ export async function spawnAccountAndBudget(
     budgetAccountId?: string;
     challengeId?: string | null;
     purchaseDate?: string;
+    evalType?: string | null;
+    floorLockLevel?: number;
   } & SpawnOpts
 ): Promise<{ accountId: string; calendarAccountId: string | null }> {
   const accountSize = Math.max(0, Math.round(Number(opts.accountSize) || 0));
@@ -133,11 +136,15 @@ export async function spawnAccountAndBudget(
   await db.execute(sql`
     INSERT INTO trading_accounts (
       id, user_id, name, firm, account_number_last4, account_size, balance, drawdown_used,
-      high_water_mark, max_drawdown, daily_drawdown, risk_per_trade, rules, status, phase, sort_order, created_at, updated_at
+      high_water_mark, max_drawdown, daily_drawdown, risk_per_trade, rules, status, phase, sort_order,
+      day_start_balance, settled_high_water_mark, last_settled_at, floor_lock_level, eval_type,
+      created_at, updated_at
     ) VALUES (
       ${accountId}, ${userId}, ${name}, ${opts.firmName}, ${last4}, ${String(accountSize)}, ${String(accountSize)}, '0',
       ${String(accountSize)}, ${String(opts.maxDrawdown || 0)}, ${String(opts.dailyDrawdown || 0)}, ${String(opts.riskPerTrade || 0)},
-      ${rulesLiteral}::text[], 'active', 'challenge', ${sortOrder}, NOW(), NOW()
+      ${rulesLiteral}::text[], 'active', 'challenge', ${sortOrder},
+      ${String(accountSize)}, ${String(accountSize)}, ${sessionStart()}, ${String(opts.floorLockLevel ?? accountSize + 100)}, ${opts.evalType || null},
+      NOW(), NOW()
     )
   `);
 
@@ -211,6 +218,8 @@ export async function purchaseEval(input: PurchaseEvalInput): Promise<{ challeng
     dailyDrawdown: input.dailyDrawdown,
     riskPerTrade: input.riskPerTrade,
     rules: input.rules,
+    evalType: input.evalType,
+    floorLockLevel: (input as any).floorLockLevel,
   });
 
   return { challengeId, accountId, calendarAccountId, firmId: firm.id, firmName: firm.name };
@@ -299,7 +308,7 @@ export async function registerBudgetExpense(
     type: 'expense',
     date: txn.date || new Date().toISOString().slice(0, 10),
     accountId: txn.accountId,
-    categoryId: txn.categoryId || 'cat_wants',
+    categoryId: txn.categoryId || 'cat_propfirm',
     excluded: false,
     isPropFirm: true,
   });
@@ -308,7 +317,14 @@ export async function registerBudgetExpense(
   const accounts: any[] = Array.isArray(state.accounts) ? state.accounts : [];
   const target = accounts.find((a: any) => a && a.id === txn.accountId);
   if (target) {
-    target.balance = round2((Number(target.balance) || 0) - amount);
+    // Credit/debt accounts store the amount OWED in `balance`, so a charge must
+    // INCREASE it. Cash accounts hold real money, so a charge decreases it.
+    // Subtracting unconditionally understated debt by 2x the cost on every eval
+    // bought on a card (fixed Aug 25 2026).
+    const kind = String(target.loanKind || '');
+    const isLiability = kind === 'credit' || kind === 'debt' || kind === 'borrow';
+    const bal = Number(target.balance) || 0;
+    target.balance = round2(isLiability ? bal + amount : bal - amount);
   }
   state.accounts = accounts;
 

@@ -1573,7 +1573,7 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
             title="Show or hide prop-firm trading costs (eval purchases) in totals"
             style={{ whiteSpace: 'nowrap' }}
           >
-            {state.excludePropFirm ? '👁 Hide Prop-Firm Costs' : '👁 Show Prop-Firm Costs'}
+            {state.excludePropFirm ? '👁 Show Prop-Firm Costs' : '👁 Hide Prop-Firm Costs'}
           </button>
           <button className="budget-btn budget-btn-ghost" onClick={() => setShowSettingsModal(true)}>⚙️</button>
           <button className="budget-btn budget-btn-primary" onClick={openAddTxnModal}>Add Transaction</button>

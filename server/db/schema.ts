@@ -110,6 +110,15 @@ export const tradingAccounts = pgTable('trading_accounts', {
   maxDrawdown: decimal('max_drawdown', { precision: 12, scale: 2 }).default('0'),
   dailyDrawdown: decimal('daily_drawdown', { precision: 12, scale: 2 }).default('0'),
   lockedFloor: decimal('locked_floor', { precision: 12, scale: 2 }), // optional: max-DD floor frozen at a fixed level
+  // ─── Session-aware drawdown model (Aug 25 2026) ───────────────────────────
+  // The trading day rolls at 17:00 America/New_York. Max DD must NOT trail on
+  // intraday profit — it tracks the HWM as of the last settle. Daily DD room is
+  // measured from the balance at that same settle.
+  dayStartBalance: decimal('day_start_balance', { precision: 12, scale: 2 }),
+  settledHighWaterMark: decimal('settled_high_water_mark', { precision: 12, scale: 2 }),
+  lastSettledAt: timestamp('last_settled_at'),
+  floorLockLevel: decimal('floor_lock_level', { precision: 12, scale: 2 }), // trailing floor stops here (default size + 100)
+  evalType: text('eval_type'), // product variant: Builder, Flex, Daily, Rapid, Zero...
   riskPerTrade: decimal('risk_per_trade', { precision: 12, scale: 2 }).default('0'),
   rules: text('rules').array(), // array of rule strings
   notes: text('notes'),

@@ -2,6 +2,7 @@ import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
 import { tradingAccountService, accountDailyOrderService } from '../../server/db/service'
 import { spawnChallengeAndBudgetFromAccount } from '../../server/db/purchaseService'
+import { settleAccount } from '../../server/db/drawdownModel'
 
 export const handler: Handler = async (event) => {
   try {
@@ -28,6 +29,23 @@ export const handler: Handler = async (event) => {
       // the Trades form dropdown). Pass ?all=true to get every account so the
       // trade log can still resolve names/firms for lost/failed accounts.
       const accounts = await tradingAccountService.getByUserId(user.id)
+
+      // Lazy 5pm-EST settle: the trading day rolls at 17:00 America/New_York.
+      // Any read after the boundary snapshots day-start balance and freezes the
+      // settled HWM, so max DD stops trailing intraday. Doing it here (rather
+      // than on a cron) means a missed tick can never skip a rollover.
+      for (const a of accounts) {
+        if (a.status !== 'active') continue
+        const s = settleAccount(a as any)
+        if (!s) continue
+        try {
+          await tradingAccountService.update(a.id, s as any)
+          Object.assign(a, s)
+        } catch (e) {
+          console.error('settle failed for account', a.id, e)
+        }
+      }
+
       const showAll = params.all === 'true'
       const activeAccounts = showAll ? accounts : accounts.filter((a: any) => a.status === 'active')
       return json(200, { accounts: activeAccounts })
@@ -128,6 +146,10 @@ export const handler: Handler = async (event) => {
       if (updates.maxDrawdown !== undefined) dbUpdates.maxDrawdown = String(updates.maxDrawdown)
       if (updates.dailyDrawdown !== undefined) dbUpdates.dailyDrawdown = String(updates.dailyDrawdown)
       if (updates.lockedFloor !== undefined) dbUpdates.lockedFloor = updates.lockedFloor === null || updates.lockedFloor === '' ? null : String(updates.lockedFloor)
+      if (updates.floorLockLevel !== undefined) dbUpdates.floorLockLevel = updates.floorLockLevel === null || updates.floorLockLevel === '' ? null : String(updates.floorLockLevel)
+      if (updates.dayStartBalance !== undefined) dbUpdates.dayStartBalance = updates.dayStartBalance === null || updates.dayStartBalance === '' ? null : String(updates.dayStartBalance)
+      if (updates.settledHighWaterMark !== undefined) dbUpdates.settledHighWaterMark = updates.settledHighWaterMark === null || updates.settledHighWaterMark === '' ? null : String(updates.settledHighWaterMark)
+      if (updates.evalType !== undefined) dbUpdates.evalType = updates.evalType || null
       if (updates.riskPerTrade !== undefined) dbUpdates.riskPerTrade = String(updates.riskPerTrade)
       if (updates.rules !== undefined) dbUpdates.rules = updates.rules
       if (updates.notes !== undefined) dbUpdates.notes = updates.notes

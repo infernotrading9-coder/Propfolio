@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Wallet, ArrowUp, ArrowDown, GripVertical, Calendar, Edit3, Save, X, Trash2, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Minus } from 'lucide-react';
 import { NeonCard } from './NeonCard';
 import { toLocalISODate, todayLocalISO, parseLocalDate } from '../utils/dates';
+import { computeDrawdown } from '../../server/db/drawdownModel';
 
 interface TradingAccount {
   id: string;
@@ -15,6 +16,11 @@ interface TradingAccount {
   maxDrawdown?: string;
   dailyDrawdown?: string;
   lockedFloor?: string | null;
+  dayStartBalance?: string | null;
+  settledHighWaterMark?: string | null;
+  lastSettledAt?: string | null;
+  floorLockLevel?: string | null;
+  evalType?: string | null;
   riskPerTrade?: string;
   rules?: string[] | null;
   notes?: string | null;
@@ -72,12 +78,20 @@ const HolographicAccountCard: React.FC<{
   const hwm = parseFloat(acct.highWaterMark);
   const maxDD = acct.maxDrawdown ? parseFloat(acct.maxDrawdown) : 0;
   const dailyDD = acct.dailyDrawdown ? parseFloat(acct.dailyDrawdown) : 0;
-  // Effective max-DD floor: a locked floor (fixed by the firm once the account
-  // crosses a threshold) takes precedence over the trailing HWM - maxDD.
-  const lockedFloor = acct.lockedFloor ? parseFloat(acct.lockedFloor) : null;
-  const effectiveFloor = lockedFloor !== null ? lockedFloor : (maxDD > 0 ? hwm - maxDD : 0);
-  // Live room to the floor — this is the "responsive" daily drawdown.
-  const dailyRoom = balance - effectiveFloor;
+  // Session-aware drawdown: max DD is derived from the SETTLED high-water mark
+  // (frozen at the last 5pm EST close) so intraday profit never moves the
+  // stop-out, and both drawdowns are shown as price LEVELS rather than dollar
+  // amounts. See server/db/drawdownModel.ts for the full rationale.
+  const dd = computeDrawdown({
+    balance,
+    accountSize: parseFloat(acct.accountSize),
+    maxDrawdown: maxDD,
+    dailyDrawdown: dailyDD,
+    dayStartBalance: acct.dayStartBalance != null ? parseFloat(acct.dayStartBalance) : null,
+    settledHighWaterMark: acct.settledHighWaterMark != null ? parseFloat(acct.settledHighWaterMark) : null,
+    lockedFloor: acct.lockedFloor != null ? parseFloat(acct.lockedFloor) : null,
+    floorLockLevel: acct.floorLockLevel != null ? parseFloat(acct.floorLockLevel) : null,
+  });
   const ddPercent = maxDD > 0 ? Math.min(100, (drawdown / maxDD) * 100) : 0;
   const profit = balance - hwm;
   const acctSizeNum = parseFloat(acct.accountSize);
@@ -129,6 +143,7 @@ const HolographicAccountCard: React.FC<{
                 </h4>
                 <p className="text-sm text-white/50 truncate">
                   {acct.firm}{acct.accountNumberLast4 ? ` · ...${acct.accountNumberLast4}` : ''} · {sizeLabel}
+                  {acct.evalType ? <span className="ml-1 text-cyan-300/70">· {acct.evalType}</span> : null}
                 </p>
               </div>
             </div>
@@ -162,12 +177,20 @@ const HolographicAccountCard: React.FC<{
                   <div className="text-white font-semibold">${balance.toFixed(0)}</div>
                 </div>
                 <div>
-                  <div className="text-white/40 text-xs">Max DD</div>
-                  <div className={`font-medium ${maxDD > 0 && drawdown >= maxDD ? 'text-red-400' : 'text-white/70'}`}>${maxDD.toFixed(0)}</div>
+                  <div className="text-white/40 text-xs">Max DD {dd.floorLocked && <span className="text-amber-400/70">🔒</span>}</div>
+                  <div
+                    title={`Account dies at $${dd.maxDDLevel.toFixed(0)} — ${dd.floorLocked ? 'floor is LOCKED here' : `trailing from settled HWM $${dd.settledHwm.toFixed(0)} − $${maxDD.toFixed(0)}; locks at $${dd.lockLevel.toFixed(0)}`}. After the 5pm settle: $${dd.projectedMaxDDLevelAtSettle.toFixed(0)}${dd.willLockAtSettle ? ' (locks permanently)' : ''}`}
+                    className={`font-medium ${dd.maxDDRoom <= 0 ? 'text-red-400' : 'text-white/70'}`}
+                  >${dd.maxDDLevel.toFixed(0)}</div>
+                  <div className="text-white/30 text-[10px] leading-tight">{dd.maxDDRoom >= 0 ? `${dd.maxDDRoom.toFixed(0)} away` : `${Math.abs(dd.maxDDRoom).toFixed(0)} under`}</div>
                 </div>
                 <div>
                   <div className="text-white/40 text-xs">Daily DD</div>
-                  <div title={`Daily limit $${dailyDD.toFixed(0)} · room to floor (${effectiveFloor > 0 ? `$${effectiveFloor.toFixed(0)}` : 'n/a'}): balance − floor`} className={`font-medium ${dailyRoom <= 0 ? 'text-red-400' : 'text-white/70'}`}>${dailyRoom.toFixed(0)}</div>
+                  <div
+                    title={`Account dies at $${dd.dailyDDLevel.toFixed(0)} today — day-start $${dd.dayStart.toFixed(0)} − daily limit $${dailyDD.toFixed(0)}. Resets at the 5pm EST settle.`}
+                    className={`font-medium ${dd.dailyDDRoom <= 0 ? 'text-red-400' : 'text-white/70'}`}
+                  >${dailyDD > 0 ? dd.dailyDDLevel.toFixed(0) : '—'}</div>
+                  <div className="text-white/30 text-[10px] leading-tight">{dailyDD > 0 ? (dd.dailyDDRoom >= 0 ? `${dd.dailyDDRoom.toFixed(0)} away` : `${Math.abs(dd.dailyDDRoom).toFixed(0)} under`) : 'not set'}</div>
                 </div>
                 <div>
                   <div className="text-white/40 text-xs">P&L</div>
@@ -175,17 +198,32 @@ const HolographicAccountCard: React.FC<{
                 </div>
               </div>
 
-              {/* Drawdown bar */}
+              {/* Stop-out: the level you actually hit first */}
               <div>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-white/40">Drawdown</span>
-                  <span className={ddPercent > 80 ? 'text-red-400' : 'text-white/50'}>${drawdown.toFixed(0)} / ${maxDD.toFixed(0)} ({ddPercent.toFixed(0)}%)</span>
+                  <span className="text-white/40">
+                    Stop-out <span className="text-white/30">({dd.binding === 'daily' ? 'daily' : 'max DD'} binding)</span>
+                  </span>
+                  <span className={dd.breached ? 'text-red-400 font-semibold' : dd.room < (dailyDD || maxDD) * 0.25 ? 'text-amber-400' : 'text-white/50'}>
+                    ${dd.stopOutLevel.toFixed(0)} · {dd.breached ? `BREACHED ${Math.abs(dd.room).toFixed(0)}` : `${dd.room.toFixed(0)} room`}
+                  </span>
                 </div>
                 <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${ddPercent > 80 ? 'bg-red-500' : ddPercent > 50 ? 'bg-amber-500' : 'bg-gradient-to-r from-cyan-400 to-purple-400'}`}
-                    style={{ width: `${ddPercent}%` }}
-                  />
+                  {(() => {
+                    // Room remaining as a share of the day's allowance.
+                    const allowance = Math.max(dailyDD || 0, maxDD || 0, 1);
+                    const pct = Math.max(0, Math.min(100, (dd.room / allowance) * 100));
+                    return (
+                      <div
+                        className={`h-full rounded-full transition-all ${dd.breached || pct < 20 ? 'bg-red-500' : pct < 50 ? 'bg-amber-500' : 'bg-gradient-to-r from-cyan-400 to-purple-400'}`}
+                        style={{ width: `${dd.breached ? 100 : pct}%` }}
+                      />
+                    );
+                  })()}
+                </div>
+                <div className="flex justify-between text-[10px] text-white/30 mt-1">
+                  <span>Day start ${dd.dayStart.toFixed(0)} · today {dd.dayPnL >= 0 ? '+' : ''}{dd.dayPnL.toFixed(0)}</span>
+                  {!dd.floorLocked && dd.willLockAtSettle && <span className="text-amber-400/70">locks ${dd.projectedMaxDDLevelAtSettle.toFixed(0)} at 5pm</span>}
                 </div>
               </div>
 
