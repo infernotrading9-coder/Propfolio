@@ -13,6 +13,7 @@ interface TradingAccount {
   highWaterMark: string;
   maxDrawdown?: string;
   dailyDrawdown?: string;
+  lockedFloor?: string | null;
   riskPerTrade?: string;
   rules?: string[] | null;
   notes?: string | null;
@@ -70,6 +71,12 @@ const HolographicAccountCard: React.FC<{
   const hwm = parseFloat(acct.highWaterMark);
   const maxDD = acct.maxDrawdown ? parseFloat(acct.maxDrawdown) : 0;
   const dailyDD = acct.dailyDrawdown ? parseFloat(acct.dailyDrawdown) : 0;
+  // Effective max-DD floor: a locked floor (fixed by the firm once the account
+  // crosses a threshold) takes precedence over the trailing HWM - maxDD.
+  const lockedFloor = acct.lockedFloor ? parseFloat(acct.lockedFloor) : null;
+  const effectiveFloor = lockedFloor !== null ? lockedFloor : (maxDD > 0 ? hwm - maxDD : 0);
+  // Live room to the floor — this is the "responsive" daily drawdown.
+  const dailyRoom = balance - effectiveFloor;
   const ddPercent = maxDD > 0 ? Math.min(100, (drawdown / maxDD) * 100) : 0;
   const profit = balance - hwm;
   const acctSizeNum = parseFloat(acct.accountSize);
@@ -135,6 +142,9 @@ const HolographicAccountCard: React.FC<{
                 <input type="number" value={editData.balance || ''} onChange={(e) => setEditField('balance', e.target.value)} placeholder="Balance" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
                 <input type="number" value={editData.maxDrawdown || ''} onChange={(e) => setEditField('maxDrawdown', e.target.value)} placeholder="Max DD" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
                 <input type="number" value={editData.dailyDrawdown || ''} onChange={(e) => setEditField('dailyDrawdown', e.target.value)} placeholder="Daily DD" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
+                <input type="number" value={editData.lockedFloor || ''} onChange={(e) => setEditField('lockedFloor', e.target.value)} placeholder="Locked Floor" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
+              </div>
+              <div className="grid grid-cols-4 gap-2">
                 <input type="number" value={editData.drawdownUsed || ''} onChange={(e) => setEditField('drawdownUsed', e.target.value)} placeholder="DD Used" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
               </div>
               <div className="flex gap-2">
@@ -156,7 +166,7 @@ const HolographicAccountCard: React.FC<{
                 </div>
                 <div>
                   <div className="text-white/40 text-xs">Daily DD</div>
-                  <div className={`font-medium ${dailyDD > 0 && drawdown >= dailyDD ? 'text-red-400' : 'text-white/70'}`}>${dailyDD.toFixed(0)}</div>
+                  <div title={`Daily limit $${dailyDD.toFixed(0)} · room to floor (${effectiveFloor > 0 ? `$${effectiveFloor.toFixed(0)}` : 'n/a'}): balance − floor`} className={`font-medium ${dailyRoom <= 0 ? 'text-red-400' : 'text-white/70'}`}>${dailyRoom.toFixed(0)}</div>
                 </div>
                 <div>
                   <div className="text-white/40 text-xs">P&L</div>
@@ -510,7 +520,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
   const [orderedIds, setOrderedIds] = useState<string[]>([]);
 
   const [newAccount, setNewAccount] = useState({
-    name: '', firm: '', accountNumberLast4: '', accountSize: '', balance: '', maxDrawdown: '', dailyDrawdown: '', riskPerTrade: '', rules: '', notes: '', phase: 'challenge', platform: '', groupName: '', cost: '',
+    name: '', firm: '', accountNumberLast4: '', accountSize: '', balance: '', maxDrawdown: '', dailyDrawdown: '', lockedFloor: '', riskPerTrade: '', rules: '', notes: '', phase: 'challenge', platform: '', groupName: '', cost: '',
   });
 
   const [editData, setEditData] = useState<Partial<TradingAccount>>({});
@@ -555,7 +565,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
         }),
       });
       setShowAddAccount(false);
-      setNewAccount({ name: '', firm: '', accountNumberLast4: '', accountSize: '', balance: '', maxDrawdown: '', dailyDrawdown: '', riskPerTrade: '', rules: '', notes: '', phase: 'challenge', platform: '', groupName: '', cost: '' });
+      setNewAccount({ name: '', firm: '', accountNumberLast4: '', accountSize: '', balance: '', maxDrawdown: '', dailyDrawdown: '', lockedFloor: '', riskPerTrade: '', rules: '', notes: '', phase: 'challenge', platform: '', groupName: '', cost: '' });
       loadData();
     } catch (e) { console.error('Failed to add account:', e); }
   };
@@ -702,6 +712,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
             <FormField label="Eval Cost ($) — logs budget expense" value={newAccount.cost} onChange={(v) => setNewAccount({ ...newAccount, cost: v })} placeholder="89" type="number" />
             <FormField label="Max Drawdown ($)" value={newAccount.maxDrawdown} onChange={(v) => setNewAccount({ ...newAccount, maxDrawdown: v })} placeholder="2000" type="number" />
             <FormField label="Daily Drawdown ($)" value={newAccount.dailyDrawdown} onChange={(v) => setNewAccount({ ...newAccount, dailyDrawdown: v })} placeholder="1000" type="number" />
+            <FormField label="Locked Floor ($) — max DD frozen at this level" value={newAccount.lockedFloor} onChange={(v) => setNewAccount({ ...newAccount, lockedFloor: v })} placeholder="50100" type="number" />
             <FormField label="Risk Per Trade ($)" value={newAccount.riskPerTrade} onChange={(v) => setNewAccount({ ...newAccount, riskPerTrade: v })} placeholder="200" type="number" />
             <div>
               <label className="text-sm text-gray-400 mb-1 block">Phase</label>
@@ -750,7 +761,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
                 editData={editData}
                 onEdit={() => {
                   setEditingId(acct.id);
-                  setEditData({ balance: acct.balance, drawdownUsed: acct.drawdownUsed, highWaterMark: acct.highWaterMark, notes: acct.notes, status: acct.status, rules: acct.rules });
+                  setEditData({ balance: acct.balance, drawdownUsed: acct.drawdownUsed, highWaterMark: acct.highWaterMark, maxDrawdown: acct.maxDrawdown, dailyDrawdown: acct.dailyDrawdown, lockedFloor: acct.lockedFloor, notes: acct.notes, status: acct.status, rules: acct.rules });
                 }}
                 onDelete={() => handleDeleteAccount(acct.id)}
                 onSave={() => handleUpdateAccount(acct.id, editData)}

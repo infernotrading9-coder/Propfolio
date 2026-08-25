@@ -38,7 +38,7 @@ export const handler: Handler = async (event) => {
 
       // Create a new trading account
       if (input.action === 'create') {
-        const { name, firm, accountNumberLast4, accountSize, balance, maxDrawdown, dailyDrawdown, riskPerTrade, rules, notes, status, phase, platform, groupName } = input
+        const { name, firm, accountNumberLast4, accountSize, balance, maxDrawdown, dailyDrawdown, lockedFloor, riskPerTrade, rules, notes, status, phase, platform, groupName } = input
         if (!name || !firm) {
           return json(400, { error: 'name and firm are required' })
         }
@@ -52,6 +52,7 @@ export const handler: Handler = async (event) => {
           highWaterMark: String(balance || accountSize || '0'),
           maxDrawdown: String(maxDrawdown || '0'),
           dailyDrawdown: String(dailyDrawdown || '0'),
+          lockedFloor: lockedFloor !== undefined && lockedFloor !== '' ? String(lockedFloor) : null,
           riskPerTrade: String(riskPerTrade || '0'),
           rules: rules || [],
           notes: notes || null,
@@ -126,6 +127,7 @@ export const handler: Handler = async (event) => {
       if (updates.highWaterMark !== undefined) dbUpdates.highWaterMark = String(updates.highWaterMark)
       if (updates.maxDrawdown !== undefined) dbUpdates.maxDrawdown = String(updates.maxDrawdown)
       if (updates.dailyDrawdown !== undefined) dbUpdates.dailyDrawdown = String(updates.dailyDrawdown)
+      if (updates.lockedFloor !== undefined) dbUpdates.lockedFloor = updates.lockedFloor === null || updates.lockedFloor === '' ? null : String(updates.lockedFloor)
       if (updates.riskPerTrade !== undefined) dbUpdates.riskPerTrade = String(updates.riskPerTrade)
       if (updates.rules !== undefined) dbUpdates.rules = updates.rules
       if (updates.notes !== undefined) dbUpdates.notes = updates.notes

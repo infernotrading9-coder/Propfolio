@@ -109,6 +109,7 @@ export const tradingAccounts = pgTable('trading_accounts', {
   highWaterMark: decimal('high_water_mark', { precision: 12, scale: 2 }).notNull().default('0'),
   maxDrawdown: decimal('max_drawdown', { precision: 12, scale: 2 }).default('0'),
   dailyDrawdown: decimal('daily_drawdown', { precision: 12, scale: 2 }).default('0'),
+  lockedFloor: decimal('locked_floor', { precision: 12, scale: 2 }), // optional: max-DD floor frozen at a fixed level
   riskPerTrade: decimal('risk_per_trade', { precision: 12, scale: 2 }).default('0'),
   rules: text('rules').array(), // array of rule strings
   notes: text('notes'),
