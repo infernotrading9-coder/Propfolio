@@ -41,6 +41,7 @@ function extractFlag(argv: string[], flag: string): string | undefined {
 const argv = process.argv.slice(2);
 let evalTypeArg = extractFlag(argv, '--eval-type');
 const lockLevelArg = extractFlag(argv, '--lock-level');
+let rulesArg = extractFlag(argv, '--rules');
 
 const [firmName, accountSizeStr, costStr, totalPhasesStr, startDate, strategy, brokerName, maxDDStr, dailyDDStr, riskStr, last4, budgetAccountId] = argv;
 
@@ -63,6 +64,17 @@ async function main() {
     evalTypeArg = await ask(`Eval type for ${firmName} ${Math.round(accountSize / 1000)}K (Builder / Flex / Daily / Rapid / Zero / other, blank to skip): `);
   }
 
+  // Rules are the whole point of the Rule Calendar — an account with none is
+  // dead weight there. Prompt when they weren't supplied.
+  if (!rulesArg && process.stdin.isTTY) {
+    rulesArg = await ask('Rules for this account (semicolon-separated, blank to skip): ');
+  }
+  const rules = (rulesArg || '').split(';').map((r) => r.trim()).filter(Boolean);
+  if (rules.length === 0) {
+    console.warn('WARNING: no rules set for this account. The Rule Calendar will have nothing to check against.');
+    console.warn(`         Add them later with: node update-account-rules.mjs ${last4 || '<last4>'} "<rule1>" "<rule2>" ...`);
+  }
+
   const result = await purchaseEval({
     userId: USER_ID,
     propFirmName: firmName,
@@ -80,6 +92,7 @@ async function main() {
     budgetAccountId: budgetAccountId || undefined,
     evalType: evalTypeArg || undefined,
     floorLockLevel: lockLevelArg ? Number(lockLevelArg) : undefined,
+    rules,
   } as any);
 
   const sizeK = Math.round(accountSize / 1000);

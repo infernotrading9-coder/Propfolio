@@ -318,8 +318,22 @@ const CombinedRuleCalendar: React.FC<{
     return { total: items.length, followed, broken };
   };
 
-  // Selected date detail
-  const selectedDateItems = selectedDate ? (dateMap[selectedDate] || []) : [];
+  // Selected date detail.
+  // Every ACTIVE calendar account is listed for the selected day, whether or not
+  // it already has an entry. Previously this was derived from dateMap (existing
+  // entries only), which deadlocked the calendar: with no entries there was
+  // nothing to click, and the only path to the mark buttons was clicking an
+  // existing entry — so the first entry could never be created.
+  const selectedDateItems = useMemo(() => {
+    if (!selectedDate) return [] as Array<{ accountId: string; accountName: string; entry: CalEntry | null }>;
+    return calAccounts
+      .filter(a => a.isActive)
+      .map(a => ({
+        accountId: a.id,
+        accountName: a.name,
+        entry: (calEntriesByAccount[a.id] || []).find(e => e.date === selectedDate) || null,
+      }));
+  }, [selectedDate, calAccounts, calEntriesByAccount]);
   const selectedAccount = selectedAccountId ? calAccounts.find(a => a.id === selectedAccountId) : null;
   const selectedAccountEntries = selectedAccountId ? (calEntriesByAccount[selectedAccountId] || []) : [];
   const selectedAccountEntryForDate = selectedDate && selectedAccountId
@@ -449,7 +463,7 @@ const CombinedRuleCalendar: React.FC<{
           </div>
 
           {selectedDateItems.length === 0 ? (
-            <p className="text-white/40 text-sm text-center py-4">No rule data for this date. Click days in the calendar to see account details.</p>
+            <p className="text-white/40 text-sm text-center py-4">No active accounts to log rules against.</p>
           ) : selectedAccount ? (
             /* Detailed view for a specific account on the selected date */
             <div className="space-y-4">
@@ -512,7 +526,7 @@ const CombinedRuleCalendar: React.FC<{
               {selectedDateItems.map((item) => {
                 const acct = calAccounts.find(a => a.id === item.accountId);
                 if (!acct) return null;
-                const status = item.entry.followedRules;
+                const status = item.entry ? item.entry.followedRules : undefined;
                 return (
                   <div
                     key={item.accountId}
@@ -520,7 +534,8 @@ const CombinedRuleCalendar: React.FC<{
                     className={`cursor-pointer p-3 rounded-lg border transition-all hover:scale-[1.02] hover:-translate-y-0.5 ${
                       status === true ? 'bg-emerald-500/10 border-emerald-400/30 hover:border-emerald-400/50' :
                       status === false ? 'bg-rose-500/10 border-rose-400/30 hover:border-rose-400/50' :
-                      'bg-white/5 border-white/10 hover:border-white/20'
+                      status === null ? 'bg-white/5 border-white/10 hover:border-white/20' :
+                      'bg-white/[0.02] border-dashed border-white/10 hover:border-cyan-400/40'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
@@ -529,10 +544,10 @@ const CombinedRuleCalendar: React.FC<{
                        status === false ? <XCircle className="w-4 h-4 text-rose-400" /> :
                        <Minus className="w-4 h-4 text-white/30" />}
                     </div>
-                    <div className="text-xs text-white/50">
-                      {status === true ? 'Rules Followed' : status === false ? 'Rules Broken' : 'No Trade'}
+                    <div className={`text-xs ${status === undefined ? 'text-cyan-300/60' : 'text-white/50'}`}>
+                      {status === true ? 'Rules Followed' : status === false ? 'Rules Broken' : status === null ? 'No Trade' : 'Not marked — click to log'}
                     </div>
-                    {item.entry.ruleCompliance && Object.keys(item.entry.ruleCompliance).length > 0 && (
+                    {item.entry?.ruleCompliance && Object.keys(item.entry.ruleCompliance).length > 0 && (
                       <div className="text-xs text-white/30 mt-1">
                         {Object.values(item.entry.ruleCompliance).filter(v => v).length}/{Object.keys(item.entry.ruleCompliance).length} rules checked
                       </div>
