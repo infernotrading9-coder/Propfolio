@@ -27,6 +27,12 @@ export const handler: Handler = async (event) => {
             WHERE user_id = ${user.id} AND account_number_last4 = ${last4} AND status IN ('active','paused')
           `)
         }
+        // Retire the Rule Calendar row too so the calendar only tracks live accounts.
+        await db.execute(sql`
+          UPDATE calendar_accounts
+          SET is_active = false
+          WHERE user_id = ${user.id} AND challenge_id = ${id}
+        `)
       }
     }
     return json(204, {})

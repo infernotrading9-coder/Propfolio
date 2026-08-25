@@ -58,6 +58,37 @@ async function findOrCreateFirm(userId: string, name: string, firmType?: string)
   return { id, name };
 }
 
+/**
+ * Create the rule-calendar account for a trading account, so the Rule Calendar
+ * has a row to track daily compliance against from day one.
+ *
+ * Idempotent: if a calendar account already exists for this challenge (or, when
+ * there is no challenge, with the same name), nothing is inserted. Failures are
+ * swallowed by callers — a missing calendar row must never break a purchase.
+ */
+export async function spawnCalendarAccount(
+  userId: string,
+  opts: { name: string; challengeId?: string | null }
+): Promise<{ calendarAccountId: string | null }> {
+  const name = (opts.name || '').trim();
+  if (!name) return { calendarAccountId: null };
+  const challengeId = opts.challengeId || null;
+
+  const existing = challengeId
+    ? await db.execute(sql`SELECT id FROM calendar_accounts WHERE user_id = ${userId} AND challenge_id = ${challengeId} LIMIT 1`)
+    : await db.execute(sql`SELECT id FROM calendar_accounts WHERE user_id = ${userId} AND name = ${name} LIMIT 1`);
+  if (existing?.rows && existing.rows.length > 0) {
+    return { calendarAccountId: String(existing.rows[0].id) };
+  }
+
+  const id = randomUUID();
+  await db.execute(sql`
+    INSERT INTO calendar_accounts (id, user_id, name, challenge_id, is_active, created_at)
+    VALUES (${id}, ${userId}, ${name}, ${challengeId}, true, NOW())
+  `);
+  return { calendarAccountId: id };
+}
+
 /** Create a trading account card + register the budget expense for an existing challenge. */
 export async function spawnAccountAndBudget(
   userId: string,
@@ -68,8 +99,9 @@ export async function spawnAccountAndBudget(
     accountName?: string;
     cost?: number;
     budgetAccountId?: string;
+    challengeId?: string | null;
   } & SpawnOpts
-): Promise<{ accountId: string }> {
+): Promise<{ accountId: string; calendarAccountId: string | null }> {
   const accountSize = Math.max(0, Math.round(Number(opts.accountSize) || 0));
   const last4 = opts.accountLast4 || null;
   const name = opts.accountName || (last4 ? `Acct ${last4}` : `${opts.firmName} ${Math.round(accountSize / 1000)}K`);
@@ -98,7 +130,20 @@ export async function spawnAccountAndBudget(
     });
   }
 
-  return { accountId };
+  // Rule Calendar: give the new account a calendar row so daily rule compliance
+  // can be tracked from day one. Never let this break the purchase.
+  let calendarAccountId: string | null = null;
+  try {
+    const cal = await spawnCalendarAccount(userId, {
+      name: `${name} (${opts.firmName})`,
+      challengeId: opts.challengeId || null,
+    });
+    calendarAccountId = cal.calendarAccountId;
+  } catch (e) {
+    console.error('spawnCalendarAccount failed:', e);
+  }
+
+  return { accountId, calendarAccountId };
 }
 
 /** The complete purchase flow: challenge + account card + budget expense. */
@@ -139,6 +184,7 @@ export async function purchaseEval(input: PurchaseEvalInput): Promise<{ challeng
     accountLast4: input.accountLast4,
     cost,
     budgetAccountId: input.budgetAccountId,
+    challengeId,
     maxDrawdown: input.maxDrawdown,
     dailyDrawdown: input.dailyDrawdown,
     riskPerTrade: input.riskPerTrade,
@@ -190,6 +236,19 @@ export async function spawnChallengeAndBudgetFromAccount(
       amount: cost,
       accountId: opts.budgetAccountId || 'acc_sofi',
     });
+  }
+
+  // Account-first flow: the account card already exists, so give it its Rule
+  // Calendar row too and link it to the challenge we just created.
+  try {
+    const last4 = opts.accountLast4 || null;
+    const accountName = last4 ? `Acct ${last4}` : `${opts.firmName} ${Math.round(accountSize / 1000)}K`;
+    await spawnCalendarAccount(userId, {
+      name: `${accountName} (${opts.firmName})`,
+      challengeId,
+    });
+  } catch (e) {
+    console.error('spawnCalendarAccount failed:', e);
   }
 
   return { challengeId };

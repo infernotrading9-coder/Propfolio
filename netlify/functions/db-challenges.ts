@@ -85,6 +85,7 @@ export const handler: Handler = async (event) => {
             accountLast4: accountLast4 || null,
             cost: Number(cost) || 0,
             budgetAccountId: input.budgetAccountId,
+            challengeId: row.id,
             maxDrawdown: input.maxDrawdown !== undefined ? Number(input.maxDrawdown) : 0,
             dailyDrawdown: input.dailyDrawdown !== undefined ? Number(input.dailyDrawdown) : 0,
             riskPerTrade: input.riskPerTrade !== undefined ? Number(input.riskPerTrade) : 0,
