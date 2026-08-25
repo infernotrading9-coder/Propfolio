@@ -97,14 +97,17 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
       const [tradesRes, statsRes, accountsRes] = await Promise.all([
         fetch(`${apiBase}/db-trades`, { headers: getAuthHeaders() }),
         fetch(`${apiBase}/db-trades?action=stats`, { headers: getAuthHeaders() }),
-        fetch(`${apiBase}/db-accounts`, { headers: getAuthHeaders() }),
+        fetch(`${apiBase}/db-accounts?all=true`, { headers: getAuthHeaders() }),
       ]);
       const tradesData = await tradesRes.json();
       const statsData = await statsRes.json();
       const accountsData = await accountsRes.json();
 
       if (tradesData.trades) {
-        const accountMap = new Map<string, any>(accountsData.accounts?.map((a: any) => [a.id, a]) || []);
+        // Resolve names from ALL accounts (incl. lost/failed) so the log shows
+        // the real account on every trade.
+        const allAccounts = accountsData.accounts || [];
+        const accountMap = new Map<string, any>(allAccounts.map((a: any) => [a.id, a]));
         setTrades(tradesData.trades.map((t: Trade) => ({
           ...t,
           accountName: accountMap.get(t.accountId)?.name,
@@ -112,7 +115,11 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
         })));
       }
       if (statsData.stats) setStats(statsData.stats);
-      if (accountsData.accounts) setAccounts(accountsData.accounts);
+      if (accountsData.accounts) {
+        // Form + filter dropdowns stay active-only — you don't log on a lost account.
+        const activeAccounts = accountsData.accounts.filter((a: any) => a.status === 'active');
+        setAccounts(activeAccounts);
+      }
     } catch (e) {
       console.error('Failed to load trades data:', e);
     } finally {

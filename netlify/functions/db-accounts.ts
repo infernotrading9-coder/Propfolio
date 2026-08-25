@@ -24,9 +24,12 @@ export const handler: Handler = async (event) => {
         return json(200, { orders })
       }
 
-      // Get active trading accounts only
+      // Get trading accounts. Default: active only (used by AccountsView and
+      // the Trades form dropdown). Pass ?all=true to get every account so the
+      // trade log can still resolve names/firms for lost/failed accounts.
       const accounts = await tradingAccountService.getByUserId(user.id)
-      const activeAccounts = accounts.filter((a: any) => a.status === 'active')
+      const showAll = params.all === 'true'
+      const activeAccounts = showAll ? accounts : accounts.filter((a: any) => a.status === 'active')
       return json(200, { accounts: activeAccounts })
     }
 
