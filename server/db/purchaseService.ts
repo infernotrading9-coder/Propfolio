@@ -117,6 +117,7 @@ export async function spawnAccountAndBudget(
     purchaseDate?: string;
     evalType?: string | null;
     floorLockLevel?: number;
+    firmType?: string | null;
   } & SpawnOpts
 ): Promise<{ accountId: string; calendarAccountId: string | null }> {
   const accountSize = Math.max(0, Math.round(Number(opts.accountSize) || 0));
@@ -137,13 +138,13 @@ export async function spawnAccountAndBudget(
     INSERT INTO trading_accounts (
       id, user_id, name, firm, account_number_last4, account_size, balance, drawdown_used,
       high_water_mark, max_drawdown, daily_drawdown, risk_per_trade, rules, status, phase, sort_order,
-      day_start_balance, settled_high_water_mark, last_settled_at, floor_lock_level, eval_type,
+      day_start_balance, settled_high_water_mark, last_settled_at, floor_lock_level, eval_type, firm_type,
       created_at, updated_at
     ) VALUES (
       ${accountId}, ${userId}, ${name}, ${opts.firmName}, ${last4}, ${String(accountSize)}, ${String(accountSize)}, '0',
       ${String(accountSize)}, ${String(opts.maxDrawdown || 0)}, ${String(opts.dailyDrawdown || 0)}, ${String(opts.riskPerTrade || 0)},
       ${rulesLiteral}::text[], 'active', 'challenge', ${sortOrder},
-      ${String(accountSize)}, ${String(accountSize)}, ${sessionStart()}, ${String(opts.floorLockLevel ?? accountSize + 100)}, ${opts.evalType || null},
+      ${String(accountSize)}, ${String(accountSize)}, ${sessionStart()}, ${String(opts.floorLockLevel ?? accountSize + 100)}, ${opts.evalType || null}, ${opts.firmType || 'futures'},
       NOW(), NOW()
     )
   `);
@@ -220,6 +221,7 @@ export async function purchaseEval(input: PurchaseEvalInput): Promise<{ challeng
     rules: input.rules,
     evalType: input.evalType,
     floorLockLevel: (input as any).floorLockLevel,
+    firmType: input.firmType || 'futures',
   });
 
   return { challengeId, accountId, calendarAccountId, firmId: firm.id, firmName: firm.name };

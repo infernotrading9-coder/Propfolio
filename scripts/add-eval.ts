@@ -16,6 +16,11 @@
  * Select Flex...), not the phase count. It drives the drawdown ruleset, so it is
  * prompted for when omitted.
  * --lock-level overrides where the trailing max-DD floor freezes (default size + 100).
+ * --rules "<r1>;<r2>" sets the account's rules (prompted when omitted) — the Rule
+ * Calendar has nothing to check without them.
+ * --cfd marks this as a CFD firm. This matters: on CFD firms a daily-DD breach
+ * LOSES the account, while on futures it's only a lockout until the next session.
+ * Defaults to futures.
  *
  * Spawns ALL FOUR surfaces (single source of truth):
  *   1. challenge row            (Prop Firm Dashboard)
@@ -42,6 +47,11 @@ const argv = process.argv.slice(2);
 let evalTypeArg = extractFlag(argv, '--eval-type');
 const lockLevelArg = extractFlag(argv, '--lock-level');
 let rulesArg = extractFlag(argv, '--rules');
+// Market type decides what a daily-DD breach MEANS: futures = session lockout
+// (account survives), CFD = account lost. Defaults to futures.
+const cfdFlagIdx = argv.indexOf('--cfd');
+if (cfdFlagIdx !== -1) argv.splice(cfdFlagIdx, 1);
+const firmType = cfdFlagIdx !== -1 ? 'cfd' : 'futures';
 
 const [firmName, accountSizeStr, costStr, totalPhasesStr, startDate, strategy, brokerName, maxDDStr, dailyDDStr, riskStr, last4, budgetAccountId] = argv;
 
@@ -84,7 +94,7 @@ async function main() {
     totalPhases: Number(totalPhasesStr) || 3,
     startDate: startDate || undefined,
     strategy: strategy || '',
-    firmType: 'futures',
+    firmType,
     accountLast4: last4 || null,
     maxDrawdown: maxDDStr ? Number(maxDDStr) : 0,
     dailyDrawdown: dailyDDStr ? Number(dailyDDStr) : 0,

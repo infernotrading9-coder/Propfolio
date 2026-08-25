@@ -119,6 +119,9 @@ export const tradingAccounts = pgTable('trading_accounts', {
   lastSettledAt: timestamp('last_settled_at'),
   floorLockLevel: decimal('floor_lock_level', { precision: 12, scale: 2 }), // trailing floor stops here (default size + 100)
   evalType: text('eval_type'), // product variant: Builder, Flex, Daily, Rapid, Zero...
+  // 'futures' | 'cfd'. Decides what a daily-DD breach MEANS: futures = session
+  // lockout (account survives), CFD = account lost.
+  firmType: text('firm_type'),
   riskPerTrade: decimal('risk_per_trade', { precision: 12, scale: 2 }).default('0'),
   rules: text('rules').array(), // array of rule strings
   notes: text('notes'),

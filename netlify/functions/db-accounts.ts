@@ -150,6 +150,7 @@ export const handler: Handler = async (event) => {
       if (updates.dayStartBalance !== undefined) dbUpdates.dayStartBalance = updates.dayStartBalance === null || updates.dayStartBalance === '' ? null : String(updates.dayStartBalance)
       if (updates.settledHighWaterMark !== undefined) dbUpdates.settledHighWaterMark = updates.settledHighWaterMark === null || updates.settledHighWaterMark === '' ? null : String(updates.settledHighWaterMark)
       if (updates.evalType !== undefined) dbUpdates.evalType = updates.evalType || null
+      if (updates.firmType !== undefined) dbUpdates.firmType = updates.firmType || null
       if (updates.riskPerTrade !== undefined) dbUpdates.riskPerTrade = String(updates.riskPerTrade)
       if (updates.rules !== undefined) dbUpdates.rules = updates.rules
       if (updates.notes !== undefined) dbUpdates.notes = updates.notes

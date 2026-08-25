@@ -21,6 +21,7 @@ interface TradingAccount {
   lastSettledAt?: string | null;
   floorLockLevel?: string | null;
   evalType?: string | null;
+  firmType?: string | null;
   riskPerTrade?: string;
   rules?: string[] | null;
   notes?: string | null;
@@ -94,6 +95,11 @@ const HolographicAccountCard: React.FC<{
   });
   const ddPercent = maxDD > 0 ? Math.min(100, (drawdown / maxDD) * 100) : 0;
   const profit = balance - hwm;
+  // A daily-DD breach is only fatal on CFD firms. On futures it's a session
+  // lockout — no more trades until the 5pm settle, but the account survives.
+  // Max DD is what actually kills a futures account.
+  const isCfd = ['cfd', 'forex'].includes(String(acct.firmType || 'futures').toLowerCase());
+  const isFuturesDailyLockout = dd.breached && dd.binding === 'daily' && !isCfd;
   const acctSizeNum = parseFloat(acct.accountSize);
   const sizeLabel = acctSizeNum >= 1000 ? `$${(acctSizeNum / 1000).toFixed(0)}K` : `$${acctSizeNum}`;
 
@@ -204,8 +210,8 @@ const HolographicAccountCard: React.FC<{
                   <span className="text-white/40">
                     Stop-out <span className="text-white/30">({dd.binding === 'daily' ? 'daily' : 'max DD'} binding)</span>
                   </span>
-                  <span className={dd.breached ? 'text-red-400 font-semibold' : dd.room < (dailyDD || maxDD) * 0.25 ? 'text-amber-400' : 'text-white/50'}>
-                    ${dd.stopOutLevel.toFixed(0)} · {dd.breached ? `BREACHED ${Math.abs(dd.room).toFixed(0)}` : `${dd.room.toFixed(0)} room`}
+                  <span className={dd.breached ? (isFuturesDailyLockout ? 'text-amber-400 font-semibold' : 'text-red-400 font-semibold') : dd.room < (dailyDD || maxDD) * 0.25 ? 'text-amber-400' : 'text-white/50'}>
+                    ${dd.stopOutLevel.toFixed(0)} · {dd.breached ? (isFuturesDailyLockout ? `LOCKED OUT ${Math.abs(dd.room).toFixed(0)} over` : `BREACHED ${Math.abs(dd.room).toFixed(0)}`) : `${dd.room.toFixed(0)} room`}
                   </span>
                 </div>
                 <div className="h-2 bg-white/5 rounded-full overflow-hidden">
