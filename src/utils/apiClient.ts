@@ -47,116 +47,12 @@ class ApiClient {
     return !!(import.meta as any).env?.DEV;
   }
 
-  private hasMeaningfulState(state: AppState | null | undefined): boolean {
-    if (!state) return false;
-    return (state.firms?.length || 0) > 0 || (state.challenges?.length || 0) > 0 || state.selectedFirmId !== null;
-  }
-
-  private async readLegacyLocalState(userId: string): Promise<AppState | null> {
-    try {
-      const state = await tempStorage.loadState(userId);
-      return this.hasMeaningfulState(state) ? state : null;
-    } catch (error) {
-      console.error('Failed to read legacy local state:', error);
-      return null;
-    }
-  }
-
-  private async importLegacyLocalState(legacyState: AppState): Promise<void> {
-    const createdFirmIdByLegacyId = new Map<string, string>();
-    const createdChallengeIdByLegacyId = new Map<string, string>();
-
-    for (const firm of legacyState.firms) {
-      const result = await this.makeRequest('/firms', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: firm.name,
-          firmType: (firm as any).firmType,
-        }),
-      });
-      if (result?.firm?.id) {
-        createdFirmIdByLegacyId.set(firm.id, result.firm.id);
-      }
-    }
-
-    const sortedChallenges = [...legacyState.challenges].sort((a, b) => {
-      const aTime = new Date(a.createdAt || a.startDate || 0).getTime();
-      const bTime = new Date(b.createdAt || b.startDate || 0).getTime();
-      return aTime - bTime;
-    });
-
-    for (const challenge of sortedChallenges) {
-      const mappedFirmId = createdFirmIdByLegacyId.get(challenge.propFirmId);
-      const created = await this.makeRequest('/challenges', {
-        method: 'POST',
-        body: JSON.stringify({
-          propFirmId: mappedFirmId,
-          brokerName: challenge.brokerName,
-          accountLast4: challenge.accountLast4,
-          purchaseGroupId: challenge.purchaseGroupId,
-          purchaseGroupLabel: challenge.purchaseGroupLabel,
-          purchaseGroupSize: challenge.purchaseGroupSize,
-          purchaseGroupIndex: challenge.purchaseGroupIndex,
-          accountSize: challenge.accountSize,
-          startDate: challenge.startDate,
-          cost: challenge.cost,
-          initialCost: challenge.initialCost,
-          hasActivationFee: challenge.hasActivationFee,
-          activationFeeAmount: challenge.activationFeeAmount,
-          firmType: challenge.firmType,
-          evalType: challenge.evalType,
-          liveAccount: challenge.liveAccount,
-          totalPhases: challenge.totalPhases,
-          strategy: challenge.strategy,
-          status: challenge.status,
-        }),
-      });
-
-      const createdChallengeId = created?.challenge?.id;
-      if (!createdChallengeId) continue;
-      createdChallengeIdByLegacyId.set(challenge.id, createdChallengeId);
-
-      const hasPhaseData =
-        !!challenge.phases?.phase1 ||
-        !!challenge.phases?.phase2 ||
-        !!challenge.phases?.phase3;
-
-      if (hasPhaseData) {
-        await this.makeRequest('/challenges', {
-          method: 'PUT',
-          body: JSON.stringify({
-            id: createdChallengeId,
-            updates: {
-              status: challenge.status,
-              phases: challenge.phases,
-            },
-          }),
-        });
-      }
-
-      for (const payout of challenge.payouts || []) {
-        await this.makeRequest('/payouts', {
-          method: 'POST',
-          body: JSON.stringify({
-            challengeId: createdChallengeId,
-            amount: payout.amount,
-            date: payout.date,
-            description: payout.description,
-          }),
-        });
-      }
-    }
-
-    if (legacyState.selectedFirmId) {
-      const mappedSelectedFirmId = createdFirmIdByLegacyId.get(legacyState.selectedFirmId) || null;
-      if (mappedSelectedFirmId) {
-        await this.makeRequest('/user/selected-firm', {
-          method: 'PUT',
-          body: JSON.stringify({ firmId: mappedSelectedFirmId }),
-        });
-      }
-    }
-  }
+  // readLegacyLocalState / importLegacyLocalState were removed here.
+  //
+  // They migrated pre-database localStorage data into Postgres. That migration
+  // is long finished, and keeping them meant an empty server response could
+  // re-import stale local data as brand-new challenges. tempStorage remains,
+  // but only on the DEV path.
 
   private async getAuthToken(): Promise<string | null> {
     try {
@@ -305,56 +201,19 @@ class ApiClient {
       challenges: remoteState?.challenges?.length || 0,
       selectedFirmId: remoteState?.selectedFirmId || null,
     });
-    if (this.hasMeaningfulState(remoteState)) {
-      return remoteState;
-    }
 
-    const legacyLocalState = await this.readLegacyLocalState(_userId);
-    if (!legacyLocalState) {
-      emitAuthDebug('db-state:empty', {
-        source: 'remote',
-        userId: _userId,
-        legacyLocalAvailable: false,
-      });
-      return remoteState;
-    }
-
-    console.log('Found legacy local data for current user, attempting server import.');
-    emitAuthDebug('db-state:legacy-found', {
-      userId: _userId,
-      firms: legacyLocalState.firms.length,
-      challenges: legacyLocalState.challenges.length,
-      selectedFirmId: legacyLocalState.selectedFirmId,
-    });
-    try {
-      await this.importLegacyLocalState(legacyLocalState);
-      const importedState = await this.makeRequest('/user/data');
-      if (this.hasMeaningfulState(importedState)) {
-        console.log('Legacy local data imported successfully.');
-        emitAuthDebug('db-state:legacy-imported', {
-          userId: _userId,
-          firms: importedState?.firms?.length || 0,
-          challenges: importedState?.challenges?.length || 0,
-          selectedFirmId: importedState?.selectedFirmId || null,
-        });
-        return importedState;
-      }
-    } catch (error) {
-      console.error('Legacy local data import failed:', error);
-      emitAuthDebug('db-state:legacy-import-error', {
-        userId: _userId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    console.warn('Falling back to legacy local data because the server state is still empty.');
-    emitAuthDebug('db-state:fallback-local', {
-      userId: _userId,
-      firms: legacyLocalState.firms.length,
-      challenges: legacyLocalState.challenges.length,
-      selectedFirmId: legacyLocalState.selectedFirmId,
-    });
-    return legacyLocalState;
+    // The server is the source of truth. Full stop.
+    //
+    // This used to fall back to old localStorage data whenever the server
+    // looked empty, and re-POST it as brand-new challenges. That was a
+    // migration aid from before the database existed. Now it is a live hazard:
+    // a transient API hiccup returning an empty payload would resurrect
+    // long-deleted evals as fresh rows, complete with duplicate account cards
+    // and budget charges — and the bot would then be writing against them.
+    //
+    // An empty response now means empty, and the UI shows nothing rather than
+    // inventing history.
+    return remoteState;
   }
 
   // Add firm (replaces dbStorage.addFirm)

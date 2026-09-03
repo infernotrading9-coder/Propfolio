@@ -314,6 +314,12 @@ export const tradeService = {
     return db.select().from(trades).where(eq(trades.accountId, accountId)).orderBy(desc(trades.tradeDate));
   },
 
+  /** Single trade by id. Needed to reverse its balance effect on delete. */
+  async getById(id: string): Promise<Trade | null> {
+    const result = await db.select().from(trades).where(eq(trades.id, id)).limit(1);
+    return result[0] ?? null;
+  },
+
   async create(userId: string, data: Omit<NewTrade, 'userId'>): Promise<Trade> {
     const result = await db.insert(trades).values({ ...data, userId }).returning();
     return result[0];

@@ -137,12 +137,16 @@ async function resolveAccount(tx: TxClient, userId: string, ref: string) {
   const key = String(ref || '').trim();
   if (!key) throw new CascadeError('No account reference given', 'no_ref');
 
+  // Accept a nickname, the display label, or the raw last 4 — whichever
+  // Daniel used. Nickname is matched case-insensitively so "lucd" == "LUCD".
   const { rows } = await tx.query(
     `SELECT ta.*, ch.id AS challenge_id, ch.lifecycle, ch.payout_count, ch.eval_type AS ch_eval_type
        FROM trading_accounts ta
        LEFT JOIN challenges ch ON ch.account_id = ta.id
       WHERE ta.user_id = $1
-        AND (ta.display_label = $2 OR ta.account_number_last4 = $2)
+        AND (lower(ta.nickname) = lower($2)
+             OR ta.display_label = $2
+             OR ta.account_number_last4 = $2)
         AND ta.status = 'active'`,
     [userId, key]);
 
@@ -472,6 +476,21 @@ export async function passEval(input: PassEvalInput): Promise<CascadeResult & { 
     }
 
     warnings.push(`${label} is FUNDED, not live. Live needs ${MIN_PAYOUTS_FOR_LIVE}+ payouts and the firm's decision.`);
+
+    // 4. Retire the EVAL's own account card.
+    //
+    // Passing spawns a new funded card, but the original eval card was left
+    // 'active', so two active cards shared one label and the Dashboard counted
+    // the pass twice (Daniel saw 3 funded accounts against 2 real ones). The
+    // eval account ceases to exist at the firm once it converts, so retire it
+    // in the same transaction that creates its successor.
+    await tx.query(
+      `UPDATE trading_accounts SET status='passed', updated_at=NOW() WHERE id=$1`,
+      [src.id]);
+    // Its rule calendar stops too — you can't trade the eval any more.
+    await tx.query(
+      `UPDATE calendar_accounts SET is_active=false WHERE challenge_id=$1`,
+      [src.challenge_id]);
 
     return {
       challengeId, accountId, calendarAccountId, label,

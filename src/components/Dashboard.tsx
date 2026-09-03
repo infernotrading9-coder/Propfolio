@@ -28,7 +28,7 @@ import { ListChecks } from 'lucide-react';
 import { TradesView } from './TradesView';
 import { AccountsView } from './AccountsView';
 import BudgetTab, { type BudgetState } from './BudgetTab';
-import { inferHighestMilestone, inferOutcomeType } from '../utils/challengeLifecycle';
+
 
 type ViewMode = 'prop' | 'calendar' | 'trades' | 'accounts' | 'budget';
 
@@ -169,7 +169,15 @@ const Dashboard: React.FC = () => {
   const [budgetLoaded, setBudgetLoaded] = React.useState(false);
 
   const budgetAuthHeaders = React.useCallback(() => {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      // REQUIRED. db-budget-state reserves whole-state PUTs for the browser and
+      // 403s everyone else with `use_cascade_action`, so the bot cannot race a
+      // read-modify-write against Daniel's edits. Without this header the
+      // Budget tab silently fails to save — which is exactly what happened when
+      // the guard was added and only tested against the bot.
+      'X-Client': 'propfolio-web',
+    };
     try {
       const raw = localStorage.getItem('user');
       if (raw) {
@@ -624,8 +632,9 @@ const Dashboard: React.FC = () => {
           failureDate: newStatus === 'failed' ? (challenge.failureDate || todayLocalISO()) : challenge.failureDate,
           failureReason: newStatus === 'failed' ? (challenge.failureReason || 'unknown') : challenge.failureReason,
         };
-        updated.highestMilestone = inferHighestMilestone(updated);
-        updated.outcomeType = inferOutcomeType(updated);
+        // Do NOT recompute milestone/outcome from phase flags here. Those
+        // derived values are display-only now, and writing them back was
+        // overwriting the lifecycle the cascade services own.
         lifecycleUpdates.push(updated);
         await apiClient.updateChallenge(updated);
       }
@@ -904,8 +913,7 @@ const Dashboard: React.FC = () => {
           failureDate,
           failureReason: challenge.failureReason || 'unknown',
         };
-        updated.highestMilestone = inferHighestMilestone(updated);
-        updated.outcomeType = inferOutcomeType(updated);
+        // Derived fields stay out of the write — see note above.
         failedLiveUpdates.push(updated);
         await apiClient.updateChallenge(updated);
       }

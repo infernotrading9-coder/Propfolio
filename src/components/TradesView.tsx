@@ -132,17 +132,28 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
   const handleAddTrade = async () => {
     if (!formData.accountId || !formData.amount) return;
     try {
-      await fetch(`${apiBase}/db-trades`, {
+      // Route through the SAME cascade the bot uses.
+      //
+      // This used to POST without an `action`, hitting a legacy handler with
+      // its own balance arithmetic, no transaction, no netting, no calendar
+      // update and no undo entry. Logging a trade here vs. via Telegram
+      // produced different numbers on the same account.
+      const acct = accounts.find(a => a.id === formData.accountId);
+      const signed = formData.result === 'loss'
+        ? -Math.abs(parseFloat(formData.amount))
+        : Math.abs(parseFloat(formData.amount));
+
+      const res = await fetch(`${apiBase}/db-trades`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          accountId: formData.accountId,
+          action: 'log-trade',
+          accountRef: acct?.accountNumberLast4 || acct?.name || formData.accountId,
+          amount: signed,
           direction: formData.direction,
           instrument: formData.instrument || null,
           entryPrice: formData.entryPrice || null,
           exitPrice: formData.exitPrice || null,
-          amount: parseFloat(formData.amount),
-          result: formData.result,
           riskReward: formData.riskReward ? parseFloat(formData.riskReward) : null,
           rulesFollowed: formData.rulesFollowed,
           rulesBroken: formData.rulesBroken,
@@ -150,6 +161,18 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
           notes: formData.notes || null,
         }),
       });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(body?.error || 'Failed to log trade.');
+        return;
+      }
+      // Surface the same warnings the bot gets — drawdown breaches, unknown
+      // plan rules, "this app can't see your broker balance", etc.
+      if (Array.isArray(body?.warnings) && body.warnings.length) {
+        alert(body.warnings.join('\n\n'));
+      } else if (body?.verdict?.breached) {
+        alert(body.verdict.message);
+      }
       setShowAddForm(false);
       setFormData({ accountId: '', direction: 'long', instrument: '', entryPrice: '', exitPrice: '', amount: '', result: 'win', riskReward: '', rulesFollowed: true, rulesBroken: [], behaviors: [], notes: '' });
       loadData();
@@ -157,12 +180,21 @@ export const TradesView: React.FC<TradesViewProps> = ({ apiBase, getAuthHeaders 
   };
 
   const handleDeleteTrade = async (id: string) => {
+    // Deleting used to remove the row WITHOUT reversing the balance, so the
+    // account kept the P&L of a trade that no longer existed. Use the undo
+    // journal instead, which reverses balance, HWM and calendar together.
+    if (!confirm('Delete this trade and reverse its effect on the account balance?')) return;
     try {
-      await fetch(`${apiBase}/db-trades`, {
+      const res = await fetch(`${apiBase}/db-trades`, {
         method: 'DELETE',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id, reverseBalance: true }),
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body?.error || 'Failed to delete trade.');
+        return;
+      }
       loadData();
     } catch (e) { console.error('Failed to delete trade:', e); }
   };

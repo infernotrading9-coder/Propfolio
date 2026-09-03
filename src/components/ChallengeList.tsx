@@ -9,7 +9,7 @@ import { ConfirmDialog } from './ui/ConfirmDialog';
 import { apiClient } from '../utils/apiClient';
 import { archiveFailedChallenge } from '../utils/calendarStorage';
 import { getFinalPhaseForChallenge, getNextIncompletePhase, isActualLiveAccount, isChallengeFunded } from '../utils/challengeGroups';
-import { getDisplayMilestone, getDisplayOutcome, getFailureReasonLabel, getLifecycleTone, getMilestoneLabel, getNetLifecyclePnl, getOutcomeLabel, inferHighestMilestone, inferOutcomeType } from '../utils/challengeLifecycle';
+import { getDisplayMilestone, getDisplayOutcome, getFailureReasonLabel, getLifecycleTone, getMilestoneLabel, getNetLifecyclePnl, getOutcomeLabel } from '../utils/challengeLifecycle';
 
 type FailConfirmState = {
   ids: string[];
@@ -73,6 +73,27 @@ export const ChallengeList: React.FC<{
   const [failConfirm, setFailConfirm] = React.useState<FailConfirmState | null>(null);
   const [loadingFailConfirm, setLoadingFailConfirm] = React.useState(false);
   const [promoteConfirmIds, setPromoteConfirmIds] = React.useState<string[] | null>(null);
+
+  /**
+   * Auth headers for direct cascade calls.
+   *
+   * apiClient can't be used for cascade actions because it maps `/challenges`
+   * onto a PUT-shaped helper; these are POSTs with an `action`. Mirrors what
+   * apiClient sends, including X-Client so the server knows this is the web UI.
+   */
+  const getAuthHeadersForPromote = React.useCallback((): Record<string, string> => {
+    const headers: Record<string, string> = { 'X-Client': 'propfolio-web' };
+    try {
+      const raw = localStorage.getItem('user');
+      if (raw) {
+        const u = JSON.parse(raw);
+        if (u?.id) headers['X-User-Id'] = String(u.id);
+        if (u?.email) headers['X-User-Email'] = String(u.email);
+        if (u?.name) headers['X-User-Name'] = String(u.name);
+      }
+    } catch {}
+    return headers;
+  }, []);
 
   const firmName = React.useCallback(
     (id: string) => firms.find((firm) => firm.id === id)?.name ?? 'Unknown',
@@ -780,8 +801,8 @@ export const ChallengeList: React.FC<{
                   },
                 },
               };
-              failedChallenge.highestMilestone = inferHighestMilestone(failedChallenge);
-              failedChallenge.outcomeType = inferOutcomeType(failedChallenge);
+              // Derived milestone/outcome are display-only; writing them back
+              // would clobber the cascade-owned lifecycle.
               await apiClient.updateChallenge(failedChallenge);
               onChallengeUpdate(failedChallenge);
             }
@@ -830,11 +851,32 @@ export const ChallengeList: React.FC<{
             for (const id of promoteConfirmIds) {
               const challenge = validChallenges.find(c => c.id === id);
               if (!challenge) continue;
-              const updated: Challenge = { ...challenge, liveAccount: true };
-              updated.highestMilestone = inferHighestMilestone(updated);
-              updated.outcomeType = inferOutcomeType(updated);
-              await apiClient.updateChallenge(updated);
-              onChallengeUpdate(updated);
+              // Go through the cascade, NOT a raw liveAccount flag.
+              //
+              // Setting liveAccount directly bypassed the rule that live needs
+              // 5+ payouts, and since that rule became a Postgres CHECK the raw
+              // write just throws. The cascade enforces the gate, moves the
+              // lifecycle to live_active, and keeps the account card in step.
+              const ref = challenge.accountLast4 || challenge.brokerName || challenge.id;
+              const res = await fetch('/.netlify/functions/db-challenges', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeadersForPromote() },
+                body: JSON.stringify({ action: 'promote-to-live', accountRef: ref }),
+              });
+              const body = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                if (body?.code === 'insufficient_payouts') {
+                  alert(
+                    `${body.error}\n\n` +
+                    `Live is not something the app can grant. The firm moves you after ` +
+                    `at least 5 payouts on that funded account, and even then it is their call. ` +
+                    `Record the payouts first, then promote once they have actually moved you.`);
+                } else {
+                  alert(body?.error || 'Failed to promote to live account.');
+                }
+                continue;
+              }
+              onChallengeUpdate({ ...challenge, liveAccount: true });
             }
             setSelectedChallengeIds(prev => {
               const next = new Set(prev);

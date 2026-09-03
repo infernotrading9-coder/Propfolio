@@ -1,6 +1,35 @@
-import { Challenge } from '../types';
+/**
+ * challengeLifecycle — DISPLAY HELPERS ONLY.
+ * ==========================================
+ *
+ * This file used to INFER a challenge's stage from phase flags:
+ *
+ *     if (challenge.status === 'passed') return 'funded_active';
+ *
+ * That single line is why the Dashboard showed 3 funded accounts when Daniel
+ * had 2. Passing an eval leaves the original eval row at status='passed'
+ * (lifecycle 'eval_passed') while the cascade spawns a SEPARATE funded row.
+ * The inference counted both.
+ *
+ * Worse, the inferred value was written back to the database from ~19 call
+ * sites (payout add/edit/remove, bulk status change, fail flows), overwriting
+ * whatever the cascade services had set.
+ *
+ * THE RULE NOW:
+ *   `challenges.lifecycle` is the single source of truth, written ONLY by the
+ *   cascade services (buyEval / passEval / promoteToLive / failAccount).
+ *   Read it via src/utils/lifecycle.ts. Never infer it, never write it here.
+ *
+ * What remains below is presentation: labels, colours, and P&L arithmetic.
+ * `inferOutcomeType` and `inferHighestMilestone` are kept ONLY as read-time
+ * fallbacks for rows written before the lifecycle column existed, and are
+ * deliberately NOT exported for writing.
+ */
 
-export const LIFECYCLE_MILESTONE_LABELS: Record<string, string> = {
+import { Challenge } from '../types';
+import { lifecycleOf, type Lifecycle } from './lifecycle';
+
+export const MILESTONE_LABELS: Record<string, string> = {
   purchased: 'Purchased',
   phase1_passed: 'Phase 1 Passed',
   phase2_passed: 'Phase 2 Passed',
@@ -12,7 +41,7 @@ export const LIFECYCLE_MILESTONE_LABELS: Record<string, string> = {
 
 export const OUTCOME_LABELS: Record<string, string> = {
   active: 'Active',
-  awaiting_activation: 'Passed · Awaiting Activation',
+  awaiting_activation: 'Awaiting Activation',
   failed_pre_phase: 'Failed Before Passing',
   failed_after_phase1: 'Failed After Phase 1',
   failed_after_phase2: 'Failed After Phase 2',
@@ -36,93 +65,82 @@ export const FAILURE_REASON_LABELS: Record<string, string> = {
   unknown: 'Unknown',
 };
 
-export const getTotalPayouts = (challenge: Pick<Challenge, 'payouts'>): number => {
-  if (!Array.isArray(challenge.payouts)) return 0;
-  return challenge.payouts.reduce((sum, payout) => sum + (Number(payout.amount) || 0), 0);
-};
+export const getTotalPayouts = (challenge: Challenge): number =>
+  (challenge.payouts || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-export const getLifecycleCost = (challenge: Pick<Challenge, 'cost' | 'initialCost' | 'activationFeeAmount'>): number => {
-  const cost = Number(challenge.cost ?? challenge.initialCost ?? 0) || 0;
-  return cost;
-};
-
+/**
+ * Net money in/out for this challenge: payouts minus what it cost.
+ * Activation fees count as cost — they are money Daniel actually paid.
+ */
 export const getNetLifecyclePnl = (challenge: Challenge): number => {
-  return getTotalPayouts(challenge) - getLifecycleCost(challenge);
+  const payouts = getTotalPayouts(challenge);
+  const cost = Number(challenge.cost || 0);
+  const activation = Number(challenge.activationFeeAmount || 0);
+  return Math.round((payouts - cost - activation) * 100) / 100;
 };
 
-export const inferHighestMilestone = (challenge: Challenge): string => {
+/**
+ * Outcome label for DISPLAY.
+ *
+ * Prefers the stored `outcomeType`, then derives from the authoritative
+ * lifecycle. Phase flags are only consulted for pre-migration rows that have
+ * neither — and even then the result is never written back.
+ */
+export const getDisplayOutcome = (challenge: Challenge): string => {
+  if (challenge.outcomeType) return challenge.outcomeType;
+
+  const lc: Lifecycle = lifecycleOf(challenge as any);
   const payouts = getTotalPayouts(challenge);
-  if (challenge.status === 'failed' && payouts > 0) return 'failed_after_payout';
-  if (payouts > 0) return 'payout_received';
-  if (challenge.liveAccount) return 'funded';
-  const total = challenge.totalPhases || 3;
-  const funded = total === 1
-    ? !!challenge.phases?.phase1?.completed
-    : total === 2
-      ? !!challenge.phases?.phase1?.completed && !!challenge.phases?.phase2?.completed
-      : !!challenge.phases?.phase1?.completed && !!challenge.phases?.phase2?.completed && !!challenge.phases?.phase3?.completed;
-  if (funded) return 'funded';
-  if (challenge.phases?.phase3?.completed) return 'phase3_passed';
-  if (challenge.phases?.phase2?.completed) return 'phase2_passed';
-  if (challenge.phases?.phase1?.completed) return 'phase1_passed';
+
+  switch (lc) {
+    case 'live_active':
+    case 'funded_active':
+      return payouts > 0 ? 'payout_received' : 'funded_active';
+    case 'live_failed':
+    case 'funded_failed':
+      return payouts > 0 ? 'payout_then_failed' : 'failed_after_funded';
+    case 'eval_failed':
+      return 'failed_pre_phase';
+    case 'eval_passed':
+      return 'awaiting_activation';
+    case 'eval_active':
+    default:
+      return 'active';
+  }
+};
+
+/** Highest milestone for DISPLAY. Same rules: read-only, never written back. */
+export const getDisplayMilestone = (challenge: Challenge): string => {
+  if (challenge.highestMilestone) return challenge.highestMilestone;
+
+  const lc: Lifecycle = lifecycleOf(challenge as any);
+  const payouts = getTotalPayouts(challenge);
+
+  if (payouts > 0) {
+    return lc.endsWith('_failed') ? 'failed_after_payout' : 'payout_received';
+  }
+  if (lc.startsWith('live') || lc.startsWith('funded')) return 'funded';
+  if (lc === 'eval_passed') return 'phase1_passed';
   return 'purchased';
 };
 
-export const inferOutcomeType = (challenge: Challenge): string => {
-  const payouts = getTotalPayouts(challenge);
-  const total = challenge.totalPhases || 3;
-  const funded = total === 1
-    ? !!challenge.phases?.phase1?.completed
-    : total === 2
-      ? !!challenge.phases?.phase1?.completed && !!challenge.phases?.phase2?.completed
-      : !!challenge.phases?.phase1?.completed && !!challenge.phases?.phase2?.completed && !!challenge.phases?.phase3?.completed;
+export const getMilestoneLabel = (value?: string | null): string =>
+  (value && MILESTONE_LABELS[value]) || 'Purchased';
 
-  if (challenge.status === 'active') {
-    if (payouts > 0) return 'payout_received';
-    if (challenge.liveAccount || funded) return 'funded_active';
-    return 'active';
-  }
-  if (challenge.status === 'failed') {
-    if (payouts > 0) return 'payout_then_failed';
-    if (challenge.liveAccount || funded) return 'failed_after_funded';
-    if (challenge.phases?.phase3?.completed) return 'failed_after_phase3';
-    if (challenge.phases?.phase2?.completed) return 'failed_after_phase2';
-    if (challenge.phases?.phase1?.completed) return 'failed_after_phase1';
-    return 'failed_pre_phase';
-  }
-  if (challenge.status === 'passed_inactive') return 'awaiting_activation';
-  if (challenge.status === 'passed') return 'funded_active';
-  return 'unknown';
-};
+export const getOutcomeLabel = (value?: string | null): string =>
+  (value && OUTCOME_LABELS[value]) || 'Active';
 
-export const getDisplayMilestone = (challenge: Challenge): string => {
-  return challenge.highestMilestone || inferHighestMilestone(challenge);
-};
+export const getFailureReasonLabel = (value?: string | null): string =>
+  (value && FAILURE_REASON_LABELS[value]) || 'Unknown';
 
-export const getDisplayOutcome = (challenge: Challenge): string => {
-  return challenge.outcomeType || inferOutcomeType(challenge);
-};
-
-export const getMilestoneLabel = (value?: string | null): string => {
-  if (!value) return '—';
-  return LIFECYCLE_MILESTONE_LABELS[value] || value.replace(/_/g, ' ');
-};
-
-export const getOutcomeLabel = (value?: string | null): string => {
-  if (!value) return '—';
-  return OUTCOME_LABELS[value] || value.replace(/_/g, ' ');
-};
-
-export const getFailureReasonLabel = (value?: string | null): string => {
-  if (!value) return '—';
-  return FAILURE_REASON_LABELS[value] || value.replace(/_/g, ' ');
-};
-
-export const getLifecycleTone = (challenge: Challenge): 'emerald' | 'amber' | 'red' | 'cyan' => {
-  const outcome = getDisplayOutcome(challenge);
-  if (outcome === 'payout_then_failed' || outcome === 'payout_received') return 'emerald';
-  if (outcome === 'awaiting_activation') return 'amber';
-  if (outcome.includes('failed')) return 'red';
-  if (outcome.includes('funded')) return 'amber';
-  return 'cyan';
+/** Badge tone, derived from the authoritative lifecycle. */
+export const getLifecycleTone = (
+  challenge: Challenge,
+): 'cyan' | 'amber' | 'emerald' | 'red' | 'gray' => {
+  const lc = lifecycleOf(challenge as any);
+  if (lc === 'live_active') return 'emerald';
+  if (lc === 'funded_active') return 'amber';
+  if (lc === 'eval_active') return 'cyan';
+  if (lc === 'eval_passed') return 'amber';
+  return lc.endsWith('_failed') ? 'red' : 'gray';
 };

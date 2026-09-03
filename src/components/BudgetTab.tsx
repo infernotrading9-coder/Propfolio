@@ -1029,14 +1029,23 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
   void updateState;
 
   const saveAndRender = useCallback((newState: BudgetState) => {
-    // Check goals completed
+    // Auto-retire completed goals and paid-off loans.
+    //
+    // This is a manual-logging convenience: hit a savings target or clear a
+    // loan and the account tidies itself away. It becomes a hazard now that
+    // the bot writes here — a payout allocation that pays a card down to $0
+    // would DELETE the account, and the bot's next write to it fails
+    // `not_found` with the balance history gone.
+    //
+    // So retiring is now opt-in per account (`autoRetire`), defaulting to OFF.
+    // Nothing disappears unless Daniel asked that account to behave that way.
     let s = { ...newState };
     const del = pendingDeletesRef.current;
     const removedAcctIds: string[] = [];
     const removedGoalIds: string[] = [];
     s.savingsGoals.forEach((goal) => {
       const account = s.accounts.find((a) => a.id === goal.accountId);
-      if (account && account.balance >= goal.target) {
+      if (account && account.balance >= goal.target && (account as any).autoRetire === true) {
         removedAcctIds.push(goal.accountId);
         removedGoalIds.push(goal.id);
         s.accounts = s.accounts.filter((a) => a.id !== goal.accountId);
@@ -1047,6 +1056,7 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
     const epsilon = 0.005;
     const keptAccounts = s.accounts.filter((acc) => {
       if (!isLoanAccount(acc)) return true;
+      if ((acc as any).autoRetire !== true) return true;
       const remaining = Math.abs(displayBalance(acc));
       const originalAmount = Math.abs(Number(acc.loanOriginal != null ? acc.loanOriginal : acc.balance || 0));
       return remaining > epsilon || originalAmount <= epsilon;

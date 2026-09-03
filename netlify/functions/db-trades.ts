@@ -173,8 +173,34 @@ export const handler: Handler = async (event) => {
     }
 
     if (event.httpMethod === 'DELETE') {
-      const { id } = JSON.parse(event.body || '{}')
+      const { id, reverseBalance } = JSON.parse(event.body || '{}')
       if (!id) return json(400, { error: 'id required' })
+
+      // Deleting a trade used to drop the row and leave the account balance
+      // holding its P&L forever. Reverse the effect unless the caller
+      // explicitly opts out.
+      if (reverseBalance !== false) {
+        const existing = await tradeService.getById(id)
+        if (existing && (existing as any).userId === user.id) {
+          const acct = await tradingAccountService.getById((existing as any).accountId)
+          if (acct) {
+            const amt = parseFloat(String((existing as any).amount)) || 0
+            const wasLoss = (existing as any).result === 'loss'
+            const signed = wasLoss ? -Math.abs(amt) : Math.abs(amt)
+            const newBalance = parseFloat(String(acct.balance)) - signed
+            let newDrawdown = parseFloat(String(acct.drawdownUsed))
+            newDrawdown = wasLoss
+              ? Math.max(0, newDrawdown - Math.abs(amt))
+              : newDrawdown + Math.abs(amt)
+            // HWM is a high-water mark: never lower it on a delete, or a later
+            // trailing-drawdown calculation silently gains headroom it never had.
+            const hwm = parseFloat(String(acct.highWaterMark))
+            await tradingAccountService.updateBalance(
+              (existing as any).accountId, newBalance, newDrawdown, hwm)
+          }
+        }
+      }
+
       await tradeService.delete(id)
       return json(204, {})
     }

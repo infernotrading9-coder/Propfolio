@@ -105,6 +105,58 @@ export const handler: Handler = async (event) => {
       }
 
       // Set daily order
+      if (input.action === 'set-nickname') {
+        // Give an account a short unambiguous handle. Daniel's idea: two Lucid
+        // Daily accounts both end 0001, and remembering which is -A vs -B is
+        // exactly the sort of thing that causes a trade to be logged against
+        // the wrong account. "LUCD" is unmistakable to him and to the bot.
+        const { accountRef, nickname } = input
+        if (!accountRef) return json(400, { error: 'accountRef required', code: 'no_ref' })
+
+        const clean = nickname === null || nickname === '' ? null : String(nickname).trim()
+        if (clean !== null && !/^[A-Za-z0-9-]{4,16}$/.test(clean)) {
+          return json(400, {
+            error: 'Nickname must be 4-16 characters, letters, digits or dashes only.',
+            code: 'bad_nickname',
+          })
+        }
+
+        const all = await tradingAccountService.getByUserId(user.id)
+        const matches = all.filter((a: any) => a.status === 'active' && (
+          String(a.nickname || '').toLowerCase() === accountRef.toLowerCase() ||
+          a.displayLabel === accountRef ||
+          a.accountNumberLast4 === accountRef))
+        if (matches.length === 0) return json(404, { error: `No active account "${accountRef}"`, code: 'not_found' })
+        if (matches.length > 1) {
+          return json(400, {
+            error: `"${accountRef}" matches ${matches.length} accounts (${matches.map((m: any) => m.displayLabel).join(', ')}). Say which one.`,
+            code: 'ambiguous',
+          })
+        }
+
+        if (clean) {
+          const taken = all.find((a: any) => a.status === 'active'
+            && a.id !== matches[0].id
+            && String(a.nickname || '').toLowerCase() === clean.toLowerCase())
+          if (taken) {
+            return json(400, {
+              error: `"${clean}" is already used by ${(taken as any).displayLabel}. Pick another.`,
+              code: 'nickname_taken',
+            })
+          }
+        }
+
+        const updated = await tradingAccountService.update(matches[0].id, { nickname: clean } as any)
+        return json(200, {
+          account: updated,
+          nickname: clean,
+          label: (matches[0] as any).displayLabel,
+          message: clean
+            ? `${(matches[0] as any).displayLabel} can now be referred to as "${clean}".`
+            : `Nickname cleared for ${(matches[0] as any).displayLabel}.`,
+        })
+      }
+
       if (input.action === 'set-daily-order') {
         const { orderDate, orderedAccountIds, notes: orderNotes } = input
         if (!orderDate || !Array.isArray(orderedAccountIds)) {

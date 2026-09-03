@@ -243,6 +243,29 @@ export const handler: Handler = async (event) => {
       if (updates.failureReason !== undefined) dbUpdates.failureReason = updates.failureReason || null
       if (updates.failureDate !== undefined) dbUpdates.failureDate = updates.failureDate || null
       if (updates.lifecycleNotes !== undefined) dbUpdates.lifecycleNotes = updates.lifecycleNotes || null
+
+      // ── Keep `lifecycle` consistent with `status` ──────────────────────────
+      //
+      // This whitelist has no `lifecycle` field, deliberately: lifecycle is
+      // owned by the cascade services. But the UI CAN move `status`, and when
+      // it did, lifecycle silently stayed behind — the two sources of truth
+      // drifted and the Dashboard counted a passed eval as a funded account.
+      //
+      // So when a UI edit changes status, carry the lifecycle to the matching
+      // state WITHIN THE SAME STAGE. Stage transitions (eval -> funded -> live)
+      // remain cascade-only; this just stops eval_active/eval_failed style
+      // desync. Never touches funded/live rows.
+      if (updates.status) {
+        const existing = await challengeService.getById(id)
+        const current = String((existing as any)?.lifecycle || '')
+        const isEvalStage = current === '' || current.startsWith('eval')
+        if (isEvalStage) {
+          if (updates.status === 'failed') dbUpdates.lifecycle = 'eval_failed'
+          else if (updates.status === 'active') dbUpdates.lifecycle = 'eval_active'
+          // 'passed' / 'passed_inactive' intentionally NOT mapped: passing an
+          // eval must go through passEval, which also spawns the funded account.
+        }
+      }
       
       // Handle phase fields - convert ISO strings to Date objects
       if (updates.phases) {

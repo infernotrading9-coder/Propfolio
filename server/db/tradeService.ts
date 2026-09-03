@@ -168,7 +168,7 @@ async function resolveAccountForTrade(tx: TxClient, userId: string, ref: string)
        FROM trading_accounts ta
        LEFT JOIN challenges ch ON ch.account_id = ta.id
       WHERE ta.user_id = $1
-        AND (ta.display_label = $2 OR ta.account_number_last4 = $2)
+        AND (lower(ta.nickname) = lower($2) OR ta.display_label = $2 OR ta.account_number_last4 = $2)
         AND ta.status = 'active'
       FOR UPDATE OF ta`,
     [userId, key]);

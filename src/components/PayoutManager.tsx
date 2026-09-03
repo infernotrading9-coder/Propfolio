@@ -5,7 +5,6 @@ import { NeonCard } from './NeonCard';
 import { Challenge, PayoutEntry } from '../types';
 import { Plus, Trash2, DollarSign, Edit2 } from 'lucide-react';
 import { apiClient } from '../utils/apiClient';
-import { inferHighestMilestone, inferOutcomeType } from '../utils/challengeLifecycle';
 
 interface PayoutManagerProps {
   challenge: Challenge;
@@ -83,13 +82,14 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
       
       // Update the parent state
       const currentPayouts = Array.isArray(challenge.payouts) ? challenge.payouts : [];
+      // Refresh the local view only. The payout endpoint already recorded the
+      // payout and recomputed payout_count server-side; re-deriving lifecycle
+      // fields here and PUTting the whole challenge would overwrite whatever
+      // the cascade set (that is how a funded account got miscounted).
       const updatedChallenge = {
         ...challenge,
         payouts: [...currentPayouts, created]
       } as Challenge;
-      updatedChallenge.highestMilestone = inferHighestMilestone(updatedChallenge);
-      updatedChallenge.outcomeType = inferOutcomeType(updatedChallenge);
-      try { await apiClient.updateChallenge(updatedChallenge); } catch (e) { console.error('Lifecycle update after payout failed:', e); }
       onUpdate(updatedChallenge);
       
       // Trigger success animation
@@ -121,13 +121,12 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
       ...challenge,
       payouts: newList
     } as Challenge;
-    updatedChallenge.highestMilestone = inferHighestMilestone(updatedChallenge);
-    updatedChallenge.outcomeType = inferOutcomeType(updatedChallenge);
     onUpdate(updatedChallenge);
-    
+
     try {
+      // removePayout is enough — the server recomputes payout_count. Do NOT
+      // follow it with a whole-challenge PUT.
       await apiClient.removePayout(payoutId);
-      await apiClient.updateChallenge(updatedChallenge);
     } catch (error) {
       console.error('Remove payout error:', error);
       // Revert UI on failure
@@ -169,13 +168,10 @@ export const PayoutManager: React.FC<PayoutManagerProps> = ({ challenge, onUpdat
       ...challenge,
       payouts: newList
     } as Challenge;
-    updatedChallenge.highestMilestone = inferHighestMilestone(updatedChallenge);
-    updatedChallenge.outcomeType = inferOutcomeType(updatedChallenge);
     onUpdate(updatedChallenge);
-    
+
     try {
       await apiClient.updatePayout(payoutId, amountNum, editDate);
-      await apiClient.updateChallenge(updatedChallenge);
       setEditingId(null);
     } catch (error) {
       console.error('Update payout error:', error);

@@ -214,6 +214,8 @@ export async function undoAction(
 
 export interface AccountState {
   label: string;
+  /** Daniel's short handle, if set. Prefer this when talking to him. */
+  nickname: string | null;
   last4: string | null;
   firm: string;
   plan: string | null;
@@ -364,6 +366,7 @@ export async function getFullState(userId: string): Promise<FullState> {
 
       accounts.push({
         label: String(a.display_label ?? a.account_number_last4 ?? ''),
+        nickname: a.nickname ?? null,
         last4: a.account_number_last4, firm: String(a.firm),
         plan: a.eval_type, stage: String(a.lifecycle || 'eval_active'),
         accountSize: Number(a.account_size), balance: Number(a.balance),

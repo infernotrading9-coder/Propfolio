@@ -130,6 +130,13 @@ export const tradingAccounts = pgTable('trading_accounts', {
   // different daily-loss rules) become 0001-A / 0001-B instead of silently
   // resolving to whichever was created first.
   displayLabel: text('display_label'),
+  /**
+   * Optional short handle Daniel can set ("LUCD", "ALPH"). Takes precedence
+   * over displayLabel when referring to an account, so two accounts whose
+   * numbers both end 0001 are never ambiguous to him or the bot.
+   * Unique among active accounts, case-insensitive.
+   */
+  nickname: text('nickname'),
   accountSize: decimal('account_size', { precision: 12, scale: 2 }).notNull().default('0'),
   balance: decimal('balance', { precision: 12, scale: 2 }).notNull().default('0'),
   drawdownUsed: decimal('drawdown_used', { precision: 12, scale: 2 }).notNull().default('0'),
