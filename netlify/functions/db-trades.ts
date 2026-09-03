@@ -1,6 +1,8 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
 import { tradeService, tradingAccountService } from '../../server/db/service'
+import { logTrade, recordPayout } from '../../server/db/tradeService'
+import { CascadeError } from '../../server/db/cascadeService'
 
 export const handler: Handler = async (event) => {
   try {
@@ -30,6 +32,31 @@ export const handler: Handler = async (event) => {
 
     if (event.httpMethod === 'POST') {
       const input = JSON.parse(event.body || '{}')
+
+      // ── Cascade actions ─────────────────────────────────────────────────
+      // logTrade updates the trade row, balance, HWM, the rule-calendar entry
+      // and the drawdown verdict in one transaction — and auto-fails the
+      // account when the breach is terminal for that plan.
+      if (input.action === 'log-trade' || input.action === 'record-payout') {
+        try {
+          if (input.action === 'log-trade') {
+            const r = await logTrade({ userId: user.id, ...input })
+            return json(200, r)
+          }
+          const r = await recordPayout({
+            userId: user.id,
+            accountRef: input.accountRef,
+            amount: input.amount,
+            date: input.date,
+            description: input.description,
+          })
+          return json(200, r)
+        } catch (e) {
+          if (e instanceof CascadeError) return json(400, { error: e.message, code: e.code })
+          throw e
+        }
+      }
+
       const {
         accountId,
         direction,

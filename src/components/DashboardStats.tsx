@@ -1,10 +1,23 @@
 import React, { useMemo, useState } from 'react';
 import { NeonCard } from './NeonCard';
 import { StatsSummary, Challenge } from '../types';
-import { Trophy, DollarSign, Percent, Wallet, Calculator, Clock } from 'lucide-react';
+import { Trophy, DollarSign, Percent, Wallet, Calculator, Clock, Zap } from 'lucide-react';
 import { getDisplayOutcome, getNetLifecyclePnl } from '../utils/challengeLifecycle';
+import {
+  countByLifecycle, everReachedFunded, lifecycleOf,
+} from '../utils/lifecycle';
 
 type PassBasis = 'start' | 'completion';
+
+/**
+ * Was this eval passed? Reads the stored lifecycle, NOT phase flags.
+ *
+ * The old code called an eval "funded" whenever phase1_completed was true.
+ * That flag only means "cleared the eval" and stays true forever, so every
+ * eval Daniel had ever passed counted as a live funded account — 70 of them
+ * for 2026 against 3 real accounts. It also conflated funded with live.
+ */
+const passedTheEval = (c: Challenge): boolean => everReachedFunded(c as any);
 
 function computeYearStats(challenges: Challenge[], year: string, basis: PassBasis): StatsSummary {
   const validChallenges = challenges.filter(challenge => challenge);
@@ -47,19 +60,14 @@ function computeYearStats(challenges: Challenge[], year: string, basis: PassBasi
   const eligible1 = basis === 'completion' ? eligibleByCompletion.e1 : eligibleByStart.e1;
   const eligible2 = basis === 'completion' ? eligibleByCompletion.e2 : eligibleByStart.e2;
   const eligible3 = basis === 'completion' ? eligibleByCompletion.e3 : eligibleByStart.e3;
+
+  // "Funded pass rate" = evals that produced a funded account, over evals bought.
+  // Counts an eval as a success even if the funded account later blew up (the
+  // eval WAS passed), but no longer counts a passed eval as a live account.
+  const evalsBought = eligible1.filter(c => lifecycleOf(c as any).startsWith('eval'));
   const liveAccounts = (basis === 'completion'
-    ? eligible1.filter(c => {
-        const tp = c.totalPhases || 3;
-        if (tp === 1) return !!c.phases?.phase1?.completed && isInYear(c.phases?.phase1?.completedAt);
-        if (tp === 2) return !!c.phases?.phase1?.completed && !!c.phases?.phase2?.completed && isInYear(c.phases?.phase2?.completedAt);
-        return !!c.phases?.phase1?.completed && !!c.phases?.phase2?.completed && !!c.phases?.phase3?.completed && isInYear(c.phases?.phase3?.completedAt);
-      })
-    : eligible1.filter(c => {
-        const tp = c.totalPhases || 3;
-        if (tp === 1) return c.phases?.phase1?.completed;
-        if (tp === 2) return c.phases?.phase1?.completed && c.phases?.phase2?.completed;
-        return c.phases?.phase1?.completed && c.phases?.phase2?.completed && c.phases?.phase3?.completed;
-      })
+    ? evalsBought.filter(c => passedTheEval(c) && isInYear(c.phases?.phase1?.completedAt))
+    : evalsBought.filter(passedTheEval)
   ).length;
   
   const phase1Passed = (basis === 'completion'
@@ -220,29 +228,40 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
       : challenges.filter(c => c?.startDate?.slice(0,4) === selectedYear && (c?.totalPhases || 3) >= 3).length),
     [challenges, selectedYear, basis]
   );
-  const eligible1Count = useMemo(
-    () => (basis === 'completion'
-      ? challenges.filter(c => (c?.totalPhases || 3) >= 1 && ((c?.startDate?.slice(0,4) === selectedYear) || (c?.phases?.phase1?.completedAt?.slice(0,4) === selectedYear))).length
-      : challenges.filter(c => c?.startDate?.slice(0,4) === selectedYear && (c?.totalPhases || 3) >= 1).length),
-    [challenges, selectedYear, basis]
-  );
-  const liveCount = useMemo(() => {
+  // (eligible1Count removed — superseded by evalsBoughtInYear below, which
+  // counts eval purchases via lifecycle instead of phase-count eligibility.)
+  /**
+   * Live counts, read straight off the lifecycle.
+   *
+   * `fundedNow` and `liveNow` are genuinely different things and are shown as
+   * separate cards. A funded account is what a pass gets you; a live account is
+   * a later promotion the firm grants after 5+ payouts. The old dashboard
+   * displayed "3 funded / 2 live" by counting phase flags, which meant both
+   * numbers were fiction.
+   *
+   * These are NOT year-scoped: an account you are trading right now is current
+   * regardless of which year you bought it in.
+   */
+  const currentCounts = useMemo(() => countByLifecycle(challenges as any), [challenges]);
+
+  /** Evals bought in the selected year that produced a funded account. */
+  const passedInYear = useMemo(() => {
     return challenges.filter(c => {
-      const tp = c?.totalPhases || 3;
-      const ph = c?.phases;
-      if (!ph) return false;
+      if (!lifecycleOf(c as any).startsWith('eval')) return false;
       if (basis === 'completion') {
-        if (tp === 1) return !!ph.phase1?.completed && ph.phase1?.completedAt?.slice(0,4) === selectedYear;
-        if (tp === 2) return !!ph.phase1?.completed && !!ph.phase2?.completed && ph.phase2?.completedAt?.slice(0,4) === selectedYear;
-        return !!ph.phase1?.completed && !!ph.phase2?.completed && !!ph.phase3?.completed && ph.phase3?.completedAt?.slice(0,4) === selectedYear;
-      } else {
-        if (c?.startDate?.slice(0,4) !== selectedYear) return false;
-        if (tp === 1) return !!ph.phase1?.completed;
-        if (tp === 2) return !!ph.phase1?.completed && !!ph.phase2?.completed;
-        return !!ph.phase1?.completed && !!ph.phase2?.completed && !!ph.phase3?.completed;
+        return everReachedFunded(c as any) && c?.phases?.phase1?.completedAt?.slice(0, 4) === selectedYear;
       }
+      return c?.startDate?.slice(0, 4) === selectedYear && everReachedFunded(c as any);
     }).length;
   }, [challenges, selectedYear, basis]);
+
+  /** Evals BOUGHT in the selected year (the denominator for pass rate). */
+  const evalsBoughtInYear = useMemo(
+    () => challenges.filter(c =>
+      lifecycleOf(c as any).startsWith('eval') && c?.startDate?.slice(0, 4) === selectedYear
+    ).length,
+    [challenges, selectedYear]
+  );
   const lifecycleStats = useMemo(() => {
     const scoped = challenges.filter(c => c?.startDate?.slice(0, 4) === selectedYear);
     const payoutThenFailed = scoped.filter(c => getDisplayOutcome(c) === 'payout_then_failed').length;
@@ -328,9 +347,33 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
       textColor: 'text-green-300',
     });
   }
+  // ── Current holdings ──────────────────────────────────────────────────────
+  // Funded and live are separate cards because they are separate stages.
+  // Passing an eval gets you FUNDED. Live is a later, payout-gated promotion.
   statItems.push({
     title: 'Funded Accounts',
-    value: `${liveCount} / ${eligible1Count}`,
+    value: `${currentCounts.fundedActive}`,
+    icon: <Trophy className="w-8 h-8 text-amber-300 drop-shadow-neon-amber" />,
+    glow: 'amber',
+    textColor: 'text-amber-300',
+  });
+  statItems.push({
+    title: 'Live Accounts',
+    value: `${currentCounts.liveActive}`,
+    icon: <Zap className="w-8 h-8 text-emerald-300 drop-shadow-neon-green" />,
+    glow: 'green',
+    textColor: 'text-emerald-300',
+  });
+  statItems.push({
+    title: 'Evals In Progress',
+    value: `${currentCounts.evalActive}`,
+    icon: <Clock className="w-8 h-8 text-cyan-300 drop-shadow-neon-cyan" />,
+    glow: 'cyan',
+    textColor: 'text-cyan-300',
+  });
+  statItems.push({
+    title: `Evals Passed (${selectedYear})`,
+    value: `${passedInYear} / ${evalsBoughtInYear}`,
     icon: <Trophy className="w-8 h-8 text-pink-300 drop-shadow-neon-pink" />,
     glow: 'pink',
     textColor: 'text-pink-300',

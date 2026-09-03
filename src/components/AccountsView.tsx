@@ -9,6 +9,13 @@ interface TradingAccount {
   name: string;
   firm: string;
   accountNumberLast4?: string | null;
+  /**
+   * Unique among ACTIVE accounts. When two accounts share a last4 (Daniel holds
+   * two Lucid Daily "0001"s with different daily-loss rules) they become
+   * 0001-A / 0001-B. Always show this rather than the bare last4, otherwise the
+   * two cards are indistinguishable.
+   */
+  displayLabel?: string | null;
   accountSize: string;
   balance: string;
   drawdownUsed: string;
@@ -103,11 +110,14 @@ const HolographicAccountCard: React.FC<{
   const acctSizeNum = parseFloat(acct.accountSize);
   const sizeLabel = acctSizeNum >= 1000 ? `$${(acctSizeNum / 1000).toFixed(0)}K` : `$${acctSizeNum}`;
 
+  // Stage badge. These three are distinct: passing an eval yields FUNDED, and
+  // LIVE is a separate promotion the firm grants after 5+ payouts — it is never
+  // implied by passing. `phase` is written only by the cascade service.
   const phaseInfo = acct.phase === 'live'
     ? { color: 'text-lime-400', bgColor: 'bg-lime-500/20', borderColor: 'border-lime-400/50', label: 'Live' }
     : acct.phase === 'funded'
     ? { color: 'text-cyan-400', bgColor: 'bg-cyan-500/20', borderColor: 'border-cyan-400/50', label: 'Funded' }
-    : { color: 'text-purple-400', bgColor: 'bg-purple-500/20', borderColor: 'border-purple-400/50', label: 'Challenge' };
+    : { color: 'text-purple-400', bgColor: 'bg-purple-500/20', borderColor: 'border-purple-400/50', label: 'Eval' };
 
   return (
     <div className="group relative transform-gpu transition-all duration-300 hover:scale-[1.02] hover:-translate-y-1">
@@ -148,7 +158,7 @@ const HolographicAccountCard: React.FC<{
                   {acct.name}
                 </h4>
                 <p className="text-sm text-white/50 truncate">
-                  {acct.firm}{acct.accountNumberLast4 ? ` · ...${acct.accountNumberLast4}` : ''} · {sizeLabel}
+                  {acct.firm}{(acct.displayLabel || acct.accountNumberLast4) ? ` · ...${acct.displayLabel || acct.accountNumberLast4}` : ''} · {sizeLabel}
                   {acct.evalType ? <span className="ml-1 text-cyan-300/70">· {acct.evalType}</span> : null}
                 </p>
               </div>

@@ -41,7 +41,25 @@ export interface Challenge {
   strategy?: string; // trading strategy used
   firmType?: FirmType; // type of firm: futures or CFD (for analytics)
   evalType?: string; // program/eval type per firm (e.g. "Lucid Daily", "Rapid")
-  liveAccount?: boolean; // true after user promotes a FUNDED (all-phases-done) account to a real live trading account
+  liveAccount?: boolean; // DEPRECATED as a source of truth — read `lifecycle` instead.
+  // ── The interconnect (Sep 2026) ───────────────────────────────────────────
+  /**
+   * Single lifecycle state, written only by the cascade service:
+   *   eval_active | eval_passed | eval_failed
+   *   funded_active | funded_failed
+   *   live_active | live_failed
+   * Use the helpers in utils/lifecycle.ts rather than comparing strings.
+   * Never infer "funded" from phase flags — passing an eval yields FUNDED,
+   * and live is a separate promotion gated on 5+ payouts.
+   */
+  lifecycle?: string;
+  /** The trading_accounts card this challenge is bound to (1:1). */
+  accountId?: string;
+  /** For a funded challenge, the eval challenge that produced it. */
+  sourceChallengeId?: string;
+  /** Payouts recorded against this account. Gates the funded → live promotion. */
+  payoutCount?: number;
+  wentLiveAt?: string;
   monthlyPnL: Record<string, number>; // key: YYYY-MM, value: PnL
   weeklyPnL: Record<string, number>; // key: YYYY-WXX (e.g., 2024-W42), value: PnL
   phases: Record<PhaseName, PhaseStatus>;

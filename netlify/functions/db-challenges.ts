@@ -2,15 +2,85 @@ import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
 import { propFirmService, challengeService, userStateService, payoutService } from '../../server/db/service'
 import { spawnAccountAndBudget } from '../../server/db/purchaseService'
+import {
+  buyEval, passEval, promoteToLive, failAccount, CascadeError,
+} from '../../server/db/cascadeService'
+import { db } from '../../server/db/connection'
+import { sql } from 'drizzle-orm'
 
 export const handler: Handler = async (event) => {
   try {
     const user = await getUserFromSession(event)
     if (!user) return json(401, { error: 'Unauthorized' })
 
+    // ── GET ───────────────────────────────────────────────────────────────────
+    // Previously this function was POST/PUT/DELETE only and a GET returned
+    // "Method Not Allowed", which made the challenge data impossible to inspect
+    // from a client or a debugging session. Returns the joined truth: each
+    // challenge with the account card it is bound to.
+    if (event.httpMethod === 'GET') {
+      const result = await db.execute(sql`
+        SELECT ch.id, ch.account_id, ch.lifecycle, ch.status, ch.eval_type,
+               ch.account_size, ch.cost, ch.start_date, ch.account_last4,
+               ch.payout_count, ch.went_live_at, ch.source_challenge_id,
+               ch.highest_milestone, ch.outcome_type, ch.failure_reason, ch.failure_date,
+               ch.total_phases, ch.phase1_completed, ch.live_account, ch.firm_id,
+               ta.display_label, ta.firm, ta.balance, ta.phase AS card_phase,
+               ta.status AS card_status, ta.max_drawdown, ta.daily_drawdown, ta.rules
+          FROM challenges ch
+          LEFT JOIN trading_accounts ta ON ta.id = ch.account_id
+         WHERE ch.user_id = ${user.id}
+         ORDER BY ch.created_at DESC
+      `)
+      return json(200, { challenges: result.rows })
+    }
+
     if (event.httpMethod === 'POST') {
-      // Add challenge
       const input = JSON.parse(event.body || '{}')
+
+      // ── Cascade actions ─────────────────────────────────────────────────
+      // One statement from Daniel → every linked surface, in one transaction.
+      // The web UI and the Telegram CLI both route through these, so the two
+      // can never drift apart.
+      if (input.action) {
+        try {
+          switch (input.action) {
+            case 'buy-eval': {
+              const r = await buyEval({ userId: user.id, ...input })
+              return json(200, r)
+            }
+            case 'pass-eval': {
+              // Always lands on FUNDED. Live is a separate promotion.
+              const r = await passEval({ userId: user.id, ...input })
+              return json(200, r)
+            }
+            case 'promote-to-live': {
+              // The ONLY path to live. Gated on >= 5 payouts, enforced by a
+              // Postgres CHECK as well as by the service.
+              const r = await promoteToLive({ userId: user.id, accountRef: input.accountRef })
+              return json(200, r)
+            }
+            case 'fail-account': {
+              const r = await failAccount({
+                userId: user.id,
+                accountRef: input.accountRef,
+                failureReason: input.failureReason,
+                failureDate: input.failureDate,
+              })
+              return json(200, r)
+            }
+            default:
+              return json(400, { error: `Unknown action "${input.action}"` })
+          }
+        } catch (e) {
+          if (e instanceof CascadeError) {
+            return json(400, { error: e.message, code: e.code })
+          }
+          throw e
+        }
+      }
+
+      // Add challenge
       const {
         propFirmId,
         propFirmName,

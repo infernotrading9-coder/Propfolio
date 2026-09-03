@@ -81,6 +81,28 @@ export const challenges = pgTable('challenges', {
   failureDate: text('failure_date'), // YYYY-MM-DD
   lifecycleNotes: text('lifecycle_notes'),
   accountLast4: text('account_last4'), // last 4 digits of account number
+
+  // ── The interconnect (Sep 2026) ────────────────────────────────────────────
+  // account_id makes challenges ↔ trading_accounts a real 1:1 relationship
+  // (UNIQUE index in the DB). Before this the two tables were joined only by a
+  // nullable text last4, which is why the Dashboard and Accounts tab disagreed.
+  accountId: uuid('account_id').references(() => tradingAccounts.id, { onDelete: 'cascade' }),
+
+  // Single lifecycle vocabulary every surface reads. Replaces inferring state
+  // from phase1_completed, which counted any passed eval as a funded account.
+  //   eval_active | eval_passed | eval_failed
+  //   funded_active | funded_failed
+  //   live_active | live_failed
+  lifecycle: text('lifecycle'),
+
+  // Links a funded challenge back to the eval that produced it.
+  sourceChallengeId: uuid('source_challenge_id'),
+
+  // Payout count gates the funded → live promotion (>= 5 required). Enforced by
+  // a Postgres CHECK, not just here.
+  payoutCount: integer('payout_count').default(0).notNull(),
+  wentLiveAt: timestamp('went_live_at'),
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -103,6 +125,11 @@ export const tradingAccounts = pgTable('trading_accounts', {
   name: text('name').notNull(), // e.g. "Acct 0006"
   firm: text('firm').notNull(), // e.g. "Tradify", "Apex"
   accountNumberLast4: text('account_number_last4'), // last 4 digits
+  // What the UI shows and the bot accepts. Unique among ACTIVE accounts, so two
+  // accounts sharing a last4 (Daniel holds two Lucid Daily "0001"s with
+  // different daily-loss rules) become 0001-A / 0001-B instead of silently
+  // resolving to whichever was created first.
+  displayLabel: text('display_label'),
   accountSize: decimal('account_size', { precision: 12, scale: 2 }).notNull().default('0'),
   balance: decimal('balance', { precision: 12, scale: 2 }).notNull().default('0'),
   drawdownUsed: decimal('drawdown_used', { precision: 12, scale: 2 }).notNull().default('0'),

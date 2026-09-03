@@ -51,6 +51,15 @@ export const handler: Handler = async (event) => {
       firmType: c.firmType || undefined,
       evalType: c.evalType || undefined,
       liveAccount: !!c.liveAccount,
+      // ── The interconnect ────────────────────────────────────────────────
+      // lifecycle is the single state every surface reads. Sending it means
+      // the Dashboard no longer has to infer "is this funded?" from phase
+      // flags — the inference that reported 70 funded accounts for 2026.
+      lifecycle: c.lifecycle || undefined,
+      accountId: c.accountId || undefined,
+      sourceChallengeId: c.sourceChallengeId || undefined,
+      payoutCount: Number(c.payoutCount ?? 0),
+      wentLiveAt: c.wentLiveAt ? new Date(c.wentLiveAt).toISOString() : undefined,
       totalPhases: (c.totalPhases || 3) as 1 | 2 | 3,
       strategy: c.strategy || '',
       status: (c.status as any) || 'active',
