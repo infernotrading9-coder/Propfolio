@@ -194,6 +194,10 @@ class ApiClient {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        // Identifies this as the web UI. db-budget-state reserves whole-state
+        // PUTs for the browser (the bot must use targeted cascade actions
+        // instead of racing a read-modify-write against Daniel's edits).
+        'X-Client': 'propfolio-web',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...userHeaders,
         ...(options.headers || {}),

@@ -574,7 +574,16 @@ export async function failAccount(input: {
 }
 
 /**
- * "I spent $60 on gas from Sofi."  Budget only — touches no trading surface.
+ * "I spent $X on <thing> from <account>."  Budget only — touches no trading surface.
+ *
+ * Handles the three money movements Daniel actually makes:
+ *   expense   money out   (cash: balance down · credit: owed UP)
+ *   income    money in    (cash: balance up   · credit: owed DOWN, i.e. a payment)
+ *   transfer  account → account, both sides moved in one transaction
+ *
+ * The credit/debt sign flip is the trap here: a liability account stores the
+ * amount OWED, so a charge INCREASES it. Subtracting unconditionally understated
+ * debt by 2x the cost on every eval bought on a card.
  */
 export async function logExpense(input: {
   userId: string; name: string; amount: number; budgetAccountId: string;
@@ -586,5 +595,95 @@ export async function logExpense(input: {
       date: input.date, type: input.type ?? 'expense', categoryId: input.categoryId,
     });
     return { ok: true as const };
+  });
+}
+
+/** A budget account as the bot/UI needs to see it, to pick a valid funding source. */
+export interface BudgetAccountSummary {
+  id: string;
+  name: string;
+  balance: number;
+  kind: 'cash' | 'credit' | 'debt' | 'borrow';
+  isLiability: boolean;
+}
+
+/**
+ * List the budget accounts. The bot must call this rather than guessing an id —
+ * `budgetAccountId` is required on any purchase with a cost, and an invalid id
+ * silently books the expense against nothing.
+ */
+export async function listBudgetAccounts(userId: string): Promise<BudgetAccountSummary[]> {
+  return withTransaction(async (tx) => {
+    const { rows } = await tx.query(
+      `SELECT state FROM budget_state WHERE user_id = $1 LIMIT 1`, [userId]);
+    if (!rows.length) return [];
+    const state = typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state;
+    return (state?.accounts ?? []).map((a: any) => {
+      const kind = String(a.loanKind || 'cash') as BudgetAccountSummary['kind'];
+      return {
+        id: String(a.id),
+        name: String(a.name),
+        balance: round2(a.balance),
+        kind,
+        isLiability: kind === 'credit' || kind === 'debt' || kind === 'borrow',
+      };
+    });
+  });
+}
+
+/**
+ * Move money between two budget accounts (e.g. paying a credit card from Sofi).
+ *
+ * Written as ONE transaction touching both sides. Doing it as two separate
+ * expense/income calls can leave money destroyed if the second call fails.
+ */
+export async function transferBetweenAccounts(input: {
+  userId: string; fromAccountId: string; toAccountId: string;
+  amount: number; name?: string; date?: string;
+}): Promise<{ ok: true; from: number; to: number }> {
+  const amount = round2(input.amount);
+  if (amount <= 0) throw new CascadeError('Transfer amount must be positive', 'bad_amount');
+  if (input.fromAccountId === input.toAccountId) {
+    throw new CascadeError('Cannot transfer to the same account', 'same_account');
+  }
+
+  return withTransaction(async (tx) => {
+    const { rows } = await tx.query(
+      `SELECT state FROM budget_state WHERE user_id = $1 LIMIT 1 FOR UPDATE`, [input.userId]);
+    if (!rows.length) throw new CascadeError('No budget state', 'no_budget');
+
+    const state = typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state;
+    const accounts = Array.isArray(state.accounts) ? state.accounts : [];
+
+    const from = accounts.find((a: any) => a?.id === input.fromAccountId);
+    const to = accounts.find((a: any) => a?.id === input.toAccountId);
+    if (!from) throw new CascadeError(`No budget account "${input.fromAccountId}"`, 'not_found');
+    if (!to) throw new CascadeError(`No budget account "${input.toAccountId}"`, 'not_found');
+
+    const isLiab = (a: any) => ['credit', 'debt', 'borrow'].includes(String(a.loanKind || ''));
+
+    // Money leaves `from`: a cash account drops; paying FROM a card adds to what's owed.
+    from.balance = round2(Number(from.balance) + (isLiab(from) ? amount : -amount));
+    // Money arrives at `to`: a cash account rises; paying a card REDUCES what's owed.
+    to.balance = round2(Number(to.balance) + (isLiab(to) ? -amount : amount));
+
+    state.transactions = Array.isArray(state.transactions) ? state.transactions : [];
+    state.transactions.push({
+      id: randomUUID().slice(0, 8),
+      name: input.name || `Transfer — ${from.name} → ${to.name}`,
+      amount,
+      type: 'transfer',
+      date: input.date || todayET(),
+      accountId: input.fromAccountId,
+      toAccountId: input.toAccountId,
+      excluded: false,
+    });
+    state.accounts = accounts;
+
+    await tx.query(
+      `UPDATE budget_state SET state = $2::jsonb, updated_at = NOW() WHERE user_id = $1`,
+      [input.userId, JSON.stringify(state)]);
+
+    return { ok: true as const, from: from.balance, to: to.balance };
   });
 }
