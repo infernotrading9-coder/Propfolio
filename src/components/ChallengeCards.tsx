@@ -25,7 +25,14 @@ export const ChallengeCards: React.FC<ChallengeCardsProps> = ({
   const [showArchived, setShowArchived] = React.useState(false);
   
   // Show active and passed challenges (not failed ones in main view)
+  //
+  // A SUPERSEDED eval is excluded: once an eval is passed it spawns a separate
+  // funded challenge, and the original stops being something you trade. Leaving
+  // it in showed Daniel an extra Lucid account that no longer exists at the
+  // firm. Its cost and trades stay in the database and still count toward spend
+  // and pass-rate stats — it just isn't a live card any more.
   const activeChallenges = challenges.filter(c => {
+    if ((c as any).lifecycle === 'eval_passed') return false;
     const status = (c.status as any) ?? 'active';
     return status === 'active' || status === 'passed' || status === 'passed_inactive';
   });
