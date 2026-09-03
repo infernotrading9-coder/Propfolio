@@ -193,7 +193,47 @@ Only valid on funded/live accounts. Returns `{ payoutCount, eligibleForLive }`. 
 
 ### 5.7 Spent money → `POST db-budget-state`
 
-Pure budget, touches no trading surface. Credit/debt accounts: a charge **increases** the balance owed. Cash/bank: a charge **decreases** it. The API handles this — just send the transaction.
+**Budget writes now go through cascade actions. Do NOT PUT the whole state document** — that is a read-modify-write race against whatever Daniel is editing in the browser, and one stale read silently reverts his real changes. A whole-state `PUT` without the web UI's header returns **403 `use_cascade_action`**.
+
+**First, get the valid account ids** (never guess one — an unrecognised id books the expense against nothing):
+
+```
+GET db-budget-state?action=accounts
+```
+
+```json
+{ "accounts": [
+  { "id": "acc_cash",    "name": "Cash",    "balance": 159,    "kind": "cash",   "isLiability": false },
+  { "id": "acc_destiny", "name": "Destiny", "balance": 896.56, "kind": "credit", "isLiability": true }
+] }
+```
+
+**Log an expense:**
+
+```json
+{ "action": "log-expense", "name": "Gas", "amount": 60,
+  "budgetAccountId": "acc_sofi", "date": "2026-09-03" }
+```
+
+**Log income** — same shape, `"action": "log-income"`.
+
+**Transfer between accounts** (e.g. paying a card from Sofi) — both sides move in one transaction, so a mid-way failure cannot destroy money:
+
+```json
+{ "action": "transfer", "fromAccountId": "acc_sofi",
+  "toAccountId": "acc_destiny", "amount": 200, "name": "Card payment" }
+```
+
+**The sign rule — get this wrong and you corrupt his debt figures:**
+
+| Account kind | Expense / charge | Income / payment |
+|---|---|---|
+| **cash / bank** (Sofi, Cash, Atlas, One Pay) | balance **down** | balance **up** |
+| **credit / debt** (Destiny, Affirm, Klarna, Aspire, Premier, Capital One, Cash App, Revel, Christian) | amount owed **UP** | amount owed **DOWN** |
+
+A credit account stores the amount **owed**, so buying an eval on Destiny *increases* that number. You do not apply this yourself — the API handles it. Just send the transaction and never pre-negate an amount. **Amounts are always positive.**
+
+Every action returns the touched account's new balance, so you can confirm the direction was right.
 
 ### 5.8 Reading state → `GET db-challenges`
 
@@ -234,6 +274,10 @@ All cascade errors return HTTP 400 with a machine-readable `code`:
 | `insufficient_payouts` | Live promotion below 5 payouts | Tell him he isn't eligible yet. |
 | `bad_lifecycle` | Wrong stage for the operation | e.g. passing something already passed. Read state first. |
 | `no_challenge` | Account card has no challenge row | Shouldn't happen now — report it. |
+| `use_cascade_action` | You tried to PUT the whole budget state | Use `log-expense` / `log-income` / `transfer` instead. |
+| `action_required` | POST to db-budget-state without an `action` | Add the action field. |
+| `same_account` | Transfer source = destination | Check the two ids. |
+| `bad_amount` | Amount is zero, negative or not a number | Always send a positive number. |
 
 A 400 means **nothing was written**. The transaction rolled back. Safe to retry after fixing the input.
 
@@ -241,7 +285,7 @@ A 400 means **nothing was written**. The transaction rolled back. Safe to retry 
 
 ## 8. Rules of engagement
 
-1. **Never write to the database directly.** Use the endpoints. Every direct write can recreate the drift this rebuild eliminated.
+1. **Never write to the database directly, and never PUT a whole state document.** Use the endpoints. Every direct write can recreate the drift this rebuild eliminated; every whole-state write can revert Daniel's browser edits.
 2. **Never guess an account.** Ambiguous reference → ask.
 3. **Never mark anything live** unless Daniel says the firm moved him, and it has 5+ payouts.
 4. **Never invent a funding source.** Ask which account paid.
@@ -270,5 +314,8 @@ The app cannot see it — nothing renders, no stats are polluted. It is still fu
 | "failed 9056" | `fail-account` |
 | "made 1493 on 0047" | `log-trade` |
 | "got a 1500 payout on 0857" | `record-payout` |
-| "spent 60 on gas from sofi" | budget only |
+| "spent 60 on gas from sofi" | `log-expense` |
+| "paid 200 to my destiny card" | `transfer` (sofi → destiny) |
+| "got paid 1200" | `log-income` |
+| "what accounts do I have?" | `GET db-budget-state?action=accounts` |
 | "what am I holding?" | `GET db-challenges` |
