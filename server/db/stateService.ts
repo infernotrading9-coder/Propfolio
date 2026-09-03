@@ -228,8 +228,19 @@ export interface AccountState {
   maxDrawdown: number;
   rules: string[];
   payoutCount: number;
+  /**
+   * Which rule stage governs this account — 'eval' or 'funded'. Consistency
+   * rules differ between the two, so the numbers below are stage-resolved.
+   */
+  ruleStage: 'eval' | 'funded';
   /** Plan facts, from the catalogue. Null when the plan is not yet known. */
   consistencyPct: number | null;
+  /**
+   * True when nobody has told Propfolio this plan's consistency rule AT THIS
+   * STAGE. The bot should ask rather than assume there is no rule — a plan can
+   * have 50% on the eval and something different (or nothing) once funded.
+   */
+  consistencyUnknown: boolean;
   profitSplitPct: number | null;
   payoutMin: number | null;
   /** Consistency maths Daniel currently does by hand. */
@@ -269,19 +280,55 @@ export interface FullState {
  */
 export async function getFullState(userId: string): Promise<FullState> {
   return withTransaction(async (tx) => {
+    // Resolve plan facts for the stage each account is ACTUALLY in.
+    //
+    // Consistency rules commonly differ between eval and funded — some plans
+    // drop the rule once funded, others change the percentage. A join that
+    // ignored stage would hand a funded account its eval consistency number,
+    // which is how Lucid Flex's 50% would have been applied to a funded card.
+    //
+    // Precedence: 'any' first, then the stage-specific row, taking the LAST
+    // non-null via a window so a stage row overrides field by field without
+    // erasing what only the 'any' row knows.
     const { rows: accts } = await tx.query(`
-      SELECT ta.*, ch.lifecycle, ch.payout_count, ch.id AS challenge_id,
-             pr.consistency_pct, pr.profit_split_pct, pr.payout_min,
-             pr.daily_loss_limit AS plan_dll, pr.has_daily_loss
-        FROM trading_accounts ta
-        LEFT JOIN challenges ch ON ch.account_id = ta.id
-        LEFT JOIN plan_rules pr
-               ON pr.user_id = ta.user_id
-              AND lower(pr.firm_name) = lower(ta.firm)
-              AND lower(pr.eval_type) = lower(COALESCE(ta.eval_type,''))
-              AND (pr.account_size IS NULL OR pr.account_size = ta.account_size)
-       WHERE ta.user_id = $1 AND ta.status = 'active'
-       ORDER BY ta.display_label`, [userId]);
+      WITH acct AS (
+        SELECT ta.*, ch.lifecycle, ch.payout_count, ch.id AS challenge_id,
+               CASE WHEN ch.lifecycle LIKE 'funded%' OR ch.lifecycle LIKE 'live%'
+                    THEN 'funded' ELSE 'eval' END AS rule_stage
+          FROM trading_accounts ta
+          LEFT JOIN challenges ch ON ch.account_id = ta.id
+         WHERE ta.user_id = $1 AND ta.status = 'active'
+      )
+      SELECT a.*,
+             r.consistency_pct, r.profit_split_pct, r.payout_min,
+             r.daily_loss_limit AS plan_dll, r.has_daily_loss,
+             r.winning_day_min, r.winning_days_req
+        FROM acct a
+        LEFT JOIN LATERAL (
+          SELECT
+            (array_agg(pr.consistency_pct  ORDER BY ord DESC) FILTER (WHERE pr.consistency_pct  IS NOT NULL))[1] AS consistency_pct,
+            (array_agg(pr.profit_split_pct ORDER BY ord DESC) FILTER (WHERE pr.profit_split_pct IS NOT NULL))[1] AS profit_split_pct,
+            (array_agg(pr.payout_min       ORDER BY ord DESC) FILTER (WHERE pr.payout_min       IS NOT NULL))[1] AS payout_min,
+            (array_agg(pr.daily_loss_limit ORDER BY ord DESC) FILTER (WHERE pr.daily_loss_limit IS NOT NULL))[1] AS daily_loss_limit,
+            (array_agg(pr.has_daily_loss   ORDER BY ord DESC) FILTER (WHERE pr.has_daily_loss   IS NOT NULL))[1] AS has_daily_loss,
+            (array_agg(pr.winning_day_min  ORDER BY ord DESC) FILTER (WHERE pr.winning_day_min  IS NOT NULL))[1] AS winning_day_min,
+            (array_agg(pr.winning_days_req ORDER BY ord DESC) FILTER (WHERE pr.winning_days_req IS NOT NULL))[1] AS winning_days_req
+          FROM (
+            SELECT p.*,
+                   -- Higher = more specific. Stage-specific beats size-specific
+                   -- beats generic, and array_agg ORDER BY ord DESC below puts
+                   -- the most specific non-null value first.
+                   (CASE WHEN p.stage <> 'any' THEN 2 ELSE 0 END
+                  + CASE WHEN p.account_size IS NOT NULL THEN 1 ELSE 0 END) AS ord
+              FROM plan_rules p
+             WHERE p.user_id = a.user_id
+               AND lower(p.firm_name) = lower(a.firm)
+               AND lower(p.eval_type) = lower(COALESCE(a.eval_type,''))
+               AND (p.account_size IS NULL OR p.account_size = a.account_size)
+               AND p.stage IN ('any', a.rule_stage)
+          ) pr
+        ) r ON TRUE
+       ORDER BY a.display_label`, [userId]);
 
     const accounts: AccountState[] = [];
     for (const a of accts) {
@@ -305,11 +352,15 @@ export async function getFullState(userId: string): Promise<FullState> {
       const winningDays = days.filter((r: any) => Number(r.pnl) > 0).length;
 
       const consistency = a.consistency_pct == null ? null : Number(a.consistency_pct);
-      // The real bar: no single day may exceed consistencyPct of total profit.
-      const trueTarget = consistency && bestDay
-        ? round2(bestDay / (consistency / 100)) : null;
-      const consistencyOk = consistency && bestDay && totalProfit > 0
-        ? (bestDay / totalProfit) * 100 <= consistency : null;
+      // A stored 0 means "confirmed: no consistency rule at this stage" and must
+      // not be treated as a rule. null means nobody has told us — the bot asks.
+      const hasRule = consistency !== null && consistency > 0;
+      // The real bar: no single day may exceed consistencyPct of total profit,
+      // so the true target is bestDay / consistencyPct, not the nominal target.
+      const trueTarget = hasRule && bestDay
+        ? round2(bestDay / (consistency! / 100)) : null;
+      const consistencyOk = hasRule && bestDay && totalProfit > 0
+        ? (bestDay / totalProfit) * 100 <= consistency! : null;
 
       accounts.push({
         label: String(a.display_label ?? a.account_number_last4 ?? ''),
@@ -322,7 +373,9 @@ export async function getFullState(userId: string): Promise<FullState> {
         maxDrawdown: Number(a.max_drawdown),
         rules: Array.isArray(a.rules) ? a.rules : [],
         payoutCount: Number(a.payout_count ?? 0),
+        ruleStage: a.rule_stage === 'funded' ? 'funded' : 'eval',
         consistencyPct: consistency,
+        consistencyUnknown: consistency === null,
         profitSplitPct: a.profit_split_pct == null ? null : Number(a.profit_split_pct),
         payoutMin: a.payout_min == null ? null : Number(a.payout_min),
         bestDay, trueProfitTarget: trueTarget, consistencyOk,

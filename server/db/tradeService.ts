@@ -456,16 +456,45 @@ export async function recordPayout(input: {
  * future account of that plan.
  */
 
+/**
+ * Which lifecycle stage a rule applies to.
+ *
+ * Consistency rules commonly differ between the eval and the funded account:
+ * some plans drop the rule entirely once funded, others change the percentage.
+ * Storing one value per plan meant it could only ever be right for one stage —
+ * and it already was wrong, with Lucid Flex holding its EVAL number and Alpha
+ * Zero holding its FUNDED number in the same column.
+ *
+ *   'any'    holds for both (profit split, payout max, DD limits)
+ *   'eval'   overrides while it is an eval
+ *   'funded' overrides once funded (and for live, which follows funded)
+ */
+export type PlanStage = 'any' | 'eval' | 'funded';
+
+/** Map a lifecycle to the rule stage that governs it. */
+export function stageForLifecycle(lifecycle?: string | null): 'eval' | 'funded' {
+  const lc = String(lifecycle || '');
+  // A live account is a promoted funded account, so it inherits funded rules.
+  return lc.startsWith('funded') || lc.startsWith('live') ? 'funded' : 'eval';
+}
+
 export interface PlanRule {
   firmName: string;
   evalType: string;
   /**
    * Rules vary by account size — a 50K and a 100K of the same plan have
    * different daily loss limits and payout minimums — so the catalogue is
-   * keyed (firm, plan, size). Null means "applies to any size".
+   * keyed (firm, plan, size, stage). Null means "applies to any size".
    */
   accountSize?: number | null;
+  stage?: PlanStage;
   drawdownStyle: DrawdownStyle;
+  /**
+   * NULL means nobody has told us — the bot should ask.
+   * 0 means confirmed NO consistency rule at this stage — do not warn.
+   * The distinction matters: treating unknown as "no rule" hides a real
+   * constraint, and treating it as a rule invents one.
+   */
   consistencyPct?: number | null;
   profitSplitPct?: number | null;
   payoutMin?: number | null;
@@ -479,41 +508,43 @@ export interface PlanRule {
 }
 
 /**
- * What Propfolio already knows about a (firm, plan). Null = never been told.
+ * What Propfolio knows about a (firm, plan) at a given STAGE. Null = never told.
  *
- * MERGES the size-specific row over the generic one rather than picking just
- * one. A generic row often carries the facts that hold for every size (split,
- * consistency) while the size-specific row carries the limits that don't (DLL,
- * payout minimum). Returning only one silently drops half the knowledge — and
- * a fact learned generically would vanish the moment a size-specific row
- * existed, which is exactly the bug this comment replaces.
+ * MERGES in precedence order: generic size + 'any' stage first, then
+ * size-specific, then stage-specific — each overriding the previous field by
+ * field, never erasing a field the more general row alone knows.
+ *
+ * `stage` should be derived from the account's lifecycle via
+ * stageForLifecycle(), so a funded account gets its funded consistency rule
+ * rather than the eval one.
  */
 export async function getPlanRule(
-  userId: string, firmName: string, evalType: string, accountSize?: number | null,
+  userId: string, firmName: string, evalType: string,
+  accountSize?: number | null, stage: 'eval' | 'funded' = 'eval',
 ): Promise<PlanRule | null> {
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(`
-      SELECT firm_name, eval_type, account_size, drawdown_style, consistency_pct,
+      SELECT firm_name, eval_type, account_size, stage, drawdown_style, consistency_pct,
              profit_split_pct, payout_min, winning_day_min, winning_days_req,
              daily_loss_limit, has_daily_loss, max_drawdown, profit_target, notes
         FROM plan_rules
        WHERE user_id = $1 AND lower(firm_name) = lower($2) AND lower(eval_type) = lower($3)
          AND (account_size IS NULL OR $4::numeric IS NULL OR account_size = $4::numeric)
-       ORDER BY (account_size IS NOT NULL) ASC`,
-      [userId, firmName, evalType, accountSize ?? null]);
+         AND stage IN ('any', $5)
+       ORDER BY (account_size IS NOT NULL) ASC, (stage <> 'any') ASC`,
+      [userId, firmName, evalType, accountSize ?? null, stage]);
     if (!rows.length) return null;
 
-    // Generic first, size-specific last, so the specific row wins field by field
-    // but never erases something only the generic row knows.
     let merged: PlanRule | null = null;
     for (const r of rows) {
       const cur = mapPlanRule(r);
-      if (!merged) { merged = cur; continue; }
+      if (!merged) { merged = { ...cur, stage }; continue; }
       for (const k of Object.keys(cur) as (keyof PlanRule)[]) {
         const v = cur[k];
         if (v !== null && v !== undefined) (merged as any)[k] = v;
       }
     }
+    if (merged) merged.stage = stage;
     return merged;
   });
 }
@@ -523,6 +554,7 @@ function mapPlanRule(r: any): PlanRule {
   return {
     firmName: r.firm_name, evalType: r.eval_type,
     accountSize: num(r.account_size),
+    stage: (r.stage as PlanStage) ?? 'any',
     drawdownStyle: r.drawdown_style as DrawdownStyle,
     consistencyPct: num(r.consistency_pct),
     profitSplitPct: num(r.profit_split_pct),
@@ -541,11 +573,11 @@ function mapPlanRule(r: any): PlanRule {
 export async function listPlanRules(userId: string): Promise<PlanRule[]> {
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(`
-      SELECT firm_name, eval_type, account_size, drawdown_style, consistency_pct,
+      SELECT firm_name, eval_type, account_size, stage, drawdown_style, consistency_pct,
              profit_split_pct, payout_min, winning_day_min, winning_days_req,
              daily_loss_limit, has_daily_loss, max_drawdown, profit_target, notes
         FROM plan_rules WHERE user_id = $1
-       ORDER BY firm_name, eval_type, account_size NULLS FIRST`, [userId]);
+       ORDER BY firm_name, eval_type, account_size NULLS FIRST, stage`, [userId]);
     return rows.map(mapPlanRule);
   });
 }
@@ -570,13 +602,14 @@ export async function upsertPlanRule(
   }
 
   return withTransaction(async (tx) => {
+    const stage: PlanStage = rule.stage ?? 'any';
     await tx.query(`
-      INSERT INTO plan_rules (user_id, firm_name, eval_type, account_size, drawdown_style,
+      INSERT INTO plan_rules (user_id, firm_name, eval_type, account_size, stage, drawdown_style,
                               consistency_pct, profit_split_pct, payout_min,
                               winning_day_min, winning_days_req, daily_loss_limit,
                               has_daily_loss, max_drawdown, profit_target, notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-      ON CONFLICT (user_id, lower(firm_name), lower(eval_type), COALESCE(account_size, 0))
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+      ON CONFLICT (user_id, lower(firm_name), lower(eval_type), COALESCE(account_size, 0), stage)
       DO UPDATE SET drawdown_style   = EXCLUDED.drawdown_style,
                     consistency_pct  = COALESCE(EXCLUDED.consistency_pct,  plan_rules.consistency_pct),
                     profit_split_pct = COALESCE(EXCLUDED.profit_split_pct, plan_rules.profit_split_pct),
@@ -589,27 +622,37 @@ export async function upsertPlanRule(
                     profit_target    = COALESCE(EXCLUDED.profit_target,    plan_rules.profit_target),
                     notes            = COALESCE(EXCLUDED.notes,            plan_rules.notes),
                     updated_at = NOW()`,
-      [userId, rule.firmName, rule.evalType, rule.accountSize ?? null, rule.drawdownStyle,
+      [userId, rule.firmName, rule.evalType, rule.accountSize ?? null, stage, rule.drawdownStyle,
        rule.consistencyPct ?? null, rule.profitSplitPct ?? null, rule.payoutMin ?? null,
        rule.winningDayMin ?? null, rule.winningDaysReq ?? null, rule.dailyLossLimit ?? null,
        rule.hasDailyLoss ?? null, rule.maxDrawdown ?? null, rule.profitTarget ?? null,
        rule.notes ?? null]);
 
+    // Only push to live cards when the rule governs the stage they are in —
+    // an eval-stage rule must not overwrite a funded account's settings.
     let accountsUpdated = 0;
     if (rule.applyToActive !== false) {
+      const lifecycleFilter =
+        stage === 'eval'   ? `AND ch.lifecycle LIKE 'eval%'`
+      : stage === 'funded' ? `AND (ch.lifecycle LIKE 'funded%' OR ch.lifecycle LIKE 'live%')`
+      : '';
       const { rowCount } = await tx.query(`
-        UPDATE trading_accounts
+        UPDATE trading_accounts ta
            SET drawdown_style   = $4,
-               consistency_pct  = COALESCE($5, consistency_pct),
-               profit_split_pct = COALESCE($6, profit_split_pct),
+               consistency_pct  = COALESCE($5, ta.consistency_pct),
+               profit_split_pct = COALESCE($6, ta.profit_split_pct),
                updated_at = NOW()
-         WHERE user_id = $1 AND lower(firm) = lower($2) AND lower(COALESCE(eval_type,'')) = lower($3)
-           AND status = 'active'`,
+          FROM challenges ch
+         WHERE ch.account_id = ta.id
+           AND ta.user_id = $1 AND lower(ta.firm) = lower($2)
+           AND lower(COALESCE(ta.eval_type,'')) = lower($3)
+           AND ta.status = 'active'
+           ${lifecycleFilter}`,
         [userId, rule.firmName, rule.evalType, rule.drawdownStyle,
          rule.consistencyPct ?? null, rule.profitSplitPct ?? null]);
       accountsUpdated = rowCount;
     }
 
-    return { rule, accountsUpdated };
+    return { rule: { ...rule, stage }, accountsUpdated };
   });
 }
