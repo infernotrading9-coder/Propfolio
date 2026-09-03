@@ -299,37 +299,34 @@ export async function logTrade(input: LogTradeInput): Promise<LogTradeResult> {
       if (dd.binding === 'max' || style === 'intraday_trailing') {
         consequence = 'account_lost';
         message = style === 'intraday_trailing'
-          ? `ACCOUNT LOST. ${acct.display_label} is an intraday-trailing plan (${acct.eval_type}) — ` +
-            `touching the floor at $${dd.stopOutLevel.toLocaleString()} kills it. Not a lockout.`
-          : `ACCOUNT LOST. Max drawdown breached at $${dd.stopOutLevel.toLocaleString()}.`;
+          ? `Heads up: by Propfolio's numbers ${acct.display_label} has touched its floor at ` +
+            `$${dd.stopOutLevel.toLocaleString()}, and this plan trails intraday, so that would kill it. ` +
+            `Check the platform — if it's blown, tell me and I'll mark it failed.`
+          : `Heads up: by Propfolio's numbers ${acct.display_label} has breached max drawdown at ` +
+            `$${dd.stopOutLevel.toLocaleString()}. Check the platform — if it's blown, tell me and I'll mark it failed.`;
       } else {
         consequence = 'session_lockout';
-        message = `SESSION LOCKOUT. Daily loss limit hit at $${dd.stopOutLevel.toLocaleString()}. ` +
-          `${acct.display_label} is an EOD plan — the account survives; you're done for today.`;
+        message = `Heads up: daily loss limit reached at $${dd.stopOutLevel.toLocaleString()} by Propfolio's ` +
+          `numbers. ${acct.display_label} is an EOD plan, so this is a session lockout, not a kill.`;
       }
     }
 
-    // Auto-fail the account when the breach is terminal, so no surface lags.
+    // DELIBERATELY NOT AUTO-FAILING THE ACCOUNT.
+    //
+    // Propfolio's balance is the sum of the trades Daniel has logged — it is
+    // NOT the broker's balance. Unlogged trades, trades logged late, netted
+    // scratches and fees all make the two drift. Killing an account off a
+    // number the app merely inferred means a live account can be marked dead
+    // and vanish from the dashboard while he is still trading it.
+    //
+    // The breach calculation stays, because a warning is useful. But the state
+    // change is Daniel's call: he can see the real platform, the app cannot.
+    // "I failed 9056" -> failAccount(). That is the only path to `lost`.
     if (consequence === 'account_lost') {
-      const was = String(acct.lifecycle || 'eval_active');
-      const lifecycle = was === 'live_active' ? 'live_failed'
-        : was === 'funded_active' ? 'funded_failed' : 'eval_failed';
-      const outcome = lifecycle === 'eval_failed' ? 'failed_pre_phase' : 'failed_after_funded';
-
-      await tx.query(
-        `UPDATE trading_accounts SET status='lost', updated_at=NOW() WHERE id=$1`, [acct.id]);
-      if (acct.challenge_id) {
-        await tx.query(`
-          UPDATE challenges
-             SET status='failed', lifecycle=$2, outcome_type=$3,
-                 failure_reason=$4, failure_date=$5, updated_at=NOW()
-           WHERE id=$1`,
-          [acct.challenge_id, lifecycle, outcome,
-           dd.binding === 'max' ? 'max_drawdown' : 'daily_loss', tradeDate]);
-        await tx.query(
-          `UPDATE calendar_accounts SET is_active=false WHERE challenge_id=$1`, [acct.challenge_id]);
-      }
-      warnings.push(`${acct.display_label} has been marked LOST across all surfaces.`);
+      warnings.push(
+        `${acct.display_label} looks blown by Propfolio's numbers, but this app doesn't see your ` +
+        `real broker balance — only the trades you've logged. Nothing has been changed. ` +
+        `Say "failed ${acct.display_label}" if the platform confirms it.`);
     }
 
     // ── 5. Rule-calendar entry for the day ──────────────────────────────────
