@@ -4,3 +4,4 @@ node_modules/
 
 # Local env (real credentials) — Netlify site env vars provide production values
 .env
+migration/
