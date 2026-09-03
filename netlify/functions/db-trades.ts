@@ -19,8 +19,18 @@ export const handler: Handler = async (event) => {
       // are genuinely new — and never re-asks about ones already confirmed.
       if (params.action === 'plan-rules') {
         if (params.firm && params.evalType) {
-          const rule = await getPlanRule(user.id, params.firm, params.evalType)
-          return json(200, { rule, known: !!rule })
+          // Consistency differs between eval and funded, so the stage must be
+          // explicit. Defaults to 'eval' — the safer side to be wrong on, since
+          // an eval rule is usually the stricter one.
+          const stage = params.stage === 'funded' ? 'funded' : 'eval'
+          const size = params.accountSize ? Number(params.accountSize) : null
+          const rule = await getPlanRule(user.id, params.firm, params.evalType, size, stage)
+          return json(200, {
+            rule,
+            known: !!rule,
+            stage,
+            consistencyKnown: rule ? rule.consistencyPct !== null : false,
+          })
         }
         const rules = await listPlanRules(user.id)
         return json(200, { rules })

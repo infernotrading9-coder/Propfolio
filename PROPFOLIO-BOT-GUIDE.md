@@ -287,29 +287,48 @@ Returns every active account with balance, room to stop-out, day P&L, rules, pay
 
 ### 5.9 Plan rules → `GET db-trades?action=plan-rules`
 
-**Check this before buying an eval.** It's what Propfolio has learned about each plan:
+**Check this before buying an eval.** It's what Propfolio has learned about each plan.
+
+**Rules are STAGE-SCOPED.** Consistency commonly differs between the eval and the funded account — some plans drop the rule once funded, others change the percentage. Always pass the stage you mean:
 
 ```
-GET db-trades?action=plan-rules&firm=Lucid%20Trading&evalType=Lucid%20Flex
+GET db-trades?action=plan-rules&firm=Lucid%20Trading&evalType=Lucid%20Flex&stage=eval
 ```
 
 ```json
 { "known": true,
-  "rule": { "consistencyPct": 50, "profitSplitPct": 90, "payoutMin": 2000,
-            "dailyLossLimit": 1200, "winningDayMin": 150, "winningDaysReq": 5 } }
+  "rule": { "stage": "eval", "consistencyPct": 50, "profitSplitPct": 90,
+            "payoutMin": 2000, "dailyLossLimit": 1200 } }
 ```
 
-`known: false` means Propfolio has never seen this plan. **Ask Daniel once**, then teach it:
+Ask the same plan at `stage=funded` and you get `consistencyPct: null` — because nobody has told Propfolio the funded rule for Lucid Flex yet.
+
+**Three states, three different behaviours:**
+
+| Value | Meaning | What you do |
+|---|---|---|
+| a number (e.g. `50`) | confirmed rule at that stage | use it |
+| `null` | **nobody has told us** | **ask Daniel**, then save it |
+| `0` | confirmed there is **no** rule at that stage | don't warn about consistency |
+
+Never treat `null` as "no rule" — that hides a real constraint he could fail on.
+
+**Teaching a rule** — include the stage:
 
 ```json
 { "action": "set-plan-rule", "firmName": "My Funded Futures", "evalType": "Rapid EOD",
-  "accountSize": 50000, "drawdownStyle": "eod", "consistencyPct": 30,
-  "profitSplitPct": 90, "dailyLossLimit": 1000, "payoutMin": 1500 }
+  "accountSize": 50000, "stage": "eval", "consistencyPct": 30, "drawdownStyle": "eod" }
 ```
 
-It's remembered permanently and applied to active accounts on that plan. Firms change rules often — when one does, send the correction and it propagates.
+- `stage: "eval"` — applies while it's an eval
+- `stage: "funded"` — applies once funded (live accounts follow funded rules)
+- `stage: "any"` — holds at both stages. Use for profit split, payout max, DD limits.
 
-Known so far: Lucid Flex 50K (50% consistency) · Alpha Zero 50K (40%) · Lucid Daily 25K · MFF Builder (80/20 — the only one) · MFF Rapid · MFF Rapid EOD · Tradify Select Flex.
+Send `consistencyPct: 0` with `stage: "funded"` when a plan's rule genuinely disappears after funding.
+
+Shared facts on the `any` row are inherited at both stages, so you only record what actually differs.
+
+**Known so far:** Lucid Flex 50K — eval 50%, funded unknown · Alpha Zero 50K — funded 40%, eval unknown · Lucid Daily 25K · MFF Builder (80/20, the only one) · MFF Rapid · MFF Rapid EOD · Tradify Select Flex.
 
 ### 5.10 Idempotency — send a key with every write
 
