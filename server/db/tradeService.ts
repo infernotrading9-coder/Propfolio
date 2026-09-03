@@ -38,59 +38,75 @@ import { todayET, CascadeError } from './cascadeService';
 // Per-plan drawdown semantics
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Drawdown style is a PER-ACCOUNT FACT, not something to infer from a name.
+ *
+ * This started as a lookup keyed on eval_type. That was wrong in principle and
+ * wrong in practice:
+ *   - Alpha Zero is EOD; the table said intraday.
+ *   - MFF is "mostly trailing" but sells EOD variants too, and just added an
+ *     EOD Rapid with a consistency rule.
+ *   - Firms change plan rules frequently, so any table encoded here is stale
+ *     the moment a firm ships a variant.
+ *
+ * So the style is stored on the account, captured once when the account is
+ * created, and read back verbatim afterwards. The helper below only ever
+ * SUGGESTS a default for a brand-new plan — it never overrides a stored value.
+ *
+ * When the style is unknown, the system says so loudly and asks. It does not
+ * quietly pick one, because the wrong guess in the safe-looking direction
+ * ("account survives") is how 9058 got called wrong.
+ */
 export type DrawdownStyle = 'eod' | 'intraday_trailing';
 
 /**
- * Which eval plans trail intraday.
+ * A weak hint used ONLY to prefill the prompt when a plan has never been seen
+ * before. Deliberately conservative and deliberately not authoritative.
  *
- * Matched as SUBSTRINGS, deliberately. An exact-match Set looked tidy but was a
- * live hazard: Daniel and the bot write the plan name however it comes out in
- * chat — "MFF Rapid", "Alpha Zero", "Rapid 50k", "Zero Eval". Every one of those
- * missed an exact lookup and silently fell through to EOD, which reports a BLOWN
- * intraday account as "session lockout, account survives". That is exactly the
- * wrong call that was made on 9058.
- *
- * Failing safe matters more than matching precisely here, so anything containing
- * these tokens is treated as intraday-trailing.
+ * Returns null when there is no confident default — the caller must then ask
+ * rather than assume.
  */
-const INTRADAY_TRAILING_TOKENS = [
-  'rapid',   // My Funded Futures Rapid
-  'zero',    // Alpha Futures Zero
-];
+export function suggestDrawdownStyle(evalType?: string | null, firmName?: string | null): DrawdownStyle | null {
+  const plan = String(evalType || '').trim().toLowerCase();
+  const firm = String(firmName || '').trim().toLowerCase();
+  if (!plan && !firm) return null;
 
-/**
- * Plans explicitly known to be EOD. Checked FIRST, so a future plan whose name
- * happens to contain a token above can be excluded by name rather than by
- * weakening the substring match.
- */
-const KNOWN_EOD_PLANS = [
-  'builder',      // My Funded Futures Builder
-  'lucid flex',
-  'lucid daily',
-  'select flex',  // Tradify Select Flex
-];
-
-export function drawdownStyleFor(evalType?: string | null): DrawdownStyle {
-  const key = String(evalType || '').trim().toLowerCase();
-  if (!key) return 'eod';
-  if (KNOWN_EOD_PLANS.some(p => key.includes(p))) return 'eod';
-  if (INTRADAY_TRAILING_TOKENS.some(t => key.includes(t))) return 'intraday_trailing';
-  return 'eod';
+  // MFF is predominantly trailing, but sells EOD variants — suggest only, and
+  // only when the plan name itself gives no signal.
+  if (plan.includes('rapid') && plan.includes('eod')) return 'eod';
+  if (plan.includes('rapid')) return 'intraday_trailing';
+  if (plan.includes('builder')) return 'eod';
+  if (plan.includes('zero')) return 'eod';            // Alpha Zero is EOD
+  if (plan.includes('lucid')) return 'eod';
+  if (plan.includes('select flex')) return 'eod';
+  if (firm.includes('my funded futures')) return 'intraday_trailing';
+  return null;
 }
 
 /**
- * True when we do not actually recognise this plan and are defaulting to EOD.
+ * The authoritative read: what style does THIS account actually use?
  *
- * An unrecognised plan gets the SURVIVING verdict, which is the dangerous
- * direction to be wrong in. Callers surface this as a warning so Daniel is told
- * "I don't know this plan, verify with the firm" rather than being quietly
- * reassured his dead account is fine.
+ * `stored` is trading_accounts.drawdown_style, set when the account was created.
+ * Falls back to the suggestion only when nothing was ever recorded, and the
+ * caller is told (via isStyleKnown) that it is operating on a guess.
  */
-export function isPlanRecognised(evalType?: string | null): boolean {
-  const key = String(evalType || '').trim().toLowerCase();
-  if (!key) return false;
-  return KNOWN_EOD_PLANS.some(p => key.includes(p))
-    || INTRADAY_TRAILING_TOKENS.some(t => key.includes(t));
+export function resolveDrawdownStyle(
+  stored?: string | null, evalType?: string | null, firmName?: string | null,
+): DrawdownStyle {
+  const s = String(stored || '').trim().toLowerCase();
+  if (s === 'eod' || s === 'intraday_trailing') return s;
+  return suggestDrawdownStyle(evalType, firmName) ?? 'eod';
+}
+
+/** False when we are guessing rather than reading a recorded fact. */
+export function isStyleKnown(stored?: string | null): boolean {
+  const s = String(stored || '').trim().toLowerCase();
+  return s === 'eod' || s === 'intraday_trailing';
+}
+
+/** @deprecated Kept for the old call sites; prefer resolveDrawdownStyle. */
+export function drawdownStyleFor(evalType?: string | null): DrawdownStyle {
+  return suggestDrawdownStyle(evalType) ?? 'eod';
 }
 
 export interface TradeVerdict {
@@ -258,16 +274,21 @@ export async function logTrade(input: LogTradeInput): Promise<LogTradeResult> {
       floorLockLevel: acct.floor_lock_level != null ? Number(acct.floor_lock_level) : null,
     });
 
-    const style = drawdownStyleFor(acct.eval_type || acct.ch_eval_type);
+    // Read the RECORDED style for this account. Never re-infer it from the plan
+    // name: that was wrong on Alpha Zero, and firms ship new variants (MFF now
+    // sells an EOD Rapid) faster than any hardcoded table can track.
+    const style = resolveDrawdownStyle(
+      acct.drawdown_style, acct.eval_type || acct.ch_eval_type, acct.firm);
 
-    // An unrecognised plan defaults to EOD, which is the *survivable* verdict —
-    // the dangerous direction to be wrong in. Say so out loud rather than
-    // quietly reassuring Daniel that a possibly-dead account is fine.
-    if (!isPlanRecognised(acct.eval_type || acct.ch_eval_type)) {
+    // If we've never been told this plan's style, say so instead of quietly
+    // assuming. The default is EOD ("account survives"), which is the dangerous
+    // direction to guess wrong in — that is how 9058 got called wrong.
+    if (!isStyleKnown(acct.drawdown_style)) {
       warnings.push(
-        `Unrecognised plan "${acct.eval_type || acct.ch_eval_type || '(none)'}" on ${acct.display_label} — ` +
-        `assuming EOD drawdown (breach = session lockout). If this plan trails INTRADAY, ` +
-        `a breach kills the account instead. Verify with the firm.`);
+        `Drawdown style not recorded for ${acct.display_label} (${acct.eval_type || 'unknown plan'}) — ` +
+        `assuming ${style === 'eod' ? 'EOD: a daily breach is a lockout and the account survives' :
+                    'INTRADAY TRAILING: a breach kills the account'}. ` +
+        `Tell me which it is and I'll remember it for every ${acct.firm} ${acct.eval_type || ''} account.`);
     }
 
     let consequence: TradeVerdict['consequence'] = 'none';
@@ -401,5 +422,137 @@ export async function recordPayout(input: {
       payoutId, label: String(acct.display_label), payoutCount,
       eligibleForLive: payoutCount >= 5 && lc === 'funded_active',
     };
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plan rules — the system learns instead of hardcoding
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Prop firms change plan rules constantly and sell several variants under one
+ * name (MFF sells Rapid as trailing AND, newly, an EOD Rapid with a consistency
+ * rule). Encoding that in code guarantees it is wrong within months — and it
+ * already was: Alpha Zero is EOD, but an inferred table called it trailing.
+ *
+ * So Propfolio LEARNS. The first time a (firm, plan) pair is seen, it asks. The
+ * answer is stored in `plan_rules` and applied automatically ever after. When
+ * a firm changes the rules, one correction updates the catalogue and every
+ * future account of that plan.
+ */
+
+export interface PlanRule {
+  firmName: string;
+  evalType: string;
+  drawdownStyle: DrawdownStyle;
+  consistencyPct?: number | null;
+  profitSplitPct?: number | null;
+  payoutMin?: number | null;
+  winningDayMin?: number | null;
+  winningDaysReq?: number | null;
+  notes?: string | null;
+}
+
+/** What Propfolio already knows about a (firm, plan). Null = never been told. */
+export async function getPlanRule(
+  userId: string, firmName: string, evalType: string,
+): Promise<PlanRule | null> {
+  return withTransaction(async (tx) => {
+    const { rows } = await tx.query(`
+      SELECT firm_name, eval_type, drawdown_style, consistency_pct, profit_split_pct,
+             payout_min, winning_day_min, winning_days_req, notes
+        FROM plan_rules
+       WHERE user_id = $1 AND lower(firm_name) = lower($2) AND lower(eval_type) = lower($3)
+       LIMIT 1`, [userId, firmName, evalType]);
+    if (!rows.length) return null;
+    const r = rows[0];
+    return {
+      firmName: r.firm_name, evalType: r.eval_type,
+      drawdownStyle: r.drawdown_style as DrawdownStyle,
+      consistencyPct: r.consistency_pct == null ? null : Number(r.consistency_pct),
+      profitSplitPct: r.profit_split_pct == null ? null : Number(r.profit_split_pct),
+      payoutMin: r.payout_min == null ? null : Number(r.payout_min),
+      winningDayMin: r.winning_day_min == null ? null : Number(r.winning_day_min),
+      winningDaysReq: r.winning_days_req == null ? null : Number(r.winning_days_req),
+      notes: r.notes,
+    };
+  });
+}
+
+/** Everything Propfolio has learned, for the bot to consult before asking. */
+export async function listPlanRules(userId: string): Promise<PlanRule[]> {
+  return withTransaction(async (tx) => {
+    const { rows } = await tx.query(`
+      SELECT firm_name, eval_type, drawdown_style, consistency_pct, profit_split_pct,
+             payout_min, winning_day_min, winning_days_req, notes
+        FROM plan_rules WHERE user_id = $1
+       ORDER BY firm_name, eval_type`, [userId]);
+    return rows.map((r: any) => ({
+      firmName: r.firm_name, evalType: r.eval_type,
+      drawdownStyle: r.drawdown_style as DrawdownStyle,
+      consistencyPct: r.consistency_pct == null ? null : Number(r.consistency_pct),
+      profitSplitPct: r.profit_split_pct == null ? null : Number(r.profit_split_pct),
+      payoutMin: r.payout_min == null ? null : Number(r.payout_min),
+      winningDayMin: r.winning_day_min == null ? null : Number(r.winning_day_min),
+      winningDaysReq: r.winning_days_req == null ? null : Number(r.winning_days_req),
+      notes: r.notes,
+    }));
+  });
+}
+
+/**
+ * Teach Propfolio a plan's rules — or correct them when a firm changes them.
+ *
+ * `applyToActive` also updates the live accounts already on that plan, which is
+ * what you want when a firm changes the rules mid-flight or when an earlier
+ * answer turns out to be wrong (as Alpha Zero was).
+ */
+export async function upsertPlanRule(
+  userId: string, rule: PlanRule & { applyToActive?: boolean },
+): Promise<{ rule: PlanRule; accountsUpdated: number }> {
+  if (!rule.firmName || !rule.evalType) {
+    throw new CascadeError('firmName and evalType are required', 'missing_plan');
+  }
+  if (rule.drawdownStyle !== 'eod' && rule.drawdownStyle !== 'intraday_trailing') {
+    throw new CascadeError(
+      `drawdownStyle must be "eod" or "intraday_trailing", got "${rule.drawdownStyle}"`,
+      'bad_style');
+  }
+
+  return withTransaction(async (tx) => {
+    await tx.query(`
+      INSERT INTO plan_rules (user_id, firm_name, eval_type, drawdown_style,
+                              consistency_pct, profit_split_pct, payout_min,
+                              winning_day_min, winning_days_req, notes)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      ON CONFLICT (user_id, lower(firm_name), lower(eval_type))
+      DO UPDATE SET drawdown_style   = EXCLUDED.drawdown_style,
+                    consistency_pct  = COALESCE(EXCLUDED.consistency_pct,  plan_rules.consistency_pct),
+                    profit_split_pct = COALESCE(EXCLUDED.profit_split_pct, plan_rules.profit_split_pct),
+                    payout_min       = COALESCE(EXCLUDED.payout_min,       plan_rules.payout_min),
+                    winning_day_min  = COALESCE(EXCLUDED.winning_day_min,  plan_rules.winning_day_min),
+                    winning_days_req = COALESCE(EXCLUDED.winning_days_req, plan_rules.winning_days_req),
+                    notes            = COALESCE(EXCLUDED.notes,            plan_rules.notes),
+                    updated_at = NOW()`,
+      [userId, rule.firmName, rule.evalType, rule.drawdownStyle,
+       rule.consistencyPct ?? null, rule.profitSplitPct ?? null, rule.payoutMin ?? null,
+       rule.winningDayMin ?? null, rule.winningDaysReq ?? null, rule.notes ?? null]);
+
+    let accountsUpdated = 0;
+    if (rule.applyToActive !== false) {
+      const { rowCount } = await tx.query(`
+        UPDATE trading_accounts
+           SET drawdown_style   = $4,
+               consistency_pct  = COALESCE($5, consistency_pct),
+               profit_split_pct = COALESCE($6, profit_split_pct),
+               updated_at = NOW()
+         WHERE user_id = $1 AND lower(firm) = lower($2) AND lower(COALESCE(eval_type,'')) = lower($3)
+           AND status = 'active'`,
+        [userId, rule.firmName, rule.evalType, rule.drawdownStyle,
+         rule.consistencyPct ?? null, rule.profitSplitPct ?? null]);
+      accountsUpdated = rowCount;
+    }
+
+    return { rule, accountsUpdated };
   });
 }

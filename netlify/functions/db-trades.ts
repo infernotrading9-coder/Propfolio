@@ -1,7 +1,7 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
 import { tradeService, tradingAccountService } from '../../server/db/service'
-import { logTrade, recordPayout } from '../../server/db/tradeService'
+import { logTrade, recordPayout, getPlanRule, listPlanRules, upsertPlanRule } from '../../server/db/tradeService'
 import { CascadeError } from '../../server/db/cascadeService'
 
 export const handler: Handler = async (event) => {
@@ -11,6 +11,18 @@ export const handler: Handler = async (event) => {
 
     if (event.httpMethod === 'GET') {
       const params = event.queryStringParameters || {}
+
+      // Everything Propfolio has learned about plan rules. The bot consults
+      // this BEFORE buying an eval, so it only asks Daniel about plans that
+      // are genuinely new — and never re-asks about ones already confirmed.
+      if (params.action === 'plan-rules') {
+        if (params.firm && params.evalType) {
+          const rule = await getPlanRule(user.id, params.firm, params.evalType)
+          return json(200, { rule, known: !!rule })
+        }
+        const rules = await listPlanRules(user.id)
+        return json(200, { rules })
+      }
       
       // Get stats
       if (params.action === 'stats') {
@@ -37,8 +49,26 @@ export const handler: Handler = async (event) => {
       // logTrade updates the trade row, balance, HWM, the rule-calendar entry
       // and the drawdown verdict in one transaction — and auto-fails the
       // account when the breach is terminal for that plan.
-      if (input.action === 'log-trade' || input.action === 'record-payout') {
+      if (input.action === 'log-trade' || input.action === 'record-payout'
+          || input.action === 'set-plan-rule') {
         try {
+          if (input.action === 'set-plan-rule') {
+            // Teach Propfolio a plan's rules, or correct them after a firm
+            // changes them. Applies to active accounts on that plan too.
+            const r = await upsertPlanRule(user.id, {
+              firmName: input.firmName,
+              evalType: input.evalType,
+              drawdownStyle: input.drawdownStyle,
+              consistencyPct: input.consistencyPct,
+              profitSplitPct: input.profitSplitPct,
+              payoutMin: input.payoutMin,
+              winningDayMin: input.winningDayMin,
+              winningDaysReq: input.winningDaysReq,
+              notes: input.notes,
+              applyToActive: input.applyToActive,
+            })
+            return json(200, r)
+          }
           if (input.action === 'log-trade') {
             const r = await logTrade({ userId: user.id, ...input })
             return json(200, r)
