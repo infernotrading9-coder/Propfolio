@@ -137,18 +137,32 @@ async function resolveAccount(tx: TxClient, userId: string, ref: string) {
   const key = String(ref || '').trim();
   if (!key) throw new CascadeError('No account reference given', 'no_ref');
 
-  // Accept a nickname, the display label, or the raw last 4 — whichever
-  // Daniel used. Nickname is matched case-insensitively so "lucd" == "LUCD".
+  // Accept whatever Daniel actually types:
+  //   nickname        "LUCD"
+  //   FIRST-LAST      "APEX-0001"   <- unambiguous, preferred
+  //   bare first4     "APEX"
+  //   bare last4      "0001"        <- may be ambiguous; we error rather than guess
+  //   display label   "0001-B"
+  // Account numbers are not always numeric, so first4 is text and matched
+  // case-insensitively.
+  const parts = key.includes('-') ? key.split('-') : null;
+  const pairFirst = parts && parts.length === 2 ? parts[0] : null;
+  const pairLast = parts && parts.length === 2 ? parts[1] : null;
+
   const { rows } = await tx.query(
     `SELECT ta.*, ch.id AS challenge_id, ch.lifecycle, ch.payout_count, ch.eval_type AS ch_eval_type
        FROM trading_accounts ta
        LEFT JOIN challenges ch ON ch.account_id = ta.id
       WHERE ta.user_id = $1
-        AND (lower(ta.nickname) = lower($2)
-             OR ta.display_label = $2
-             OR ta.account_number_last4 = $2)
+        AND ( lower(ta.nickname) = lower($2)
+              OR ta.display_label = $2
+              OR ta.account_number_last4 = $2
+              OR upper(ta.account_first4) = upper($2)
+              OR ($3::text IS NOT NULL
+                  AND upper(ta.account_first4) = upper($3)
+                  AND ta.account_number_last4 = $4) )
         AND ta.status = 'active'`,
-    [userId, key]);
+    [userId, key, pairFirst, pairLast]);
 
   if (rows.length === 0) {
     throw new CascadeError(`No active account matching "${key}"`, 'not_found');

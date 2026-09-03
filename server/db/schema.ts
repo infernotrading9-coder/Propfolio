@@ -137,6 +137,12 @@ export const tradingAccounts = pgTable('trading_accounts', {
    * Unique among active accounts, case-insensitive.
    */
   nickname: text('nickname'),
+  /**
+   * First 4 characters of the real account number. Text, not numeric — account
+   * numbers are often alphanumeric. Combined with the last 4 this makes a
+   * unique handle ("APEX-0001"), which is why Daniel supplies both.
+   */
+  accountFirst4: text('account_first4'),
   accountSize: decimal('account_size', { precision: 12, scale: 2 }).notNull().default('0'),
   balance: decimal('balance', { precision: 12, scale: 2 }).notNull().default('0'),
   drawdownUsed: decimal('drawdown_used', { precision: 12, scale: 2 }).notNull().default('0'),

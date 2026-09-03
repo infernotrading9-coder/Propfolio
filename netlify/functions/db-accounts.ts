@@ -105,6 +105,70 @@ export const handler: Handler = async (event) => {
       }
 
       // Set daily order
+      if (input.action === 'set-account-number') {
+        // Daniel supplies the first 4 AND last 4 characters of the real account
+        // number. Account numbers are not always numeric, so first4 is text.
+        // Once both are known the label becomes "FIRST-LAST", which is
+        // unambiguous on its own — no more remembering which 0001 is -A vs -B.
+        const { accountRef, first4, last4 } = input
+        if (!accountRef) return json(400, { error: 'accountRef required', code: 'no_ref' })
+
+        const f = first4 === null || first4 === '' ? null : String(first4).trim().toUpperCase()
+        const l = last4 === null || last4 === '' ? null : String(last4).trim()
+        if (f !== null && !/^[A-Za-z0-9]{4}$/.test(f)) {
+          return json(400, { error: 'first4 must be exactly 4 letters or digits.', code: 'bad_first4' })
+        }
+        if (l !== null && !/^[A-Za-z0-9]{4}$/.test(l)) {
+          return json(400, { error: 'last4 must be exactly 4 letters or digits.', code: 'bad_last4' })
+        }
+
+        const all = await tradingAccountService.getByUserId(user.id)
+        const matches = all.filter((a: any) => a.status === 'active' && (
+          String(a.nickname || '').toLowerCase() === accountRef.toLowerCase() ||
+          a.displayLabel === accountRef ||
+          a.accountNumberLast4 === accountRef ||
+          String(a.accountFirst4 || '').toUpperCase() === accountRef.toUpperCase() ||
+          `${String(a.accountFirst4 || '').toUpperCase()}-${a.accountNumberLast4}` === accountRef.toUpperCase()))
+        if (matches.length === 0) return json(404, { error: `No active account "${accountRef}"`, code: 'not_found' })
+        if (matches.length > 1) {
+          return json(400, {
+            error: `"${accountRef}" matches ${matches.length} accounts (${matches.map((m: any) => m.displayLabel).join(', ')}). Say which one.`,
+            code: 'ambiguous',
+          })
+        }
+
+        const target: any = matches[0]
+        const newFirst = f ?? target.accountFirst4 ?? null
+        const newLast = l ?? target.accountNumberLast4 ?? null
+
+        if (newFirst && newLast) {
+          const clash = all.find((a: any) => a.status === 'active' && a.id !== target.id
+            && String(a.accountFirst4 || '').toUpperCase() === newFirst
+            && a.accountNumberLast4 === newLast)
+          if (clash) {
+            return json(400, {
+              error: `${newFirst}-${newLast} is already ${(clash as any).displayLabel}. Check the digits.`,
+              code: 'duplicate_account_number',
+            })
+          }
+        }
+
+        // With both halves known the label needs no disambiguating suffix.
+        const newLabel = newFirst && newLast ? `${newFirst}-${newLast}` : target.displayLabel
+        const updated = await tradingAccountService.update(target.id, {
+          accountFirst4: newFirst,
+          accountNumberLast4: newLast,
+          displayLabel: newLabel,
+        } as any)
+
+        return json(200, {
+          account: updated,
+          label: newLabel,
+          previousLabel: target.displayLabel,
+          message: `${target.displayLabel} is now ${newLabel}. Refer to it as "${newLabel}", "${newFirst}", or "${newLast}".`,
+        })
+      }
+
       if (input.action === 'set-nickname') {
         // Give an account a short unambiguous handle. Daniel's idea: two Lucid
         // Daily accounts both end 0001, and remembering which is -A vs -B is
