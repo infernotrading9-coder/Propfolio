@@ -35,6 +35,7 @@
 import { randomUUID } from 'crypto';
 import { withTransaction, type TxClient } from './txConnection';
 import { sessionStart } from './drawdownModel';
+import { logAction } from './actionLog';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants & small helpers
@@ -565,6 +566,17 @@ export async function failAccount(input: {
       `UPDATE trading_accounts SET status='lost', updated_at=NOW() WHERE id=$1`, [acct.id]);
     await tx.query(
       `UPDATE calendar_accounts SET is_active=false WHERE challenge_id=$1`, [acct.challenge_id]);
+
+    // Failing is the one destructive call Daniel makes routinely, and the most
+    // likely to be aimed at the wrong account. Make it reversible.
+    await logAction(tx, input.userId, 'fail-account',
+      `Marked ${acct.display_label} as failed (${input.failureReason || 'unknown'})`,
+      {
+        accountId: String(acct.id), challengeId: String(acct.challenge_id),
+        priorStatus: acct.status ?? 'active', priorLifecycle: was,
+        priorOutcome: acct.outcome_type ?? 'active',
+        priorCardStatus: acct.card_status ?? 'active',
+      });
 
     return {
       accountId: String(acct.id), challengeId: String(acct.challenge_id),

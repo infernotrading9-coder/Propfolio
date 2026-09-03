@@ -3,6 +3,8 @@ import { json, getUserFromSession } from './_utils'
 import { tradeService, tradingAccountService } from '../../server/db/service'
 import { logTrade, recordPayout, getPlanRule, listPlanRules, upsertPlanRule } from '../../server/db/tradeService'
 import { CascadeError } from '../../server/db/cascadeService'
+import { recordPayoutWithAllocation, proposeAllocation } from '../../server/db/payoutService'
+import { withIdempotency } from '../../server/db/stateService'
 
 export const handler: Handler = async (event) => {
   try {
@@ -50,8 +52,13 @@ export const handler: Handler = async (event) => {
       // and the drawdown verdict in one transaction — and auto-fails the
       // account when the breach is terminal for that plan.
       if (input.action === 'log-trade' || input.action === 'record-payout'
-          || input.action === 'set-plan-rule') {
+          || input.action === 'set-plan-rule' || input.action === 'propose-allocation') {
         try {
+          if (input.action === 'propose-allocation') {
+            // Dry run: what would the split look like? Writes nothing.
+            const proposal = await proposeAllocation(user.id, Number(input.amount))
+            return json(200, { proposal })
+          }
           if (input.action === 'set-plan-rule') {
             // Teach Propfolio a plan's rules, or correct them after a firm
             // changes them. Applies to active accounts on that plan too.
@@ -70,16 +77,24 @@ export const handler: Handler = async (event) => {
             return json(200, r)
           }
           if (input.action === 'log-trade') {
-            const r = await logTrade({ userId: user.id, ...input })
+            // Idempotent when the bot supplies a key: a retry after a timeout
+            // returns the original result instead of logging the trade twice.
+            const r = await withIdempotency(user.id, input.idempotencyKey, 'log-trade',
+              () => logTrade({ userId: user.id, ...input }))
             return json(200, r)
           }
-          const r = await recordPayout({
-            userId: user.id,
-            accountRef: input.accountRef,
-            amount: input.amount,
-            date: input.date,
-            description: input.description,
-          })
+          // A payout is INCOME, not just a stat. Without `allocations` this
+          // returns a suggested split and writes nothing; send the confirmed
+          // allocations back to apply it.
+          const r = await withIdempotency(user.id, input.idempotencyKey, 'record-payout',
+            () => recordPayoutWithAllocation({
+              userId: user.id,
+              accountRef: input.accountRef,
+              amount: input.amount,
+              date: input.date,
+              description: input.description,
+              allocations: input.allocations,
+            }))
           return json(200, r)
         } catch (e) {
           if (e instanceof CascadeError) return json(400, { error: e.message, code: e.code })

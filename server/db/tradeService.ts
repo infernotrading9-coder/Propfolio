@@ -33,6 +33,7 @@ import { randomUUID } from 'crypto';
 import { withTransaction, type TxClient } from './txConnection';
 import { computeDrawdown, settleAccount } from './drawdownModel';
 import { todayET, CascadeError } from './cascadeService';
+import { logAction } from './actionLog';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Per-plan drawdown semantics
@@ -216,6 +217,8 @@ export async function logTrade(input: LogTradeInput): Promise<LogTradeResult> {
     // ── 2. Write (or net into) the trade row ────────────────────────────────
     let tradeId: string;
     let netted = false;
+    /** The netted row's amount BEFORE this trade folded in — needed to undo. */
+    let priorAmount: number | null = null;
 
     if (input.netIntoSession) {
       const { rows: existing } = await tx.query(`
@@ -226,6 +229,7 @@ export async function logTrade(input: LogTradeInput): Promise<LogTradeResult> {
 
       if (existing.length) {
         const merged = Math.round((Number(existing[0].amount) + amount) * 100) / 100;
+        priorAmount = Number(existing[0].amount);
         await tx.query(
           `UPDATE trades SET amount=$2, result=$3 WHERE id=$1`,
           [existing[0].id, String(merged), merged >= 0 ? 'win' : 'loss']);
@@ -331,6 +335,8 @@ export async function logTrade(input: LogTradeInput): Promise<LogTradeResult> {
 
     // ── 5. Rule-calendar entry for the day ──────────────────────────────────
     let calendarEntryId: string | null = null;
+    /** True when THIS trade created the day's entry (so undo should remove it). */
+    let calendarEntryCreated = false;
     if (acct.challenge_id) {
       const { rows: cal } = await tx.query(
         `SELECT id FROM calendar_accounts WHERE user_id=$1 AND challenge_id=$2 LIMIT 1`,
@@ -354,6 +360,7 @@ export async function logTrade(input: LogTradeInput): Promise<LogTradeResult> {
           calendarEntryId = String(entry[0].id);
         } else {
           calendarEntryId = randomUUID();
+          calendarEntryCreated = true;
           await tx.query(`
             INSERT INTO calendar_entries (id,calendar_account_id,date,followed_rules,
                                           rule_compliance,notes,created_at,updated_at)
@@ -366,6 +373,17 @@ export async function logTrade(input: LogTradeInput): Promise<LogTradeResult> {
     if (!Array.isArray(acct.rules) || acct.rules.length === 0) {
       warnings.push(`${acct.display_label} has no rules set — nothing for the calendar to check.`);
     }
+
+    // Record how to reverse this, so "scratch that, wrong account" is one call
+    // rather than manual SQL.
+    await logAction(tx, input.userId, 'log-trade',
+      `${amount >= 0 ? 'Win' : 'Loss'} of $${Math.abs(amount).toFixed(2)} on ${acct.display_label}`
+      + (netted ? ' (netted into the session trade)' : ''),
+      {
+        tradeId, accountId: String(acct.id), netted, priorAmount,
+        balanceBefore, hwmBefore: Number(acct.high_water_mark) || 0,
+        calendarEntryId, calendarEntryCreated,
+      });
 
     return {
       tradeId, accountId: String(acct.id), label: String(acct.display_label),
@@ -441,59 +459,94 @@ export async function recordPayout(input: {
 export interface PlanRule {
   firmName: string;
   evalType: string;
+  /**
+   * Rules vary by account size — a 50K and a 100K of the same plan have
+   * different daily loss limits and payout minimums — so the catalogue is
+   * keyed (firm, plan, size). Null means "applies to any size".
+   */
+  accountSize?: number | null;
   drawdownStyle: DrawdownStyle;
   consistencyPct?: number | null;
   profitSplitPct?: number | null;
   payoutMin?: number | null;
   winningDayMin?: number | null;
   winningDaysReq?: number | null;
+  dailyLossLimit?: number | null;
+  hasDailyLoss?: boolean | null;
+  maxDrawdown?: number | null;
+  profitTarget?: number | null;
   notes?: string | null;
 }
 
-/** What Propfolio already knows about a (firm, plan). Null = never been told. */
+/**
+ * What Propfolio already knows about a (firm, plan). Null = never been told.
+ *
+ * MERGES the size-specific row over the generic one rather than picking just
+ * one. A generic row often carries the facts that hold for every size (split,
+ * consistency) while the size-specific row carries the limits that don't (DLL,
+ * payout minimum). Returning only one silently drops half the knowledge — and
+ * a fact learned generically would vanish the moment a size-specific row
+ * existed, which is exactly the bug this comment replaces.
+ */
 export async function getPlanRule(
-  userId: string, firmName: string, evalType: string,
+  userId: string, firmName: string, evalType: string, accountSize?: number | null,
 ): Promise<PlanRule | null> {
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(`
-      SELECT firm_name, eval_type, drawdown_style, consistency_pct, profit_split_pct,
-             payout_min, winning_day_min, winning_days_req, notes
+      SELECT firm_name, eval_type, account_size, drawdown_style, consistency_pct,
+             profit_split_pct, payout_min, winning_day_min, winning_days_req,
+             daily_loss_limit, has_daily_loss, max_drawdown, profit_target, notes
         FROM plan_rules
        WHERE user_id = $1 AND lower(firm_name) = lower($2) AND lower(eval_type) = lower($3)
-       LIMIT 1`, [userId, firmName, evalType]);
+         AND (account_size IS NULL OR $4::numeric IS NULL OR account_size = $4::numeric)
+       ORDER BY (account_size IS NOT NULL) ASC`,
+      [userId, firmName, evalType, accountSize ?? null]);
     if (!rows.length) return null;
-    const r = rows[0];
-    return {
-      firmName: r.firm_name, evalType: r.eval_type,
-      drawdownStyle: r.drawdown_style as DrawdownStyle,
-      consistencyPct: r.consistency_pct == null ? null : Number(r.consistency_pct),
-      profitSplitPct: r.profit_split_pct == null ? null : Number(r.profit_split_pct),
-      payoutMin: r.payout_min == null ? null : Number(r.payout_min),
-      winningDayMin: r.winning_day_min == null ? null : Number(r.winning_day_min),
-      winningDaysReq: r.winning_days_req == null ? null : Number(r.winning_days_req),
-      notes: r.notes,
-    };
+
+    // Generic first, size-specific last, so the specific row wins field by field
+    // but never erases something only the generic row knows.
+    let merged: PlanRule | null = null;
+    for (const r of rows) {
+      const cur = mapPlanRule(r);
+      if (!merged) { merged = cur; continue; }
+      for (const k of Object.keys(cur) as (keyof PlanRule)[]) {
+        const v = cur[k];
+        if (v !== null && v !== undefined) (merged as any)[k] = v;
+      }
+    }
+    return merged;
   });
+}
+
+function mapPlanRule(r: any): PlanRule {
+  const num = (v: any) => (v == null ? null : Number(v));
+  return {
+    firmName: r.firm_name, evalType: r.eval_type,
+    accountSize: num(r.account_size),
+    drawdownStyle: r.drawdown_style as DrawdownStyle,
+    consistencyPct: num(r.consistency_pct),
+    profitSplitPct: num(r.profit_split_pct),
+    payoutMin: num(r.payout_min),
+    winningDayMin: num(r.winning_day_min),
+    winningDaysReq: num(r.winning_days_req),
+    dailyLossLimit: num(r.daily_loss_limit),
+    hasDailyLoss: r.has_daily_loss == null ? null : !!r.has_daily_loss,
+    maxDrawdown: num(r.max_drawdown),
+    profitTarget: num(r.profit_target),
+    notes: r.notes,
+  };
 }
 
 /** Everything Propfolio has learned, for the bot to consult before asking. */
 export async function listPlanRules(userId: string): Promise<PlanRule[]> {
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(`
-      SELECT firm_name, eval_type, drawdown_style, consistency_pct, profit_split_pct,
-             payout_min, winning_day_min, winning_days_req, notes
+      SELECT firm_name, eval_type, account_size, drawdown_style, consistency_pct,
+             profit_split_pct, payout_min, winning_day_min, winning_days_req,
+             daily_loss_limit, has_daily_loss, max_drawdown, profit_target, notes
         FROM plan_rules WHERE user_id = $1
-       ORDER BY firm_name, eval_type`, [userId]);
-    return rows.map((r: any) => ({
-      firmName: r.firm_name, evalType: r.eval_type,
-      drawdownStyle: r.drawdown_style as DrawdownStyle,
-      consistencyPct: r.consistency_pct == null ? null : Number(r.consistency_pct),
-      profitSplitPct: r.profit_split_pct == null ? null : Number(r.profit_split_pct),
-      payoutMin: r.payout_min == null ? null : Number(r.payout_min),
-      winningDayMin: r.winning_day_min == null ? null : Number(r.winning_day_min),
-      winningDaysReq: r.winning_days_req == null ? null : Number(r.winning_days_req),
-      notes: r.notes,
-    }));
+       ORDER BY firm_name, eval_type, account_size NULLS FIRST`, [userId]);
+    return rows.map(mapPlanRule);
   });
 }
 
@@ -518,22 +571,29 @@ export async function upsertPlanRule(
 
   return withTransaction(async (tx) => {
     await tx.query(`
-      INSERT INTO plan_rules (user_id, firm_name, eval_type, drawdown_style,
+      INSERT INTO plan_rules (user_id, firm_name, eval_type, account_size, drawdown_style,
                               consistency_pct, profit_split_pct, payout_min,
-                              winning_day_min, winning_days_req, notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-      ON CONFLICT (user_id, lower(firm_name), lower(eval_type))
+                              winning_day_min, winning_days_req, daily_loss_limit,
+                              has_daily_loss, max_drawdown, profit_target, notes)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      ON CONFLICT (user_id, lower(firm_name), lower(eval_type), COALESCE(account_size, 0))
       DO UPDATE SET drawdown_style   = EXCLUDED.drawdown_style,
                     consistency_pct  = COALESCE(EXCLUDED.consistency_pct,  plan_rules.consistency_pct),
                     profit_split_pct = COALESCE(EXCLUDED.profit_split_pct, plan_rules.profit_split_pct),
                     payout_min       = COALESCE(EXCLUDED.payout_min,       plan_rules.payout_min),
                     winning_day_min  = COALESCE(EXCLUDED.winning_day_min,  plan_rules.winning_day_min),
                     winning_days_req = COALESCE(EXCLUDED.winning_days_req, plan_rules.winning_days_req),
+                    daily_loss_limit = COALESCE(EXCLUDED.daily_loss_limit, plan_rules.daily_loss_limit),
+                    has_daily_loss   = COALESCE(EXCLUDED.has_daily_loss,   plan_rules.has_daily_loss),
+                    max_drawdown     = COALESCE(EXCLUDED.max_drawdown,     plan_rules.max_drawdown),
+                    profit_target    = COALESCE(EXCLUDED.profit_target,    plan_rules.profit_target),
                     notes            = COALESCE(EXCLUDED.notes,            plan_rules.notes),
                     updated_at = NOW()`,
-      [userId, rule.firmName, rule.evalType, rule.drawdownStyle,
+      [userId, rule.firmName, rule.evalType, rule.accountSize ?? null, rule.drawdownStyle,
        rule.consistencyPct ?? null, rule.profitSplitPct ?? null, rule.payoutMin ?? null,
-       rule.winningDayMin ?? null, rule.winningDaysReq ?? null, rule.notes ?? null]);
+       rule.winningDayMin ?? null, rule.winningDaysReq ?? null, rule.dailyLossLimit ?? null,
+       rule.hasDailyLoss ?? null, rule.maxDrawdown ?? null, rule.profitTarget ?? null,
+       rule.notes ?? null]);
 
     let accountsUpdated = 0;
     if (rule.applyToActive !== false) {

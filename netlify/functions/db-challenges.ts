@@ -7,6 +7,7 @@ import {
 } from '../../server/db/cascadeService'
 import { db } from '../../server/db/connection'
 import { sql } from 'drizzle-orm'
+import { withIdempotency } from '../../server/db/stateService'
 
 export const handler: Handler = async (event) => {
   try {
@@ -46,12 +47,14 @@ export const handler: Handler = async (event) => {
         try {
           switch (input.action) {
             case 'buy-eval': {
-              const r = await buyEval({ userId: user.id, ...input })
+              const r = await withIdempotency(user.id, input.idempotencyKey, 'buy-eval',
+                () => buyEval({ userId: user.id, ...input }))
               return json(200, r)
             }
             case 'pass-eval': {
               // Always lands on FUNDED. Live is a separate promotion.
-              const r = await passEval({ userId: user.id, ...input })
+              const r = await withIdempotency(user.id, input.idempotencyKey, 'pass-eval',
+                () => passEval({ userId: user.id, ...input }))
               return json(200, r)
             }
             case 'promote-to-live': {
@@ -61,12 +64,13 @@ export const handler: Handler = async (event) => {
               return json(200, r)
             }
             case 'fail-account': {
-              const r = await failAccount({
-                userId: user.id,
-                accountRef: input.accountRef,
-                failureReason: input.failureReason,
-                failureDate: input.failureDate,
-              })
+              const r = await withIdempotency(user.id, input.idempotencyKey, 'fail-account',
+                () => failAccount({
+                  userId: user.id,
+                  accountRef: input.accountRef,
+                  failureReason: input.failureReason,
+                  failureDate: input.failureDate,
+                }))
               return json(200, r)
             }
             default:
