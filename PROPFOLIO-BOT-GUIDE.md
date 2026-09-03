@@ -40,33 +40,40 @@ Never infer stage from `phase1_completed`, `status`, or `live_account`. Those st
 
 ---
 
-## 3. Account references — the 0001 problem
+## 3. Account references — FIRST4 + LAST4
 
-Daniel holds multiple accounts that share a last4. Two Lucid Daily "0001"s exist right now with **different rules** (one has a $600 daily loss limit, one has none). The old code resolved a bare `0001` by picking the oldest match silently, so trades landed on the wrong account.
+Daniel gives the **first four AND last four** characters of the account number. The label is `FIRST-LAST`, which is unique on its own. (Account numbers are often letters, not just digits.)
 
-Accounts now have a **`display_label`**, unique among active accounts:
+`accountRef` accepts **any** of these, case-insensitively:
 
-- One account with last4 `0857` → label is `0857`
-- Two accounts with last4 `0001` → labels are `0001-A` and `0001-B`
+| Form | Example |
+|---|---|
+| Full pair — **prefer this** | `LDE0-0001` |
+| First 4 only | `LDE0` |
+| Last 4 only | `0001` |
+| Nickname, if he set one | `LUCD` |
 
-**Always send the `display_label`.** If you send a bare `0001` and it is ambiguous, the API returns HTTP 400 with `code: "ambiguous"` and lists the options. **Ask Daniel which one — never guess.**
+A **mismatched** pair like `ZERO-0001` returns `not_found` — it will never be fuzzy-matched onto a nearby account. A genuinely ambiguous bare last4 still returns HTTP 400 `code: "ambiguous"` with the options listed. **Ask Daniel — never guess.**
+
+**When he buys a new account, ask for both halves** and record them:
 
 ```json
-{ "error": "\"0001\" matches 2 active accounts (0001-A, 0001-B). Say which one.",
-  "code": "ambiguous" }
+{ "action": "set-account-number", "accountRef": "<current label>",
+  "first4": "APEX", "last4": "0001" }
 ```
 
 ---
 
-## 4. Current live state (Sep 3 2026)
+## 4. Current live state (Sep 3 2026, 21:40 UTC)
 
-| Label | Firm | Plan | Stage | Size | Daily DD | Notes |
+| Label | Firm | Plan | Stage | Size | Balance | Notes |
 |---|---|---|---|---|---|---|
-| `0001-A` | Lucid Trading | Lucid Daily | eval_active | $25K | $600 | cost $68.20 |
-| `0001-B` | Lucid Trading | Lucid Daily | eval_active | $25K | none | cost $75.00 |
-| `0857` | Alpha Futures | Zero | funded_active | $50K | $1,000 | cost $71.40, 0 payouts |
+| `LDE0-0001` | Lucid Trading | Lucid Daily | funded_active | $25K | $25,463.00 | cost $75.00 |
+| `ZERO-0857` | Alpha Futures | Zero | funded_active | $50K | $51,639.40 | cost $71.40, 0 payouts |
 
-Everything before this was archived. See §9.
+**2 funded, 0 live, 0 active evals.**
+
+Don't hardcode this table — call `GET db-state-full` at the start of every conversation. It is always current. Everything before the Sep 3 rebuild was archived; see §9.
 
 ---
 
@@ -117,7 +124,7 @@ Retires the eval, creates the **funded** account, links them.
 ```json
 {
   "action": "pass-eval",
-  "accountRef": "0001-A",
+  "accountRef": "LDE0-0001",
   "fundedLast4": "0019",
   "rules": ["200$ Per Trade", "Hard SL"],
   "maxDrawdown": 2000,
@@ -135,13 +142,13 @@ Retires the eval, creates the **funded** account, links them.
 ### 5.3 Firm moved him to live → `POST db-challenges`
 
 ```json
-{ "action": "promote-to-live", "accountRef": "0857" }
+{ "action": "promote-to-live", "accountRef": "ZERO-0857" }
 ```
 
 The **only** path to live. Rejected with `code: "insufficient_payouts"` below 5 payouts:
 
 ```json
-{ "error": "0857 has 2 payout(s). Live requires at least 5 — and even then the firm decides.",
+{ "error": "ZERO-0857 has 2 payout(s). Live requires at least 5 — and even then the firm decides.",
   "code": "insufficient_payouts" }
 ```
 
@@ -152,7 +159,7 @@ Only call this when Daniel explicitly says the firm moved him. Reaching 5 payout
 ```json
 {
   "action": "fail-account",
-  "accountRef": "0001-B",
+  "accountRef": "LDE0-0001",
   "failureReason": "max_drawdown",
   "failureDate": "2026-09-03"
 }
@@ -167,7 +174,7 @@ Reasons: `rule_break`, `max_drawdown`, `daily_loss`, `tilt_revenge`, `overtradin
 **Give an account a nickname** so "0001" is never ambiguous:
 
 ```json
-{ "action": "set-nickname", "accountRef": "0001-B", "nickname": "LUCD" }
+{ "action": "set-nickname", "accountRef": "LDE0-0001", "nickname": "LUCD" }
 ```
 
 4–16 characters, letters/digits/dashes, unique among active accounts. Once set, `accountRef` accepts the nickname, the display label, or the raw last 4 — all three resolve to the same account. Prefer the nickname when talking to Daniel; it's the handle he chose.
@@ -177,7 +184,7 @@ Reasons: `rule_break`, `max_drawdown`, `daily_loss`, `tilt_revenge`, `overtradin
 ```json
 {
   "action": "log-trade",
-  "accountRef": "0857",
+  "accountRef": "ZERO-0857",
   "amount": 1493.00,
   "instrument": "NQ",
   "direction": "long",
@@ -200,7 +207,7 @@ A payout is **income**, not just a trading stat. It has to land in the budget, a
 **Step 1 — ask what the split should be.** Call WITHOUT `allocations`. This writes **nothing**:
 
 ```json
-{ "action": "record-payout", "accountRef": "0857", "amount": 1500 }
+{ "action": "record-payout", "accountRef": "ZERO-0857", "amount": 1500 }
 ```
 
 You get back a proposal built from his actual finances:
@@ -224,7 +231,7 @@ You get back a proposal built from his actual finances:
 **Step 2 — apply what he confirms:**
 
 ```json
-{ "action": "record-payout", "accountRef": "0857", "amount": 1500,
+{ "action": "record-payout", "accountRef": "ZERO-0857", "amount": 1500,
   "allocations": [
     { "bucket": "debt", "accountId": "acc_aspire", "amount": 1000 },
     { "bucket": "savings", "accountId": "acc_cash", "amount": 500 }
@@ -345,7 +352,7 @@ Shared facts on the `any` row are inherited at both stages, so you only record w
 Netlify can time out *after* the write committed. Retrying then double-logs the trade. Send a unique `idempotencyKey` per statement and a retry returns the original result instead:
 
 ```json
-{ "action": "log-trade", "accountRef": "0857", "amount": 1493,
+{ "action": "log-trade", "accountRef": "ZERO-0857", "amount": 1493,
   "idempotencyKey": "tg-msg-84321" }
 ```
 
@@ -375,16 +382,20 @@ Reversible: `log-trade`, `record-payout` (including every budget slice), `fail-a
 |---|---|
 | `none` | Fine, keep trading |
 | `session_lockout` | Daily limit hit on an **EOD** plan. Locked out for the session, **account survives**, trades again next session. |
-| `account_lost` | **Account is dead.** Already marked lost across every surface — do not call `fail-account`. |
+| `account_lost` | **A WARNING ONLY — the account is NOT dead.** Propfolio only sees trades Daniel logged, not his real broker balance, so this verdict can be wrong. Tell him it *looks* blown by Propfolio's numbers and ask him to check the platform. **Nothing changes until he says it failed**, at which point you call `fail-account`. |
 
 Two drawdown styles:
 
-- **EOD / session** (Lucid Flex, Lucid Daily, MFF Builder, Tradify Select Flex) — hitting the daily limit is a lockout. Account survives.
-- **Intraday trailing** (MFF **Rapid**, Alpha **Zero**) — the floor trails equity intraday. Touching it is **terminal**. Account lost, not locked.
+- **EOD / session** — the limit resets each session. Hitting it is a lockout; the account survives.
+- **Intraday trailing** — the floor trails equity during the session. Touching it is far more serious.
 
-This is what was wrong before: 9058 (a Rapid account) was reported as "daily DD hit, account survives" using EOD logic. It was actually blown. **Never apply EOD logic to a Rapid or Zero account.**
+**Do NOT infer the style from the plan name.** That was wrong on Daniel's own account — the old table had Alpha **Zero** as trailing when it is actually **EOD**, which would have reported a survivable lockout as a dead account. Style is now a stored per-account fact in the `plan_rules` catalogue. If it isn't recorded, the verdict says so and defaults to EOD — ask Daniel once and store it with `set-plan-rule`.
 
-A max-drawdown breach is terminal on **every** plan.
+Firms change this often (MFF now sells an EOD Rapid), so treat the catalogue as the truth and the plan name as meaningless.
+
+**Either way, the account is never marked lost by a calculation.** Daniel decides. See `account_lost` above.
+
+A max-drawdown breach is serious on **every** plan — but it is still only a warning from Propfolio, which cannot see his broker. Report it, don't act on it.
 
 ---
 
