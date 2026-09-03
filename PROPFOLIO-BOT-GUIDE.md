@@ -183,13 +183,49 @@ Reasons: `rule_break`, `max_drawdown`, `daily_loss`, `tilt_revenge`, `overtradin
 
 **`netIntoSession: true`** folds a small scratch trade into that day's main trade instead of creating a new row — Daniel's standing rule, since small trades pollute his stats. **Exception:** if the small trade is a *rule break*, log it separately with `netIntoSession: false` so it stays visible.
 
-### 5.6 Payout → `POST db-trades`
+### 5.6 Payout → `POST db-trades` — TWO STEPS, always
+
+A payout is **income**, not just a trading stat. It has to land in the budget, and Daniel decides where.
+
+**Step 1 — ask what the split should be.** Call WITHOUT `allocations`. This writes **nothing**:
 
 ```json
-{ "action": "record-payout", "accountRef": "0857", "amount": 1500, "date": "2026-09-03" }
+{ "action": "record-payout", "accountRef": "0857", "amount": 1500 }
 ```
 
-Only valid on funded/live accounts. Returns `{ payoutCount, eligibleForLive }`. When `eligibleForLive` flips true, tell Daniel he's eligible — but do **not** promote him automatically.
+You get back a proposal built from his actual finances:
+
+```json
+{ "applied": false,
+  "proposal": {
+    "summary": "Suggested split of $1500.00: $148.01 → Sofi (prop cushion) · $1351.99 → Aspire (debt)",
+    "slices": [
+      { "bucket": "prop_cushion", "accountId": "acc_sofi", "amount": 148.01,
+        "reason": "Cash on hand is $66.59 against ~$148 of eval spend in the last 30 days. This keeps the next eval off a credit card." },
+      { "bucket": "debt", "accountId": "acc_aspire", "amount": 1351.99,
+        "reason": "Aspire carries $1969.27 at roughly 36% APR — the most expensive money you owe." }
+    ],
+    "context": { "totalDebt": 6916.20, "cashOnHand": 66.59, "highestAprAccount": "Aspire" }
+  } }
+```
+
+**Show him the split and the reasons, then ask.** He may want it entirely different — it's his money.
+
+**Step 2 — apply what he confirms:**
+
+```json
+{ "action": "record-payout", "accountRef": "0857", "amount": 1500,
+  "allocations": [
+    { "bucket": "debt", "accountId": "acc_aspire", "amount": 1000 },
+    { "bucket": "savings", "accountId": "acc_cash", "amount": 500 }
+  ] }
+```
+
+Buckets: `debt` · `prop_cushion` · `savings` · `spending`.
+
+Allocations **must sum exactly to the payout** or you get `allocation_mismatch` and nothing is written. Only funded/live accounts take payouts. Returns `{ payoutCount, eligibleForLive }` — when `eligibleForLive` turns true, tell him he's eligible, but never promote automatically.
+
+Want just the suggestion without touching a payout? `{ "action": "propose-allocation", "amount": 1500 }`.
 
 ### 5.7 Spent money → `POST db-budget-state`
 
@@ -235,9 +271,70 @@ A credit account stores the amount **owed**, so buying an eval on Destiny *incre
 
 Every action returns the touched account's new balance, so you can confirm the direction was right.
 
-### 5.8 Reading state → `GET db-challenges`
+### 5.8 Reading state → `GET db-state-full` ← **start here every time**
 
-Now works (it used to return `Method Not Allowed`). Returns every challenge joined to its account card — lifecycle, label, balance, payout count, drawdown values. **Use this to check state before acting.**
+**One call, the whole picture.** Use this instead of stitching together several reads:
+
+```
+GET db-state-full
+```
+
+Returns every active account with balance, room to stop-out, day P&L, rules, payout count, plan facts (consistency %, split, payout minimum), **best day**, **true profit target**, and whether the consistency rule is currently satisfied. Plus the full budget, month-to-date spend and payouts, and the last few undoable actions.
+
+**The true profit target matters.** The real pass bar is not the nominal target — it's `bestDay / consistency%`. Daniel nearly failed an eval at exactly $3,000 because a $1,500.50 best day pushed the true bar to $3,001. That number is computed for you; quote it, don't recalculate it.
+
+`GET db-challenges` still returns the raw challenge/account join if you need it.
+
+### 5.9 Plan rules → `GET db-trades?action=plan-rules`
+
+**Check this before buying an eval.** It's what Propfolio has learned about each plan:
+
+```
+GET db-trades?action=plan-rules&firm=Lucid%20Trading&evalType=Lucid%20Flex
+```
+
+```json
+{ "known": true,
+  "rule": { "consistencyPct": 50, "profitSplitPct": 90, "payoutMin": 2000,
+            "dailyLossLimit": 1200, "winningDayMin": 150, "winningDaysReq": 5 } }
+```
+
+`known: false` means Propfolio has never seen this plan. **Ask Daniel once**, then teach it:
+
+```json
+{ "action": "set-plan-rule", "firmName": "My Funded Futures", "evalType": "Rapid EOD",
+  "accountSize": 50000, "drawdownStyle": "eod", "consistencyPct": 30,
+  "profitSplitPct": 90, "dailyLossLimit": 1000, "payoutMin": 1500 }
+```
+
+It's remembered permanently and applied to active accounts on that plan. Firms change rules often — when one does, send the correction and it propagates.
+
+Known so far: Lucid Flex 50K (50% consistency) · Alpha Zero 50K (40%) · Lucid Daily 25K · MFF Builder (80/20 — the only one) · MFF Rapid · MFF Rapid EOD · Tradify Select Flex.
+
+### 5.10 Idempotency — send a key with every write
+
+Netlify can time out *after* the write committed. Retrying then double-logs the trade. Send a unique `idempotencyKey` per statement and a retry returns the original result instead:
+
+```json
+{ "action": "log-trade", "accountRef": "0857", "amount": 1493,
+  "idempotencyKey": "tg-msg-84321" }
+```
+
+Use something stable and unique — the Telegram message id is ideal. The response carries `idempotentReplay: true` when it's a replay. Supported on `buy-eval`, `pass-eval`, `fail-account`, `log-trade`, `record-payout` and `undo`.
+
+### 5.11 Undo → `POST db-state-full`
+
+"Scratch that, wrong account."
+
+```json
+{ "action": "undo" }
+```
+
+Reverses the last action. Pass `actionId` to target a specific one; `GET db-state-full?action=history` lists them.
+
+Reversible: `log-trade`, `record-payout` (including every budget slice), `fail-account`, `log-expense`, `transfer`. Buying and passing an eval are **not** auto-reversible — they create accounts that may have been traded on since; you'll get `not_undoable` and should ask Daniel exactly what to unwind.
+
+**Confirm before undoing.** Read the summary back to him first: *"Last action was 'Win of $800.00 on 0857' — undo that?"*
 
 ---
 
@@ -278,6 +375,10 @@ All cascade errors return HTTP 400 with a machine-readable `code`:
 | `action_required` | POST to db-budget-state without an `action` | Add the action field. |
 | `same_account` | Transfer source = destination | Check the two ids. |
 | `bad_amount` | Amount is zero, negative or not a number | Always send a positive number. |
+| `allocation_mismatch` | Payout allocations don't sum to the payout | Fix the split; nothing was written. |
+| `nothing_to_undo` | No reversible action found | Tell him there's nothing pending. |
+| `already_undone` | That action was already reversed | Don't retry. |
+| `not_undoable` | buy-eval / pass-eval can't auto-reverse | Ask exactly what to unwind. |
 
 A 400 means **nothing was written**. The transaction rolled back. Safe to retry after fixing the input.
 
@@ -308,14 +409,26 @@ The app cannot see it — nothing renders, no stats are polluted. It is still fu
 
 | Daniel says | You call |
 |---|---|
-| "bought a Lucid flex 50k for 90 on destiny" | `buy-eval` (ask for last4 + rules) |
+| anything at all — **check state first** | `GET db-state-full` |
+| "bought a Lucid flex 50k for 90 on destiny" | check `plan-rules`, then `buy-eval` |
 | "passed 0045" | `pass-eval` (ask for the new funded last4) |
 | "they moved me to live on 0857" | `promote-to-live` (needs 5+ payouts) |
 | "failed 9056" | `fail-account` |
 | "made 1493 on 0047" | `log-trade` |
-| "got a 1500 payout on 0857" | `record-payout` |
+| "got a 1500 payout on 0857" | `record-payout` → show split → confirm → apply |
 | "spent 60 on gas from sofi" | `log-expense` |
 | "paid 200 to my destiny card" | `transfer` (sofi → destiny) |
 | "got paid 1200" | `log-income` |
+| "scratch that / wrong account" | `undo` (confirm the summary first) |
+| "am I ok on consistency?" | `GET db-state-full` → `trueProfitTarget`, `consistencyOk` |
 | "what accounts do I have?" | `GET db-budget-state?action=accounts` |
-| "what am I holding?" | `GET db-challenges` |
+
+---
+
+## 11. Habits that keep this clean
+
+1. **Read `db-state-full` before acting.** One call, current picture, no stale assumptions.
+2. **Send an `idempotencyKey` on every write.** The Telegram message id works.
+3. **Relay `warnings`.** They carry label collisions, missing rules, live-eligibility and the "this app can't see your broker balance" caveat.
+4. **Never decide for him.** Propose the payout split, propose the plan rule, then ask. The app records what Daniel says; it doesn't overrule him.
+5. **A breach warning is not a failed account.** Propfolio only sees logged trades. Only mark an account failed when he says the platform confirmed it.
