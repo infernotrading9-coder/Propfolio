@@ -41,18 +41,56 @@ import { todayET, CascadeError } from './cascadeService';
 export type DrawdownStyle = 'eod' | 'intraday_trailing';
 
 /**
- * Which eval plans trail intraday. Keyed by eval_type (the product variant),
- * because the same firm sells both kinds — MFF sells Builder (EOD) AND Rapid
- * (intraday). Firm name alone is not enough to decide.
+ * Which eval plans trail intraday.
+ *
+ * Matched as SUBSTRINGS, deliberately. An exact-match Set looked tidy but was a
+ * live hazard: Daniel and the bot write the plan name however it comes out in
+ * chat — "MFF Rapid", "Alpha Zero", "Rapid 50k", "Zero Eval". Every one of those
+ * missed an exact lookup and silently fell through to EOD, which reports a BLOWN
+ * intraday account as "session lockout, account survives". That is exactly the
+ * wrong call that was made on 9058.
+ *
+ * Failing safe matters more than matching precisely here, so anything containing
+ * these tokens is treated as intraday-trailing.
  */
-const INTRADAY_TRAILING_PLANS = new Set([
+const INTRADAY_TRAILING_TOKENS = [
   'rapid',   // My Funded Futures Rapid
   'zero',    // Alpha Futures Zero
-]);
+];
+
+/**
+ * Plans explicitly known to be EOD. Checked FIRST, so a future plan whose name
+ * happens to contain a token above can be excluded by name rather than by
+ * weakening the substring match.
+ */
+const KNOWN_EOD_PLANS = [
+  'builder',      // My Funded Futures Builder
+  'lucid flex',
+  'lucid daily',
+  'select flex',  // Tradify Select Flex
+];
 
 export function drawdownStyleFor(evalType?: string | null): DrawdownStyle {
   const key = String(evalType || '').trim().toLowerCase();
-  return INTRADAY_TRAILING_PLANS.has(key) ? 'intraday_trailing' : 'eod';
+  if (!key) return 'eod';
+  if (KNOWN_EOD_PLANS.some(p => key.includes(p))) return 'eod';
+  if (INTRADAY_TRAILING_TOKENS.some(t => key.includes(t))) return 'intraday_trailing';
+  return 'eod';
+}
+
+/**
+ * True when we do not actually recognise this plan and are defaulting to EOD.
+ *
+ * An unrecognised plan gets the SURVIVING verdict, which is the dangerous
+ * direction to be wrong in. Callers surface this as a warning so Daniel is told
+ * "I don't know this plan, verify with the firm" rather than being quietly
+ * reassured his dead account is fine.
+ */
+export function isPlanRecognised(evalType?: string | null): boolean {
+  const key = String(evalType || '').trim().toLowerCase();
+  if (!key) return false;
+  return KNOWN_EOD_PLANS.some(p => key.includes(p))
+    || INTRADAY_TRAILING_TOKENS.some(t => key.includes(t));
 }
 
 export interface TradeVerdict {
@@ -221,6 +259,16 @@ export async function logTrade(input: LogTradeInput): Promise<LogTradeResult> {
     });
 
     const style = drawdownStyleFor(acct.eval_type || acct.ch_eval_type);
+
+    // An unrecognised plan defaults to EOD, which is the *survivable* verdict —
+    // the dangerous direction to be wrong in. Say so out loud rather than
+    // quietly reassuring Daniel that a possibly-dead account is fine.
+    if (!isPlanRecognised(acct.eval_type || acct.ch_eval_type)) {
+      warnings.push(
+        `Unrecognised plan "${acct.eval_type || acct.ch_eval_type || '(none)'}" on ${acct.display_label} — ` +
+        `assuming EOD drawdown (breach = session lockout). If this plan trails INTRADAY, ` +
+        `a breach kills the account instead. Verify with the firm.`);
+    }
 
     let consequence: TradeVerdict['consequence'] = 'none';
     let message = `Balance $${balanceAfter.toLocaleString()}. Room to stop-out: $${dd.room.toFixed(2)}.`;
