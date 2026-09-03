@@ -162,6 +162,16 @@ Works identically for evals, funded and live accounts — the old flow only hand
 
 Reasons: `rule_break`, `max_drawdown`, `daily_loss`, `tilt_revenge`, `overtrading`, `account_expired`, `strategic_reset`, `firm_platform_issue`, `unknown`.
 
+### 5.4b Account nickname → `POST db-accounts`
+
+**Give an account a nickname** so "0001" is never ambiguous:
+
+```json
+{ "action": "set-nickname", "accountRef": "0001-B", "nickname": "LUCD" }
+```
+
+4–16 characters, letters/digits/dashes, unique among active accounts. Once set, `accountRef` accepts the nickname, the display label, or the raw last 4 — all three resolve to the same account. Prefer the nickname when talking to Daniel; it's the handle he chose.
+
 ### 5.5 Logged a trade → `POST db-trades`
 
 ```json
