@@ -111,6 +111,24 @@ export const handler: Handler = async (event) => {
               return json(200, r)
             }
 
+            case 'reconcile-balances': {
+              // "Here's what my accounts actually say" — for when Daniel hasn't
+              // logged in days, or made too many small transactions to itemise.
+              // Sets each balance and writes ONE balancing adjustment per
+              // account so the ledger still explains every dollar.
+              //
+              // Eval purchases are never absorbed this way; they must go
+              // through buy-eval with a real cost and funding source.
+              const r = await reconcileBalances({
+                userId: user.id,
+                balances: body.balances,
+                date: body.date,
+                note: body.note,
+                dryRun: body.dryRun === true,
+              })
+              return json(200, r)
+            }
+
             default:
               return json(400, { error: `Unknown action "${body.action}"` })
           }

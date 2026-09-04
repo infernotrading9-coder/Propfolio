@@ -288,6 +288,32 @@ A credit account stores the amount **owed**, so buying an eval on Destiny *incre
 
 Every action returns the touched account's new balance, so you can confirm the direction was right.
 
+### 5.7b Catch-up: "just update my balances" → `POST db-budget-state`
+
+Daniel sometimes goes days without logging, or makes too many small transactions to bother itemising. Instead of reconstructing every one, he reads the real balances off his banking apps and hands them over.
+
+**Always dry-run first and show him the deltas:**
+
+```json
+{ "action": "reconcile-balances", "dryRun": true,
+  "balances": [
+    { "accountRef": "Cash",    "actualBalance": 119.00 },
+    { "accountRef": "Destiny", "actualBalance": 1016.56 }
+  ] }
+```
+
+Returns each delta with a `direction` (`spent` / `received` / `unchanged`) and `totalUnlogged`. Show him, get a yes, then send the same call without `dryRun`.
+
+Each account gets **one balancing `adjustment` transaction**, so the ledger still explains every dollar and the nightly reconcile sees an explained delta instead of mystery drift. Reversible with `undo`.
+
+**⚠️ EVAL PURCHASES ARE NEVER ABSORBED THIS WAY.**
+
+If he says *"I also bought two evals in there somewhere"*, do **not** let the adjustment swallow them. Log each one with `buy-eval` — real cost, real funding source — **then** reconcile the remainder. Eval cost drives spend-per-eval, pass rate, and the whole "am I making money or funding prop firms?" question. An adjustment that hides a $75 eval makes that unanswerable.
+
+Same for payouts (`record-payout`) and activation fees. Adjustments are for **living noise only** — gas, food, the stuff he forgets.
+
+Ask him directly: *"Any eval purchases or payouts in that period? Those I need to log properly first."*
+
 ### 5.8 Reading state → `GET db-state-full` ← **start here every time**
 
 **One call, the whole picture.** Use this instead of stitching together several reads:

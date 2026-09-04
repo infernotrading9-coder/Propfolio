@@ -197,6 +197,23 @@ export async function undoAction(
         break;
       }
 
+      case 'reconcile-balances': {
+        // Put every balance back and drop the adjustment transactions.
+        const { rows: br } = await tx.query(
+          `SELECT state FROM budget_state WHERE user_id=$1 FOR UPDATE`, [userId]);
+        if (!br.length) break;
+        const state = typeof br[0].state === 'string' ? JSON.parse(br[0].state) : br[0].state;
+        const txnIds = new Set((d.balances || []).map((b: any) => b.txnId).filter(Boolean));
+        for (const b of (d.balances || [])) {
+          const acct = (state.accounts || []).find((x: any) => x?.id === b.id);
+          if (acct) acct.balance = round2(Number(b.balance));
+        }
+        state.transactions = (state.transactions || []).filter((t: any) => !txnIds.has(t.id));
+        await tx.query(`UPDATE budget_state SET state=$2::jsonb, updated_at=NOW() WHERE user_id=$1`,
+          [userId, JSON.stringify(state)]);
+        break;
+      }
+
       default:
         throw new CascadeError(
           `"${entry.action}" cannot be undone automatically — it created accounts that may have been traded since. Tell me exactly what to reverse.`,
