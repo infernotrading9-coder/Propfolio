@@ -3,6 +3,8 @@ import { json, getUserFromSession } from './_utils'
 import { tradingAccountService, accountDailyOrderService } from '../../server/db/service'
 import { spawnChallengeAndBudgetFromAccount } from '../../server/db/purchaseService'
 import { settleAccount } from '../../server/db/drawdownModel'
+import { correctPlan } from '../../server/db/correctPlanService'
+import { CascadeError } from '../../server/db/cascadeService'
 
 export const handler: Handler = async (event) => {
   try {
@@ -105,6 +107,20 @@ export const handler: Handler = async (event) => {
       }
 
       // Set daily order
+      if (input.action === 'correct-plan') {
+        // Daniel mistyped a plan to the bot ("Lucid Flex" when it was a Lucid
+        // Daily). Works on DEAD accounts too — fixing history is the point —
+        // and re-resolves drawdown_style from the catalogue for the new plan.
+        // Journalled, so it can be undone.
+        const r = await correctPlan({
+          userId: user.id,
+          accountRef: input.accountRef,
+          evalType: input.evalType,
+          firmName: input.firmName,
+        })
+        return json(200, r)
+      }
+
       if (input.action === 'set-account-number') {
         // Daniel supplies the first 4 AND last 4 characters of the real account
         // number. Account numbers are not always numeric, so first4 is text.
@@ -289,6 +305,9 @@ export const handler: Handler = async (event) => {
     return json(405, { error: 'Method Not Allowed' })
   } catch (e) {
     console.error('db-accounts error', e)
+    // Surface cascade errors as actionable messages. A bare 500 tells the bot
+    // nothing, so it can't relay anything useful to Daniel.
+    if (e instanceof CascadeError) return json(400, { error: e.message, code: e.code })
     return json(500, { error: 'Internal Server Error' })
   }
 }

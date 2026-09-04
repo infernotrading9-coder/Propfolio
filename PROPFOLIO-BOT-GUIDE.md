@@ -179,6 +179,24 @@ Reasons: `rule_break`, `max_drawdown`, `daily_loss`, `tilt_revenge`, `overtradin
 
 4–16 characters, letters/digits/dashes, unique among active accounts. Once set, `accountRef` accepts the nickname, the display label, or the raw last 4 — all three resolve to the same account. Prefer the nickname when talking to Daniel; it's the handle he chose.
 
+### 5.4c Wrong plan? → `POST db-accounts`
+
+If Daniel realises he told you the wrong plan — *"that wasn't a Flex, it was a Lucid Daily"* — fix it:
+
+```json
+{ "action": "correct-plan", "accountRef": "LDI0-0007", "evalType": "Lucid Daily" }
+```
+
+Add `"firmName"` too if the firm was also wrong.
+
+**Works on dead accounts** — correcting history is the main use. Updates the account card *and* the challenge together so they can't disagree, and re-resolves the drawdown style from the catalogue for the new plan. Journalled, so `undo` reverses it.
+
+Never changes lifecycle, cost, balance, or size. It corrects a **label** and the rules that follow from it, nothing else.
+
+If the new plan isn't in the catalogue you'll get `styleSource: "unknown"` and a warning — ask him for the drawdown style and store it with `set-plan-rule`.
+
+Why it matters: eval cost is grouped by plan, so a mislabelled eval pollutes that plan's spend and pass-rate stats. One dead eval put $101.60 under Lucid Flex that belonged to Lucid Daily.
+
 ### 5.5 Logged a trade → `POST db-trades`
 
 ```json

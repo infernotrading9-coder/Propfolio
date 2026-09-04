@@ -214,6 +214,19 @@ export async function undoAction(
         break;
       }
 
+      case 'correct-plan': {
+        // Undo a plan-label correction: put the old plan back on both rows.
+        await tx.query(
+          `UPDATE trading_accounts SET eval_type=$2, firm=$3, updated_at=NOW() WHERE id=$1`,
+          [d.accountId, d.priorEvalType, d.priorFirm]);
+        if (d.challengeId) {
+          await tx.query(
+            `UPDATE challenges SET eval_type=$2, updated_at=NOW() WHERE id=$1`,
+            [d.challengeId, d.priorChEvalType]);
+        }
+        break;
+      }
+
       default:
         throw new CascadeError(
           `"${entry.action}" cannot be undone automatically — it created accounts that may have been traded since. Tell me exactly what to reverse.`,
