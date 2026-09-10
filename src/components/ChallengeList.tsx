@@ -459,6 +459,11 @@ export const ChallengeList: React.FC<{
                     </div>
                     <div className="text-sm font-semibold text-cyan-300">
                       {label} · ${Number(challenge.accountSize || 0).toLocaleString()} Account
+                      {challenge.accountLast4 && (
+                        <span className="ml-2 text-xs text-white/50 font-mono">
+                          #{challenge.accountLast4}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
