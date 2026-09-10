@@ -4,7 +4,7 @@ import { StatsSummary, Challenge } from '../types';
 import { Trophy, DollarSign, Percent, Wallet, Calculator, Clock, Zap } from 'lucide-react';
 import { getDisplayOutcome, getNetLifecyclePnl } from '../utils/challengeLifecycle';
 import {
-  countByLifecycle, everReachedFunded, lifecycleOf,
+  countByLifecycle, everReachedFunded,
 } from '../utils/lifecycle';
 
 type PassBasis = 'start' | 'completion';
@@ -64,7 +64,16 @@ function computeYearStats(challenges: Challenge[], year: string, basis: PassBasi
   // "Funded pass rate" = evals that produced a funded account, over evals bought.
   // Counts an eval as a success even if the funded account later blew up (the
   // eval WAS passed), but no longer counts a passed eval as a live account.
-  const evalsBought = eligible1.filter(c => lifecycleOf(c as any).startsWith('eval'));
+  //
+  // IMPORTANT: funded/live rows ARE passed evals. Each funded_active /
+  // funded_failed / live_active / live_failed row started life as an eval
+  // purchase that was then passed. Counting only `eval_*` rows in both the
+  // numerator and denominator misses them entirely — producing 1/11 (9.1%)
+  // instead of the correct 4/14 (28.6%). The denominator is every challenge
+  // that started this year (eval + funded + live), and the numerator is every
+  // one that reached funded or beyond.
+  const allChallengesStartedThisYear = eligible1;
+  const evalsBought = allChallengesStartedThisYear;
   const liveAccounts = (basis === 'completion'
     ? evalsBought.filter(c => passedTheEval(c) && isInYear(c.phases?.phase1?.completedAt))
     : evalsBought.filter(passedTheEval)
@@ -244,10 +253,9 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
    */
   const currentCounts = useMemo(() => countByLifecycle(challenges as any), [challenges]);
 
-  /** Evals bought in the selected year that produced a funded account. */
+  /** Evals bought in the selected year — includes funded/live rows (each was an eval purchase). */
   const passedInYear = useMemo(() => {
     return challenges.filter(c => {
-      if (!lifecycleOf(c as any).startsWith('eval')) return false;
       if (basis === 'completion') {
         return everReachedFunded(c as any) && c?.phases?.phase1?.completedAt?.slice(0, 4) === selectedYear;
       }
@@ -255,11 +263,11 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
     }).length;
   }, [challenges, selectedYear, basis]);
 
-  /** Evals BOUGHT in the selected year (the denominator for pass rate). */
+  /** Evals BOUGHT in the selected year (the denominator for pass rate).
+   *  Includes funded/live rows — each one was originally an eval purchase
+   *  that was passed, so excluding them undercounts the denominator. */
   const evalsBoughtInYear = useMemo(
-    () => challenges.filter(c =>
-      lifecycleOf(c as any).startsWith('eval') && c?.startDate?.slice(0, 4) === selectedYear
-    ).length,
+    () => challenges.filter(c => c?.startDate?.slice(0, 4) === selectedYear).length,
     [challenges, selectedYear]
   );
   const lifecycleStats = useMemo(() => {
