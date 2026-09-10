@@ -519,9 +519,11 @@ A 400 means **nothing was written**. The transaction rolled back. Safe to retry 
 
 ## 9. The old data
 
-221 challenges, 23 accounts, 46 trades and 29 payouts of history (lifetime $30,730.62 spent / $42,089.37 paid out) were moved into a separate `archive` schema in the same database, plus a JSON backup on disk.
+221 challenges, 23 accounts, 46 trades and 29 payouts of history (lifetime $30,730.62 spent / $42,089.37 paid out) were **imported into the public schema on Sep 10 2026**. The archive schema still exists as a backup, but the data is now visible on the dashboard — the year filter shows 2025 vs 2026 breakdowns, and the pass rate / spend / payout stats include all history.
 
-The app cannot see it — nothing renders, no stats are polluted. It is still fully queryable, but **only by the coding bot (@Uraharacoderbot)**. If Daniel asks about pre-September-2026 history, tell him to ask the coding bot. Do not attempt to query or restore it yourself.
+The imported archive challenges have `lifecycle` derived from their old `status` field (failed → eval_failed, passed → eval_passed). Some have `funded_failed` if they had payouts. They do NOT have `account_id` links (the archive didn't store them) or `account_first4`.
+
+If Daniel asks about pre-September-2026 history, it's all on the dashboard now — no need to query the archive schema separately.
 
 ---
 
