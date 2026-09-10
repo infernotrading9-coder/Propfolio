@@ -393,16 +393,20 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
     glow: 'green',
     textColor: 'text-emerald-300',
   });
+  // Net P&L = total payouts - total spent, for the selected year.
+  // The ROI % card already exists, but seeing the raw dollar amount
+  // is more useful than a percentage when the numbers get large.
   statItems.push({
-    title: 'Payout Then Failed',
-    value: `${lifecycleStats.payoutThenFailed}`,
-    icon: <Trophy className="w-8 h-8 text-amber-300 drop-shadow-neon-amber" />,
-    glow: 'amber',
-    textColor: 'text-amber-300',
+    title: `Net P&L (${selectedYear})`,
+    value: `${(stats.totalPayouts - stats.totalSpent) >= 0 ? '+' : ''}$${(stats.totalPayouts - stats.totalSpent).toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+    icon: <DollarSign className={`w-8 h-8 ${(stats.totalPayouts - stats.totalSpent) >= 0 ? 'text-green-300 drop-shadow-neon-green' : 'text-red-300 drop-shadow-neon-red'}`} />,
+    glow: (stats.totalPayouts - stats.totalSpent) >= 0 ? 'green' : 'red',
+    textColor: (stats.totalPayouts - stats.totalSpent) >= 0 ? 'text-green-300' : 'text-red-300',
   });
+  // Avg cost per eval — shows whether you're getting cheaper evals over time
   statItems.push({
-    title: 'Profitable Failures',
-    value: `${lifecycleStats.netPositiveFailed}`,
+    title: `Avg Cost / Eval (${selectedYear})`,
+    value: evalsBoughtInYear > 0 ? `$${(stats.totalSpent / evalsBoughtInYear).toFixed(2)}` : '—',
     icon: <Calculator className="w-8 h-8 text-lime-300 drop-shadow-neon-lime" />,
     glow: 'lime',
     textColor: 'text-lime-300',
