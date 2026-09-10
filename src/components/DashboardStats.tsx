@@ -403,13 +403,25 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
     glow: (stats.totalPayouts - stats.totalSpent) >= 0 ? 'green' : 'red',
     textColor: (stats.totalPayouts - stats.totalSpent) >= 0 ? 'text-green-300' : 'text-red-300',
   });
-  // Avg cost per eval — shows whether you're getting cheaper evals over time
+  // Avg cost per eval split by firm type — futures and CFD prices are very different
+  const yearEvals = challenges.filter(c => c?.startDate?.slice(0, 4) === selectedYear);
+  const futuresEvals = yearEvals.filter(c => (c?.firmType || 'futures') === 'futures');
+  const cfdEvals = yearEvals.filter(c => c?.firmType === 'cfd');
+  const futuresAvgCost = futuresEvals.length > 0 ? futuresEvals.reduce((s, c) => s + (c?.cost ?? 0), 0) / futuresEvals.length : 0;
+  const cfdAvgCost = cfdEvals.length > 0 ? cfdEvals.reduce((s, c) => s + (c?.cost ?? 0), 0) / cfdEvals.length : 0;
   statItems.push({
-    title: `Avg Cost / Eval (${selectedYear})`,
-    value: evalsBoughtInYear > 0 ? `$${(stats.totalSpent / evalsBoughtInYear).toFixed(2)}` : '—',
+    title: `Avg Futures Eval (${selectedYear})`,
+    value: futuresEvals.length > 0 ? `$${futuresAvgCost.toFixed(2)}` : '—',
     icon: <Calculator className="w-8 h-8 text-lime-300 drop-shadow-neon-lime" />,
     glow: 'lime',
     textColor: 'text-lime-300',
+  });
+  statItems.push({
+    title: `Avg CFD Eval (${selectedYear})`,
+    value: cfdEvals.length > 0 ? `$${cfdAvgCost.toFixed(2)}` : '—',
+    icon: <Calculator className="w-8 h-8 text-amber-300 drop-shadow-neon-amber" />,
+    glow: 'amber',
+    textColor: 'text-amber-300',
   });
 
   return (
