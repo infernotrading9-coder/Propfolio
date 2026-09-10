@@ -169,6 +169,7 @@ export const tradingAccounts = pgTable('trading_accounts', {
   phase: text('phase').default('challenge'), // 'challenge', 'funded', 'live'
   platform: text('platform'),
   groupName: text('group_name'),
+  copyTradeGroup: text('copy_trade_group'),
   sortOrder: integer('sort_order').default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

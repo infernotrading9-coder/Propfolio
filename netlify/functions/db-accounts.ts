@@ -255,6 +255,50 @@ export const handler: Handler = async (event) => {
         return json(200, { order })
       }
 
+      // Link accounts as copy-trades (group them under one label)
+      if (input.action === 'link-copy-trade') {
+        const { accountRefs, groupLabel } = input;
+        if (!Array.isArray(accountRefs) || accountRefs.length < 2) {
+          return json(400, { error: 'At least 2 accountRefs required to link', code: 'bad_input' });
+        }
+        const groupId = input.groupLabel || `ct-${Date.now()}`;
+        const all = await tradingAccountService.getByUserId(user.id);
+        const toLink: any[] = [];
+        for (const ref of accountRefs) {
+          const matches = all.filter((a: any) => a.status === 'active' && (
+            String(a.nickname || '').toLowerCase() === String(ref).toLowerCase() ||
+            a.displayLabel === ref || a.accountNumberLast4 === ref ||
+            String(a.accountFirst4 || '').toUpperCase() === String(ref).toUpperCase() ||
+            `${String(a.accountFirst4 || '').toUpperCase()}-${a.accountNumberLast4}` === String(ref).toUpperCase()
+          ));
+          if (matches.length === 0) return json(400, { error: `No active account matching "${ref}"`, code: 'not_found' });
+          if (matches.length > 1) return json(400, { error: `"${ref}" matches multiple accounts`, code: 'ambiguous' });
+          toLink.push(matches[0]);
+        }
+        for (const acct of toLink) {
+          await tradingAccountService.update(acct.id, { copyTradeGroup: groupId } as any);
+        }
+        return json(200, {
+          groupLabel: groupId,
+          linkedAccounts: toLink.map((a: any) => ({ id: a.id, label: a.displayLabel || a.accountNumberLast4 })),
+        });
+      }
+
+      if (input.action === 'unlink-copy-trade') {
+        const { accountRef } = input;
+        if (!accountRef) return json(400, { error: 'accountRef required', code: 'no_ref' });
+        const all = await tradingAccountService.getByUserId(user.id);
+        const matches = all.filter((a: any) => a.status === 'active' && (
+          String(a.nickname || '').toLowerCase() === String(accountRef).toLowerCase() ||
+          a.displayLabel === accountRef || a.accountNumberLast4 === accountRef ||
+          String(a.accountFirst4 || '').toUpperCase() === String(accountRef).toUpperCase()
+        ));
+        if (matches.length === 0) return json(404, { error: `No active account matching "${accountRef}"`, code: 'not_found' });
+        if (matches.length > 1) return json(400, { error: `"${accountRef}" matches multiple accounts`, code: 'ambiguous' });
+        await tradingAccountService.update(matches[0].id, { copyTradeGroup: null } as any);
+        return json(200, { unlinked: matches[0].displayLabel || matches[0].accountNumberLast4 });
+      }
+
       // Reorder accounts
       if (input.action === 'reorder') {
         const { orderedIds } = input
@@ -294,7 +338,8 @@ export const handler: Handler = async (event) => {
       if (updates.status !== undefined) dbUpdates.status = updates.status
       if (updates.phase !== undefined) dbUpdates.phase = updates.phase
       if (updates.platform !== undefined) dbUpdates.platform = updates.platform
-      if (updates.groupName !== undefined) dbUpdates.groupName = updates.groupName
+      if (updates.copyTradeGroup !== undefined) dbUpdates.copyTradeGroup = updates.copyTradeGroup;
+    if (updates.groupName !== undefined) dbUpdates.groupName = updates.groupName
 
       const updated = await tradingAccountService.update(id, dbUpdates)
       return json(200, { account: updated })

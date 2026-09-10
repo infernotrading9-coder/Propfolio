@@ -9,12 +9,6 @@ interface TradingAccount {
   name: string;
   firm: string;
   accountNumberLast4?: string | null;
-  /**
-   * Unique among ACTIVE accounts. When two accounts share a last4 (Daniel holds
-   * two Lucid Daily "0001"s with different daily-loss rules) they become
-   * 0001-A / 0001-B. Always show this rather than the bare last4, otherwise the
-   * two cards are indistinguishable.
-   */
   displayLabel?: string | null;
   accountSize: string;
   balance: string;
@@ -36,6 +30,7 @@ interface TradingAccount {
   phase: string;
   platform?: string | null;
   groupName?: string | null;
+  copyTradeGroup?: string | null;
   sortOrder: number;
 }
 
@@ -579,6 +574,83 @@ const CombinedRuleCalendar: React.FC<{
   );
 };
 
+// ─── Copy-Trade Group Card ───────────────────────────────────────────────────
+const CopyTradeGroupCard: React.FC<{
+  accounts: TradingAccount[];
+  groupLabel: string;
+  editingId: string | null;
+  editData: Partial<TradingAccount>;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
+  onSave: (id: string, updates: Partial<TradingAccount>) => void;
+  onCancel: () => void;
+  setEditField: (field: string, value: string) => void;
+  onUnlink: (ref: string) => void;
+}> = ({ accounts: groupAccts, groupLabel, editingId, editData, onEdit, onSave, onCancel, setEditField, onUnlink }) => {
+  const primary = groupAccts[0];
+  const sizeLabel = parseFloat(primary.accountSize) >= 1000 ? `$${(parseFloat(primary.accountSize) / 1000).toFixed(0)}K` : `$${primary.accountSize}`;
+  const phaseInfo = primary.phase === 'live'
+    ? { color: 'text-lime-400', bg: 'bg-lime-500/20', border: 'border-lime-400/50', label: 'Live' }
+    : primary.phase === 'funded'
+    ? { color: 'text-cyan-400', bg: 'bg-cyan-500/20', border: 'border-cyan-400/50', label: 'Funded' }
+    : { color: 'text-purple-400', bg: 'bg-purple-500/20', border: 'border-purple-400/50', label: 'Eval' };
+
+  return (
+    <div className="rounded-xl border border-cyan-400/20 bg-gradient-to-br from-gray-900/80 to-gray-800/40 p-4">
+      {/* Group header */}
+      <div className="flex items-center justify-between mb-3 pb-3 border-b border-white/10">
+        <div className="flex items-center gap-2">
+          <span className="text-cyan-300 text-sm font-semibold">🔗 {groupLabel}</span>
+          <span className={`text-xs px-2 py-0.5 rounded-full ${phaseInfo.bg} ${phaseInfo.border} border ${phaseInfo.color}`}>{phaseInfo.label}</span>
+          <span className="text-white/50 text-sm">{primary.firm} · {sizeLabel}{primary.evalType ? ` · ${primary.evalType}` : ''}</span>
+          <span className="text-white/30 text-xs">{groupAccts.length} accounts</span>
+        </div>
+      </div>
+      {/* Individual account cards within the group */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {groupAccts.map((acct) => (
+          <div key={acct.id} className="relative">
+            <div className="bg-white/5 rounded-lg p-3 border border-white/10">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-white font-medium text-sm">{acct.displayLabel || acct.name}</span>
+                <button onClick={() => onUnlink(acct.displayLabel || acct.accountNumberLast4 || acct.id)} className="text-white/30 hover:text-red-400 text-xs" title="Unlink from group">✕</button>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div>
+                  <div className="text-white/40">Balance</div>
+                  <div className="text-white font-semibold">${parseFloat(acct.balance).toFixed(0)}</div>
+                </div>
+                <div>
+                  <div className="text-white/40">P&L</div>
+                  <div className={`font-semibold ${parseFloat(acct.balance) - parseFloat(acct.highWaterMark) >= 0 ? 'text-lime-400' : 'text-red-400'}`}>{parseFloat(acct.balance) - parseFloat(acct.highWaterMark) >= 0 ? '+' : ''}{(parseFloat(acct.balance) - parseFloat(acct.highWaterMark)).toFixed(0)}</div>
+                </div>
+                <div>
+                  <div className="text-white/40">Size</div>
+                  <div className="text-white/70">${parseFloat(acct.accountSize).toFixed(0)}</div>
+                </div>
+              </div>
+              <div className="flex gap-1 mt-2 justify-end">
+                <button onClick={() => onEdit(acct.id)} className="text-white/40 hover:text-cyan-300 text-xs">Edit</button>
+              </div>
+            </div>
+            {editingId === acct.id && (
+              <div className="absolute inset-0 bg-black/80 rounded-lg p-3 z-10 flex flex-col gap-2">
+                <input type="number" value={editData.balance || ''} onChange={(e) => setEditField('balance', e.target.value)} placeholder="Balance" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
+                <input type="number" value={editData.maxDrawdown || ''} onChange={(e) => setEditField('maxDrawdown', e.target.value)} placeholder="Max DD" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
+                <input type="number" value={editData.dailyDrawdown || ''} onChange={(e) => setEditField('dailyDrawdown', e.target.value)} placeholder="Daily DD" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
+                <div className="flex gap-1">
+                  <button onClick={() => onSave(acct.id, editData)} className="bg-neon-lime text-black px-2 py-1 rounded text-xs">Save</button>
+                  <button onClick={onCancel} className="bg-gray-700 text-white px-2 py-1 rounded text-xs">Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // ─── Main AccountsView ───────────────────────────────────────────────────────
 export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHeaders, calendarAccounts = [], calendarEntriesByAccount = {}, onCalendarEntryUpsert }) => {
   const [accounts, setAccounts] = useState<TradingAccount[]>([]);
@@ -588,6 +660,10 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
   const [dailyOrder, setDailyOrder] = useState<DailyOrder | null>(null);
   const [orderMode, setOrderMode] = useState(false);
   const [orderedIds, setOrderedIds] = useState<string[]>([]);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [linkRefs, setLinkRefs] = useState('');
+  const [linkLabel, setLinkLabel] = useState('');
 
   const [newAccount, setNewAccount] = useState({
     name: '', firm: '', accountNumberLast4: '', accountSize: '', balance: '', maxDrawdown: '', dailyDrawdown: '', lockedFloor: '', riskPerTrade: '', rules: '', notes: '', phase: 'challenge', platform: '', groupName: '', cost: '',
@@ -685,6 +761,79 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
     setOrderedIds(newOrder);
   };
 
+  // Drag-and-drop reorder
+  const handleDragStart = (index: number) => setDragIndex(index);
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === index) return;
+    const newOrder = [...orderedIds];
+    const [moved] = newOrder.splice(dragIndex, 1);
+    newOrder.splice(index, 0, moved);
+    setOrderedIds(newOrder);
+    setDragIndex(index);
+  };
+  const handleDragEnd = () => setDragIndex(null);
+  const handleSaveDragOrder = async () => {
+    // Save the dragged order as both the sort_order and the daily order
+    try {
+      await fetch(`${apiBase}/db-accounts`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reorder', orderedIds }),
+      });
+      await fetch(`${apiBase}/db-accounts`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set-daily-order', orderDate: todayLocalISO(), orderedAccountIds: orderedIds }),
+      });
+      setOrderMode(false);
+      loadData();
+    } catch (e) { console.error('Failed to save drag order:', e); }
+  };
+
+  // Copy-trade grouping
+  const groupedAccounts = useMemo(() => {
+    const groups = new Map<string, TradingAccount[]>();
+    const standalone: TradingAccount[] = [];
+    for (const acct of accounts) {
+      if (acct.copyTradeGroup) {
+        const existing = groups.get(acct.copyTradeGroup) || [];
+        existing.push(acct);
+        groups.set(acct.copyTradeGroup, existing);
+      } else {
+        standalone.push(acct);
+      }
+    }
+    return { groups, standalone };
+  }, [accounts]);
+
+  const handleLinkCopyTrade = async () => {
+    const refs = linkRefs.split(',').map(r => r.trim()).filter(Boolean);
+    if (refs.length < 2) { alert('Enter at least 2 account refs'); return; }
+    try {
+      await fetch(`${apiBase}/db-accounts`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'link-copy-trade', accountRefs: refs, groupLabel: linkLabel.trim() || undefined }),
+      });
+      setShowLinkModal(false);
+      setLinkRefs('');
+      setLinkLabel('');
+      loadData();
+    } catch (e) { console.error('Failed to link copy trades:', e); alert('Failed to link accounts'); }
+  };
+
+  const handleUnlinkCopyTrade = async (ref: string) => {
+    try {
+      await fetch(`${apiBase}/db-accounts`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'unlink-copy-trade', accountRef: ref }),
+      });
+      loadData();
+    } catch (e) { console.error('Failed to unlink:', e); }
+  };
+
   if (loading) {
     return <div className="flex items-center justify-center py-20 text-gray-400">Loading accounts...</div>;
   }
@@ -761,13 +910,37 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
           <Wallet className="w-6 h-6 text-neon-purple" />
           Trading Accounts
         </h2>
-        <button
-          onClick={() => setShowAddAccount(!showAddAccount)}
-          className="bg-gradient-to-r from-neon-purple to-neon-cyan text-white px-4 py-2 rounded-lg font-medium hover:opacity-90"
-        >
-          + Add Account
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowLinkModal(true)}
+            className="bg-gradient-to-r from-cyan-500/20 to-purple-500/20 border border-cyan-400/30 text-cyan-200 px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90"
+          >
+            🔗 Link Copy Trades
+          </button>
+          <button
+            onClick={() => { setOrderMode(!orderMode); if (!orderMode) setOrderedIds(accounts.map(a => a.id)); }}
+            className="bg-white/5 border border-white/10 text-white/70 px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90"
+          >
+            {orderMode ? 'Cancel' : '↕ Reorder'}
+          </button>
+          <button
+            onClick={() => setShowAddAccount(!showAddAccount)}
+            className="bg-gradient-to-r from-neon-purple to-neon-cyan text-white px-4 py-2 rounded-lg font-medium hover:opacity-90"
+          >
+            + Add Account
+          </button>
+        </div>
       </div>
+
+      {/* Reorder save bar */}
+      {orderMode && (
+        <div className="flex items-center justify-between bg-cyan-500/5 border border-cyan-400/20 rounded-xl px-4 py-3">
+          <span className="text-cyan-200 text-sm">Drag cards to reorder. Saved as today's trading order.</span>
+          <button onClick={handleSaveDragOrder} className="bg-neon-lime text-black px-4 py-2 rounded-lg font-medium text-sm">
+            Save Order
+          </button>
+        </div>
+      )}
 
       {/* Add Account Form */}
       {showAddAccount && (
@@ -813,33 +986,102 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
         </div>
       )}
 
-      {/* Accounts Grid — Holographic Cards */}
+      {/* Accounts Grid — Holographic Cards with copy-trade grouping + drag */}
       {accounts.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
           <Wallet className="w-12 h-12 mx-auto mb-3 opacity-30" />
           <p>No accounts yet. Click "Add Account" to create one.</p>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {accounts.map((acct) => {
-            const isEditing = editingId === acct.id;
+      ) : orderMode ? (
+        /* Reorder mode: draggable list */
+        <div className="space-y-2">
+          {orderedIds.map((id, idx) => {
+            const acct = accounts.find(a => a.id === id);
+            if (!acct) return null;
             return (
-              <HolographicAccountCard
-                key={acct.id}
-                acct={acct}
-                isEditing={isEditing}
-                editData={editData}
-                onEdit={() => {
-                  setEditingId(acct.id);
-                  setEditData({ balance: acct.balance, drawdownUsed: acct.drawdownUsed, highWaterMark: acct.highWaterMark, maxDrawdown: acct.maxDrawdown, dailyDrawdown: acct.dailyDrawdown, lockedFloor: acct.lockedFloor, notes: acct.notes, status: acct.status, rules: acct.rules });
-                }}
-                onDelete={() => handleDeleteAccount(acct.id)}
-                onSave={() => handleUpdateAccount(acct.id, editData)}
-                onCancel={() => setEditingId(null)}
-                setEditField={(field, value) => setEditData({ ...editData, [field]: value })}
-              />
+              <div
+                key={id}
+                draggable
+                onDragStart={() => handleDragStart(idx)}
+                onDragOver={(e) => handleDragOver(e, idx)}
+                onDragEnd={handleDragEnd}
+                className={`flex items-center gap-3 bg-gray-800/50 rounded-lg px-4 py-3 border ${dragIndex === idx ? 'border-cyan-400/50 opacity-60' : 'border-transparent'} cursor-grab active:cursor-grabbing`}
+              >
+                <GripVertical className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                <span className="text-neon-cyan font-bold w-6 text-center">{idx + 1}</span>
+                <span className="text-white font-medium">{acct.name}</span>
+                <span className="text-gray-400 text-sm">{acct.firm}</span>
+                <span className="text-gray-500 text-sm ml-auto">${parseFloat(acct.balance).toFixed(0)}</span>
+              </div>
             );
           })}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Copy-trade groups */}
+          {Array.from(groupedAccounts.groups.entries()).map(([groupId, groupAccts]) => (
+            <CopyTradeGroupCard
+              key={groupId}
+              accounts={groupAccts}
+              groupLabel={groupId}
+              editingId={editingId}
+              editData={editData}
+              onEdit={(id) => { setEditingId(id); const a = accounts.find(x => x.id === id); if (a) setEditData({ balance: a.balance, drawdownUsed: a.drawdownUsed, highWaterMark: a.highWaterMark, maxDrawdown: a.maxDrawdown, dailyDrawdown: a.dailyDrawdown, lockedFloor: a.lockedFloor, notes: a.notes, status: a.status, rules: a.rules }); }}
+              onDelete={handleDeleteAccount}
+              onSave={handleUpdateAccount}
+              onCancel={() => setEditingId(null)}
+              setEditField={(field, value) => setEditData(prev => ({ ...prev, [field]: value }))}
+              onUnlink={handleUnlinkCopyTrade}
+            />
+          ))}
+          {/* Standalone accounts */}
+          {groupedAccounts.standalone.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {groupedAccounts.standalone.map((acct) => {
+                const isEditing = editingId === acct.id;
+                return (
+                  <HolographicAccountCard
+                    key={acct.id}
+                    acct={acct}
+                    isEditing={isEditing}
+                    editData={editData}
+                    onEdit={() => {
+                      setEditingId(acct.id);
+                      setEditData({ balance: acct.balance, drawdownUsed: acct.drawdownUsed, highWaterMark: acct.highWaterMark, maxDrawdown: acct.maxDrawdown, dailyDrawdown: acct.dailyDrawdown, lockedFloor: acct.lockedFloor, notes: acct.notes, status: acct.status, rules: acct.rules });
+                    }}
+                    onDelete={() => handleDeleteAccount(acct.id)}
+                    onSave={() => handleUpdateAccount(acct.id, editData)}
+                    onCancel={() => setEditingId(null)}
+                    setEditField={(field, value) => setEditData({ ...editData, [field]: value })}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Link Copy Trades Modal */}
+      {showLinkModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowLinkModal(false)}>
+          <div className="bg-[#0a0e17] border border-cyan-500/40 rounded-xl p-6 max-w-md w-full shadow-[0_0_30px_rgba(6,182,212,0.3)]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-white mb-2">Link Copy-Trade Accounts</h3>
+            <p className="text-white/60 text-sm mb-4">Enter the account refs (last4, label, or nickname) to link. They will show as one card — each account's balance and P&L shown separately, not summed.</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-white/60 mb-1 block">Account refs (comma-separated, e.g. 0048, 0049, 0050)</label>
+                <input value={linkRefs} onChange={(e) => setLinkRefs(e.target.value)} placeholder="0048, 0049, 0050" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-white/60 mb-1 block">Group label (optional)</label>
+                <input value={linkLabel} onChange={(e) => setLinkLabel(e.target.value)} placeholder="Lucid Flex 50K trio" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm" />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={handleLinkCopyTrade} className="bg-cyan-600 text-white px-4 py-2 rounded-lg font-medium text-sm">Link Accounts</button>
+              <button onClick={() => setShowLinkModal(false)} className="bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Cancel</button>
+            </div>
+          </div>
         </div>
       )}
 
