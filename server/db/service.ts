@@ -346,12 +346,17 @@ export const tradeService = {
     const allTrades = await db.select().from(trades).where(eq(trades.userId, userId));
     const wins = allTrades.filter(t => t.result === 'win');
     const losses = allTrades.filter(t => t.result === 'loss');
-    // Losses are stored as positive numbers; P&L must subtract them.
-    const signed = (t: Trade) => (t.result === 'loss' ? -1 : 1) * parseFloat(String(t.amount));
+    // New cascade writes signed P&L (losses negative). Some old rows stored
+    // losses as positive with result='loss'. Read both correctly.
+    const signed = (t: Trade) => {
+      const amount = parseFloat(String(t.amount)) || 0;
+      if (amount < 0) return amount;
+      return t.result === 'loss' ? -Math.abs(amount) : Math.abs(amount);
+    };
     const totalPnL = allTrades.reduce((sum, t) => sum + signed(t), 0);
     const rrValues = allTrades.filter(t => t.riskReward).map(t => parseFloat(String(t.riskReward)));
-    const winAmounts = wins.map(t => parseFloat(String(t.amount)));
-    const lossAmounts = losses.map(t => parseFloat(String(t.amount)));
+    const winAmounts = wins.map(t => Math.abs(signed(t)));
+    const lossAmounts = losses.map(t => Math.abs(signed(t)));
 
     // Behavior stats
     const behaviorMap = new Map<string, { count: number; wins: number; losses: number; pnl: number }>();

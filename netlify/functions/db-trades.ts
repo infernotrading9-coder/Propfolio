@@ -1,7 +1,7 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
 import { tradeService, tradingAccountService } from '../../server/db/service'
-import { logTrade, recordPayout, getPlanRule, listPlanRules, upsertPlanRule } from '../../server/db/tradeService'
+import { logTrade, correctTrade, getPlanRule, listPlanRules, upsertPlanRule } from '../../server/db/tradeService'
 import { CascadeError } from '../../server/db/cascadeService'
 import { recordPayoutWithAllocation, proposeAllocation } from '../../server/db/payoutService'
 import { withIdempotency } from '../../server/db/stateService'
@@ -61,7 +61,7 @@ export const handler: Handler = async (event) => {
       // logTrade updates the trade row, balance, HWM, the rule-calendar entry
       // and the drawdown verdict in one transaction — and auto-fails the
       // account when the breach is terminal for that plan.
-      if (input.action === 'log-trade' || input.action === 'record-payout'
+      if (input.action === 'log-trade' || input.action === 'correct-trade' || input.action === 'record-payout'
           || input.action === 'set-plan-rule' || input.action === 'propose-allocation') {
         try {
           if (input.action === 'propose-allocation') {
@@ -91,6 +91,13 @@ export const handler: Handler = async (event) => {
             // returns the original result instead of logging the trade twice.
             const r = await withIdempotency(user.id, input.idempotencyKey, 'log-trade',
               () => logTrade({ userId: user.id, ...input }))
+            return json(200, r)
+          }
+          if (input.action === 'correct-trade') {
+            // Correct a mistaken win/loss/amount in-place and recompute the
+            // account from the trade ledger. This is reversible with undo.
+            const r = await withIdempotency(user.id, input.idempotencyKey, 'correct-trade',
+              () => correctTrade({ userId: user.id, ...input }))
             return json(200, r)
           }
           // A payout is INCOME, not just a stat. Without `allocations` this

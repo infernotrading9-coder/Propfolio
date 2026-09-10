@@ -1,13 +1,62 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
 import { propFirmService, challengeService, userStateService, payoutService } from '../../server/db/service'
-import { spawnAccountAndBudget } from '../../server/db/purchaseService'
 import {
-  buyEval, passEval, promoteToLive, failAccount, CascadeError,
+  buyEval, buyEvalBatch, passEval, promoteToLive, failAccount, CascadeError,
 } from '../../server/db/cascadeService'
 import { db } from '../../server/db/connection'
 import { sql } from 'drizzle-orm'
 import { withIdempotency } from '../../server/db/stateService'
+
+// spawnAccountAndBudget from the old purchaseService is intentionally NOT
+// imported — it creates account cards without lifecycle/account_id links and
+// was the source of the duplicate-card bug. Every purchase goes through buyEval.
+
+
+function toClientChallenge(row: any, accountCardId?: string) {
+  return {
+    id: row.id,
+    accountCardId: accountCardId || row.accountId || undefined,
+    propFirmId: row.firmId,
+    brokerName: row.brokerName || 'Trading Account',
+    accountLast4: (row as any).accountLast4 || undefined,
+    purchaseGroupId: row.purchaseGroupId || undefined,
+    purchaseGroupLabel: row.purchaseGroupLabel || undefined,
+    purchaseGroupSize: row.purchaseGroupSize || undefined,
+    purchaseGroupIndex: row.purchaseGroupIndex || undefined,
+    accountSize: row.accountSize || 0,
+    startDate: row.startDate || new Date().toISOString().slice(0,10),
+    cost: row.cost ? parseFloat(String(row.cost)) : 0,
+    initialCost: row.initialCost ? parseFloat(String(row.initialCost)) : (row.cost ? parseFloat(String(row.cost)) : 0),
+    hasActivationFee: !!row.hasActivationFee,
+    activationFeeAmount: row.activationFeeAmount ? parseFloat(String(row.activationFeeAmount)) : undefined,
+    firmType: row.firmType || undefined,
+    evalType: (row as any).evalType || undefined,
+    liveAccount: !!(row as any).liveAccount,
+    lifecycle: (row as any).lifecycle || undefined,
+    accountId: (row as any).accountId || undefined,
+    sourceChallengeId: (row as any).sourceChallengeId || undefined,
+    payoutCount: Number((row as any).payoutCount ?? 0),
+    wentLiveAt: (row as any).wentLiveAt ? new Date((row as any).wentLiveAt).toISOString() : undefined,
+    totalPhases: (row.totalPhases || 3) as 1 | 2 | 3,
+    strategy: row.strategy || '',
+    status: (row.status as any) || 'active',
+    highestMilestone: (row as any).highestMilestone || undefined,
+    outcomeType: (row as any).outcomeType || undefined,
+    failureReason: (row as any).failureReason || undefined,
+    failureDate: (row as any).failureDate || undefined,
+    lifecycleNotes: (row as any).lifecycleNotes || undefined,
+    phases: {
+      phase1: { completed: !!row.phase1Completed, completedAt: row.phase1CompletedAt ? new Date(row.phase1CompletedAt).toISOString() : undefined },
+      phase2: { completed: !!row.phase2Completed, completedAt: row.phase2CompletedAt ? new Date(row.phase2CompletedAt).toISOString() : undefined },
+      phase3: { completed: !!row.phase3Completed, completedAt: row.phase3CompletedAt ? new Date(row.phase3CompletedAt).toISOString() : undefined },
+    },
+    monthlyPnL: {},
+    weeklyPnL: {},
+    payouts: [],
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
+  }
+}
 
 export const handler: Handler = async (event) => {
   try {
@@ -48,7 +97,9 @@ export const handler: Handler = async (event) => {
           switch (input.action) {
             case 'buy-eval': {
               const r = await withIdempotency(user.id, input.idempotencyKey, 'buy-eval',
-                () => buyEval({ userId: user.id, ...input }))
+                () => (Array.isArray(input.accounts) || Array.isArray(input.accountLast4s))
+                  ? buyEvalBatch({ userId: user.id, ...input })
+                  : buyEval({ userId: user.id, ...input }))
               return json(200, r)
             }
             case 'pass-eval': {
@@ -120,6 +171,44 @@ export const handler: Handler = async (event) => {
       }
       if (!firmId) return json(400, { error: 'propFirmId or propFirmName required' })
 
+      // Legacy web form compatibility: the browser still POSTs a bare challenge
+      // with spawnAccountCard=true. Route that through buyEval instead of the
+      // old two-step challengeService.create + spawnAccountAndBudget path, which
+      // could leave orphan cards/challenges when the second write failed.
+      if (input.spawnAccountCard) {
+        try {
+          const firmRow = await propFirmService.getById(firmId)
+          const r = await buyEval({
+            userId: user.id,
+            firmName: firmRow?.name || propFirmName || 'Prop Firm',
+            brokerName: brokerName || 'Trading Account',
+            accountSize: Number(accountSize) || 0,
+            cost: Number(cost ?? initialCost ?? 0) || 0,
+            accountFirst4: input.accountFirst4,
+            accountLast4: accountLast4 || '',
+            startDate: startDate || undefined,
+            evalType: evalType || undefined,
+            firmType: firmType || 'futures',
+            maxDrawdown: input.maxDrawdown !== undefined ? Number(input.maxDrawdown) : 0,
+            dailyDrawdown: input.dailyDrawdown !== undefined ? Number(input.dailyDrawdown) : 0,
+            riskPerTrade: input.riskPerTrade !== undefined ? Number(input.riskPerTrade) : 0,
+            rules: input.rules || [],
+            budgetAccountId: input.budgetAccountId,
+            totalPhases: Number(totalPhases) || 3,
+            purchaseGroupId: purchaseGroupId || undefined,
+            purchaseGroupLabel: purchaseGroupLabel || undefined,
+            purchaseGroupSize: purchaseGroupSize === undefined ? undefined : Number(purchaseGroupSize),
+            purchaseGroupIndex: purchaseGroupIndex === undefined ? undefined : Number(purchaseGroupIndex),
+          })
+          const row = await challengeService.getById(r.challengeId)
+          if (!row) throw new Error('buyEval created no readable challenge row')
+          return json(200, { challenge: toClientChallenge(row, r.accountId), cascade: r })
+        } catch (e) {
+          if (e instanceof CascadeError) return json(400, { error: e.message, code: e.code })
+          throw e
+        }
+      }
+
       const row = await challengeService.create(user.id, {
         firmId,
         brokerName: brokerName || 'Trading Account',
@@ -147,68 +236,16 @@ export const handler: Handler = async (event) => {
         accountLast4: accountLast4 || null,
       } as any)
 
-      // Single-source purchase: when the app's "Buy Eval" flow creates a challenge,
-      // also spawn the trading account card + budget expense.
-      let spawnedAccountId: string | undefined
-      if (input.spawnAccountCard) {
-        try {
-          const firmRow = await propFirmService.getById(firmId)
-          const spawned = await spawnAccountAndBudget(user.id, {
-            firmName: firmRow?.name || input.propFirmName || 'Prop Firm',
-            accountSize: Number(accountSize) || 0,
-            accountLast4: accountLast4 || null,
-            cost: Number(cost) || 0,
-            budgetAccountId: input.budgetAccountId,
-            challengeId: row.id,
-            maxDrawdown: input.maxDrawdown !== undefined ? Number(input.maxDrawdown) : 0,
-            dailyDrawdown: input.dailyDrawdown !== undefined ? Number(input.dailyDrawdown) : 0,
-            riskPerTrade: input.riskPerTrade !== undefined ? Number(input.riskPerTrade) : 0,
-            rules: input.rules || [],
-          })
-          spawnedAccountId = spawned.accountId
-        } catch (e) {
-          console.error('spawnAccountAndBudget failed:', e)
-        }
-      }
-
-      const challenge = {
-        id: row.id,
-        accountCardId: spawnedAccountId || undefined,
-        propFirmId: row.firmId,
-        brokerName: row.brokerName || 'Trading Account',
-        accountLast4: (row as any).accountLast4 || undefined,
-        purchaseGroupId: row.purchaseGroupId || undefined,
-        purchaseGroupLabel: row.purchaseGroupLabel || undefined,
-        purchaseGroupSize: row.purchaseGroupSize || undefined,
-        purchaseGroupIndex: row.purchaseGroupIndex || undefined,
-        accountSize: row.accountSize || 0,
-        startDate: row.startDate || new Date().toISOString().slice(0,10),
-        cost: row.cost ? parseFloat(String(row.cost)) : 0,
-        initialCost: row.initialCost ? parseFloat(String(row.initialCost)) : (row.cost ? parseFloat(String(row.cost)) : 0),
-        hasActivationFee: !!row.hasActivationFee,
-        activationFeeAmount: row.activationFeeAmount ? parseFloat(String(row.activationFeeAmount)) : undefined,
-        firmType: row.firmType || undefined,
-        evalType: (row as any).evalType || undefined,
-        liveAccount: !!(row as any).liveAccount,
-        totalPhases: (row.totalPhases || 3) as 1 | 2 | 3,
-        strategy: row.strategy || '',
-        status: (row.status as any) || 'active',
-        highestMilestone: (row as any).highestMilestone || undefined,
-        outcomeType: (row as any).outcomeType || undefined,
-        failureReason: (row as any).failureReason || undefined,
-        failureDate: (row as any).failureDate || undefined,
-        lifecycleNotes: (row as any).lifecycleNotes || undefined,
-        phases: {
-          phase1: { completed: !!row.phase1Completed, completedAt: row.phase1CompletedAt ? new Date(row.phase1CompletedAt).toISOString() : undefined },
-          phase2: { completed: !!row.phase2Completed, completedAt: row.phase2CompletedAt ? new Date(row.phase2CompletedAt).toISOString() : undefined },
-          phase3: { completed: !!row.phase3Completed, completedAt: row.phase3CompletedAt ? new Date(row.phase3CompletedAt).toISOString() : undefined },
-        },
-        monthlyPnL: {},
-        weeklyPnL: {},
-        payouts: [],
-        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
-      }
-      return json(200, { challenge })
+      // The legacy bare-challenge POST path is gone. Every eval purchase now
+      // goes through the `action: 'buy-eval'` switch above, which calls buyEval
+      // — one transaction, all four surfaces, properly linked. The old path
+      // created a second account card via spawnAccountAndBudget (the old
+      // non-transactional service) AFTER buyEval already made one, producing
+      // the duplicate $0-cost card on every pass.
+      return json(400, {
+        error: 'Use { action: "buy-eval" } to purchase an eval. Bare challenge creation is no longer supported.',
+        code: 'use_buy_eval',
+      });
     }
 
     if (event.httpMethod === 'PUT') {

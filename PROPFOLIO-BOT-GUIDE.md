@@ -117,6 +117,36 @@ Also prompt him for the **rules** if he doesn't give them — an account with no
 
 Returns `{ challengeId, accountId, calendarAccountId, label, lifecycle, warnings[] }`. **Read `warnings` and relay them** — that's where "your last4 collided, this is 0048-B" shows up.
 
+### 5.1b Bought a BATCH of evals → `POST db-challenges`
+
+**I bought 3 Lucid 50Ks.** One call creates all N accounts in one transaction.
+
+```json
+{
+  "action": "buy-eval",
+  "firmName": "Lucid Trading",
+  "accountSize": 50000,
+  "cost": 90.20,
+  "evalType": "Lucid Flex",
+  "firmType": "futures",
+  "maxDrawdown": 2000,
+  "dailyDrawdown": 1200,
+  "rules": ["200$ Per Trade", "6 Max Loss"],
+  "budgetAccountId": "acc_sofi",
+  "accounts": [
+    { "last4": "0048" },
+    { "last4": "0049" },
+    { "last4": "0050" }
+  ]
+}
+```
+
+Each entry in `accounts[]` gets its own account card, challenge row, budget expense and calendar row — all linked, all in one transaction. Leave `last4` blank when Daniel hasn't given the account number yet; the cascade allocates a label and you can set it later with `set-account-number`.
+
+Returns `{ count, purchaseGroupId, accounts: [{ challengeId, accountId, label, ... }], warnings }`.
+
+**Never call `buy-eval` N times in a loop for a batch.** The old loop hit the unique index on the second call and produced only 1 card for a batch of 3. Use `accounts[]` so all N are created atomically.
+
 ### 5.2 Passed an eval → `POST db-challenges`
 
 Retires the eval, creates the **funded** account, links them.
@@ -412,9 +442,11 @@ Use something stable and unique — the Telegram message id is ideal. The respon
 
 Reverses the last action. Pass `actionId` to target a specific one; `GET db-state-full?action=history` lists them.
 
-Reversible: `log-trade`, `record-payout` (including every budget slice), `fail-account`, `log-expense`, `transfer`. Buying and passing an eval are **not** auto-reversible — they create accounts that may have been traded on since; you'll get `not_undoable` and should ask Daniel exactly what to unwind.
+Reversible: `log-trade`, `correct-trade`, `record-payout` (including every budget slice), `fail-account`, `log-expense`, `transfer`, `reconcile-balances`, `correct-plan`. Buying and passing an eval are **not** auto-reversible — they create accounts that may have been traded on since; you'll get `not_undoable` and should ask Daniel exactly what to unwind.
 
 **Confirm before undoing.** Read the summary back to him first: *"Last action was 'Win of $800.00 on 0857' — undo that?"*
+
+**Correcting a trade** (wrong amount, wrong win/loss) is also undoable. Use `correct-trade` to fix it in-place — the account balance is recomputed from the trade ledger — or `undo` to reverse the last trade entirely. Both are journaled.
 
 ---
 
@@ -463,6 +495,7 @@ All cascade errors return HTTP 400 with a machine-readable `code`:
 | `nothing_to_undo` | No reversible action found | Tell him there's nothing pending. |
 | `already_undone` | That action was already reversed | Don't retry. |
 | `not_undoable` | buy-eval / pass-eval can't auto-reverse | Ask exactly what to unwind. |
+| `use_buy_eval` | Bare challenge POST without `action: "buy-eval"` | Use `action: "buy-eval"` instead. |
 
 A 400 means **nothing was written**. The transaction rolled back. Safe to retry after fixing the input.
 
@@ -478,6 +511,9 @@ A 400 means **nothing was written**. The transaction rolled back. Safe to retry 
 6. **Prompt for rules** on every new account. No rules = the Rule Calendar can't check anything.
 7. **Dates are America/New_York local.** Never use `toISOString().slice(0,10)` — it rolls to tomorrow after ~7pm ET and files trades on the wrong day.
 8. **A pass gives a FUNDED account.** Always ask for the new funded account number.
+9. **Everything is connected through code.** One `buy-eval` call creates the challenge row, account card, budget expense, and calendar row in one transaction. One `pass-eval` retires the eval, creates the funded card, and links them. One `log-trade` updates the trade row, balance, HWM, calendar entry, and drawdown verdict. Never call three endpoints to do what one does — the cascade is the atomic unit, and calling pieces separately is how surfaces drift apart.
+10. **Never loop `buy-eval` for a batch.** Use `accounts[]` in a single `buy-eval` call. Looping produced only 1 card for a batch of 3 because the unique index blocked the 2nd insert.
+11. **Always send `idempotencyKey` on writes.** The Telegram message id works. Without it, a Netlify timeout + retry double-writes the trade.
 
 ---
 
@@ -499,6 +535,8 @@ The app cannot see it — nothing renders, no stats are polluted. It is still fu
 | "they moved me to live on 0857" | `promote-to-live` (needs 5+ payouts) |
 | "failed 9056" | `fail-account` |
 | "made 1493 on 0047" | `log-trade` |
+| "actually it was 1200, not 1493" | `correct-trade` (fixes the amount in-place, recomputes balance) |
+| "bought 3 lucid 50ks" | `buy-eval` with `accounts[]` (NOT a loop of 3 calls) |
 | "got a 1500 payout on 0857" | `record-payout` → show split → confirm → apply |
 | "spent 60 on gas from sofi" | `log-expense` |
 | "paid 200 to my destiny card" | `transfer` (sofi → destiny) |

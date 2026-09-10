@@ -96,37 +96,73 @@ async function findOrCreateFirm(
   return { id, name };
 }
 
+function cleanFirst4(value?: string | null): string | null {
+  const v = String(value ?? '').trim().toUpperCase();
+  if (!v) return null;
+  if (!/^[A-Za-z0-9]{4}$/.test(v)) {
+    throw new CascadeError('first4 must be exactly 4 letters or digits.', 'bad_first4');
+  }
+  return v;
+}
+
+function cleanLast4(value?: string | null): string {
+  const v = String(value ?? '').trim().toUpperCase();
+  if (!v) throw new CascadeError('accountLast4 is required', 'missing_last4');
+  if (!/^[A-Za-z0-9]{4}$/.test(v)) {
+    throw new CascadeError('last4 must be exactly 4 letters or digits.', 'bad_last4');
+  }
+  return v;
+}
+
 /**
  * Allocate a unique display_label for an account.
  *
- * Daniel legitimately holds several accounts sharing a last4 (two Lucid Daily
- * "0001"s with different daily-loss rules). A bare last4 lookup used to pick
- * the OLDEST silently, logging trades against the wrong account. Duplicates now
- * get an -A / -B suffix, unique among ACTIVE accounts, and the bot must name
- * the suffix when ambiguous.
+ * With FIRST4+LAST4 known, the label is the real stable handle (`LFE0-0048`).
+ * Without FIRST4, keep the older last4 / last4-A fallback so legacy callers do
+ * not collide silently.
  */
-async function allocateLabel(tx: TxClient, userId: string, last4: string): Promise<string> {
+async function allocateLabel(
+  tx: TxClient, userId: string, last4: string, first4?: string | null,
+): Promise<string> {
+  const cleanLast = cleanLast4(last4);
+  const cleanFirst = cleanFirst4(first4);
+
+  if (cleanFirst) {
+    const label = `${cleanFirst}-${cleanLast}`;
+    const { rows } = await tx.query(
+      `SELECT display_label FROM trading_accounts
+        WHERE user_id = $1 AND status = 'active'
+          AND upper(account_first4) = upper($2)
+          AND upper(account_number_last4) = upper($3)
+        LIMIT 1`,
+      [userId, cleanFirst, cleanLast]);
+    if (rows.length) {
+      throw new CascadeError(`${label} already exists as an active account. Check the account number.`, 'duplicate_account_number');
+    }
+    return label;
+  }
+
   const { rows } = await tx.query(
     `SELECT display_label FROM trading_accounts
       WHERE user_id = $1 AND account_number_last4 = $2 AND status = 'active'`,
-    [userId, last4]);
-  if (rows.length === 0) return last4;
+    [userId, cleanLast]);
+  if (rows.length === 0) return cleanLast;
 
   // A plain "0001" already exists — rename it to 0001-A, then hand back the next letter.
-  const plain = rows.find(r => r.display_label === last4);
+  const plain = rows.find(r => r.display_label === cleanLast);
   if (plain) {
     await tx.query(
       `UPDATE trading_accounts SET display_label = $3, name = $4, updated_at = NOW()
         WHERE user_id = $1 AND display_label = $2 AND status = 'active'`,
-      [userId, last4, `${last4}-A`, `Acct ${last4}-A`]);
+      [userId, cleanLast, `${cleanLast}-A`, `Acct ${cleanLast}-A`]);
   }
   const used = new Set(rows.map(r => String(r.display_label)));
-  if (plain) used.add(`${last4}-A`);
+  if (plain) used.add(`${cleanLast}-A`);
   for (let i = 0; i < 26; i++) {
-    const cand = `${last4}-${String.fromCharCode(65 + i)}`;
+    const cand = `${cleanLast}-${String.fromCharCode(65 + i)}`;
     if (!used.has(cand)) return cand;
   }
-  throw new CascadeError(`Cannot allocate a label for ${last4}`, 'label_exhausted');
+  throw new CascadeError(`Cannot allocate a label for ${cleanLast}`, 'label_exhausted');
 }
 
 /**
@@ -178,7 +214,7 @@ async function resolveAccount(tx: TxClient, userId: string, ref: string) {
 
 /** Create the account card. Shared by buyEval and passEval. */
 async function insertAccountCard(tx: TxClient, userId: string, o: {
-  label: string; last4: string | null; firmName: string; accountSize: number;
+  label: string; first4?: string | null; last4: string | null; firmName: string; accountSize: number;
   maxDrawdown?: number; dailyDrawdown?: number; riskPerTrade?: number;
   rules?: string[]; phase: 'challenge' | 'funded' | 'live';
   evalType?: string | null; firmType?: string | null; floorLockLevel?: number;
@@ -190,17 +226,17 @@ async function insertAccountCard(tx: TxClient, userId: string, o: {
 
   await tx.query(`
     INSERT INTO trading_accounts (
-      id, user_id, name, display_label, firm, account_number_last4, account_size, balance,
+      id, user_id, name, display_label, firm, account_number_last4, account_first4, account_size, balance,
       drawdown_used, high_water_mark, max_drawdown, daily_drawdown, risk_per_trade, rules,
       status, phase, sort_order, day_start_balance, settled_high_water_mark, last_settled_at,
       floor_lock_level, eval_type, firm_type, created_at, updated_at
     ) VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$7,
-      '0',$7,$8,$9,$10,$11::text[],
-      'active',$12,$13,$7,$7,$14,
-      $15,$16,$17,NOW(),NOW()
+      $1,$2,$3,$4,$5,$6,$7,$8,$8,
+      '0',$8,$9,$10,$11,$12::text[],
+      'active',$13,$14,$8,$8,$15,
+      $16,$17,$18,NOW(),NOW()
     )`, [
-    id, userId, `Acct ${o.label}`, o.label, o.firmName, o.last4, String(size),
+    id, userId, `Acct ${o.label}`, o.label, o.firmName, o.last4, cleanFirst4(o.first4), String(size),
     String(o.maxDrawdown ?? 0), String(o.dailyDrawdown ?? 0), String(o.riskPerTrade ?? 0),
     toPgTextArray(o.rules), o.phase, rows[0]?.n ?? 1, sessionStart(),
     String(o.floorLockLevel ?? size + 100), o.evalType ?? null, o.firmType ?? 'futures',
@@ -210,29 +246,37 @@ async function insertAccountCard(tx: TxClient, userId: string, o: {
 
 /** Create the challenge row linked 1:1 to an account card. */
 async function insertChallenge(tx: TxClient, userId: string, o: {
-  accountId: string; firmId: string; label: string; accountSize: number;
+  accountId: string; firmId: string; label: string; accountFirst4?: string | null; accountSize: number;
   cost: number; startDate: string; evalType?: string | null; firmType?: string | null;
   totalPhases?: number; lifecycle: Lifecycle; status: string;
   phase1Completed?: boolean; highestMilestone: string; outcomeType: string;
   sourceChallengeId?: string | null; brokerName?: string;
+  purchaseGroupId?: string | null; purchaseGroupLabel?: string | null;
+  purchaseGroupSize?: number | null; purchaseGroupIndex?: number | null;
 }): Promise<string> {
   const id = randomUUID();
   await tx.query(`
     INSERT INTO challenges (
-      id, user_id, firm_id, account_id, broker_name, account_size, start_date,
+      id, user_id, firm_id, account_id, broker_name,
+      purchase_group_id, purchase_group_label, purchase_group_size, purchase_group_index,
+      account_first4, account_size, start_date,
       cost, initial_cost, total_phases, phase1_completed, phase1_completed_at,
       has_activation_fee, strategy, firm_type, eval_type, status, lifecycle,
       live_account, payout_count, account_last4, highest_milestone, outcome_type,
       source_challenge_id, created_at, updated_at
     ) VALUES (
-      $1,$2,$3,$4,$5,$6,$7,
-      $8,$8,$9,$10,$11,
-      false,'',$12,$13,$14,$15,
-      false,0,$16,$17,$18,
-      $19,NOW(),NOW()
+      $1,$2,$3,$4,$5,
+      $6,$7,$8,$9,
+      $10,$11,$12,
+      $13,$13,$14,$15,$16,
+      false,'',$17,$18,$19,$20,
+      false,0,$21,$22,$23,
+      $24,NOW(),NOW()
     )`, [
     id, userId, o.firmId, o.accountId, o.brokerName || 'Trading Account',
-    Math.round(Number(o.accountSize) || 0), o.startDate,
+    o.purchaseGroupId ?? null, o.purchaseGroupLabel ?? null,
+    o.purchaseGroupSize ?? null, o.purchaseGroupIndex ?? null,
+    cleanFirst4(o.accountFirst4), Math.round(Number(o.accountSize) || 0), o.startDate,
     String(round2(o.cost)), o.totalPhases ?? 1,
     !!o.phase1Completed, o.phase1Completed ? new Date() : null,
     o.firmType ?? 'futures', o.evalType ?? null, o.status, o.lifecycle,
@@ -317,7 +361,11 @@ export interface BuyEvalInput {
   firmName: string;
   accountSize: number;
   cost: number;
+  /** Last 4 characters of the real account number. */
   accountLast4: string;
+  /** First 4 characters of the real account number, when known. */
+  accountFirst4?: string;
+  brokerName?: string;
   evalType?: string;
   firmType?: 'futures' | 'cfd';
   maxDrawdown?: number;
@@ -328,6 +376,32 @@ export interface BuyEvalInput {
   budgetAccountId?: string;
   startDate?: string;
   totalPhases?: number;
+  purchaseGroupId?: string;
+  purchaseGroupLabel?: string;
+  purchaseGroupSize?: number;
+  purchaseGroupIndex?: number;
+}
+
+export interface BuyEvalBatchAccount {
+  first4?: string;
+  last4?: string;
+  accountFirst4?: string;
+  accountLast4?: string;
+  cost?: number;
+  budgetAccountId?: string;
+  startDate?: string;
+}
+
+export interface BuyEvalBatchInput extends Omit<BuyEvalInput, 'accountFirst4' | 'accountLast4'> {
+  accounts?: BuyEvalBatchAccount[];
+  accountLast4s?: string[];
+}
+
+export interface BuyEvalBatchResult {
+  count: number;
+  purchaseGroupId?: string;
+  accounts: CascadeResult[];
+  warnings: string[];
 }
 
 export interface CascadeResult {
@@ -339,56 +413,98 @@ export interface CascadeResult {
   warnings: string[];
 }
 
-/**
- * "I bought a Lucid Flex 50k for 90 on Destiny."
- * → challenge + account card + budget expense + rule-calendar row. Atomically.
- */
-export async function buyEval(input: BuyEvalInput): Promise<CascadeResult> {
+async function buyEvalOne(tx: TxClient, input: BuyEvalInput): Promise<CascadeResult> {
   const { userId } = input;
-  if (!input.accountLast4) throw new CascadeError('accountLast4 is required', 'missing_last4');
+  const accountLast4 = cleanLast4(input.accountLast4);
+  const accountFirst4 = cleanFirst4(input.accountFirst4);
   const cost = round2(input.cost);
   if (cost > 0 && !input.budgetAccountId) {
     throw new CascadeError('budgetAccountId is required when cost > 0 — which account paid?', 'no_funding_source');
   }
 
+  const warnings: string[] = [];
+  const startDate = input.startDate || todayET();
+  const firm = await findOrCreateFirm(tx, userId, input.firmName, input.firmType);
+  const label = await allocateLabel(tx, userId, accountLast4, accountFirst4);
+  if (!accountFirst4 && label !== accountLast4) {
+    warnings.push(`Another active account already uses ${accountLast4}; this one is "${label}".`);
+  }
+  if (!input.rules?.length) {
+    warnings.push('No rules set on this account — the Rule Calendar has nothing to check.');
+  }
+
+  const accountId = await insertAccountCard(tx, userId, {
+    label, first4: accountFirst4, last4: accountLast4, firmName: firm.name,
+    accountSize: input.accountSize, maxDrawdown: input.maxDrawdown,
+    dailyDrawdown: input.dailyDrawdown, riskPerTrade: input.riskPerTrade,
+    rules: input.rules, phase: 'challenge', evalType: input.evalType,
+    firmType: input.firmType,
+  });
+
+  const challengeId = await insertChallenge(tx, userId, {
+    accountId, firmId: firm.id, label, accountFirst4, accountSize: input.accountSize,
+    cost, startDate, evalType: input.evalType, firmType: input.firmType,
+    totalPhases: input.totalPhases ?? 1, lifecycle: 'eval_active', status: 'active',
+    highestMilestone: 'purchased', outcomeType: 'active', brokerName: input.brokerName,
+    purchaseGroupId: input.purchaseGroupId, purchaseGroupLabel: input.purchaseGroupLabel,
+    purchaseGroupSize: input.purchaseGroupSize, purchaseGroupIndex: input.purchaseGroupIndex,
+  });
+
+  const calendarAccountId = await insertCalendarAccount(
+    tx, userId, `Acct ${label} (${firm.name})`, challengeId);
+
+  if (cost > 0) {
+    await applyBudgetTransaction(tx, userId, {
+      name: `Eval — ${firm.name} ${Math.round(input.accountSize / 1000)}K (${label})`,
+      amount: cost, accountId: input.budgetAccountId!, date: startDate, isPropFirm: true,
+    });
+  }
+
+  return { challengeId, accountId, calendarAccountId, label, lifecycle: 'eval_active', warnings };
+}
+
+/**
+ * "I bought a Lucid Flex 50k for 90 on Destiny."
+ * → challenge + account card + budget expense + rule-calendar row. Atomically.
+ */
+export async function buyEval(input: BuyEvalInput): Promise<CascadeResult> {
+  return withTransaction((tx) => buyEvalOne(tx, input));
+}
+
+/**
+ * "I bought three Lucid 50Ks." One call creates one linked record per account,
+ * in one transaction. The bot must send each account number; code handles the
+ * repeated cascade instead of the bot hand-writing separate rows.
+ */
+export async function buyEvalBatch(input: BuyEvalBatchInput): Promise<BuyEvalBatchResult> {
+  const rawAccounts = Array.isArray(input.accounts) && input.accounts.length
+    ? input.accounts
+    : (Array.isArray(input.accountLast4s) ? input.accountLast4s.map(last4 => ({ last4 })) : []);
+  if (!rawAccounts.length) throw new CascadeError('accounts[] or accountLast4s[] is required for a batch buy', 'missing_accounts');
+
   return withTransaction(async (tx) => {
+    const purchaseGroupId = input.purchaseGroupId || (rawAccounts.length > 1 ? randomUUID() : undefined);
+    const results: CascadeResult[] = [];
     const warnings: string[] = [];
-    const startDate = input.startDate || todayET();
-    const firm = await findOrCreateFirm(tx, userId, input.firmName, input.firmType);
-    const label = await allocateLabel(tx, userId, input.accountLast4);
-    if (label !== input.accountLast4) {
-      warnings.push(`Another active account already uses ${input.accountLast4}; this one is "${label}".`);
-    }
-    if (!input.rules?.length) {
-      warnings.push('No rules set on this account — the Rule Calendar has nothing to check.');
-    }
 
-    const accountId = await insertAccountCard(tx, userId, {
-      label, last4: input.accountLast4, firmName: firm.name,
-      accountSize: input.accountSize, maxDrawdown: input.maxDrawdown,
-      dailyDrawdown: input.dailyDrawdown, riskPerTrade: input.riskPerTrade,
-      rules: input.rules, phase: 'challenge', evalType: input.evalType,
-      firmType: input.firmType,
-    });
-
-    const challengeId = await insertChallenge(tx, userId, {
-      accountId, firmId: firm.id, label, accountSize: input.accountSize,
-      cost, startDate, evalType: input.evalType, firmType: input.firmType,
-      totalPhases: input.totalPhases ?? 1, lifecycle: 'eval_active', status: 'active',
-      highestMilestone: 'purchased', outcomeType: 'active',
-    });
-
-    const calendarAccountId = await insertCalendarAccount(
-      tx, userId, `Acct ${label} (${firm.name})`, challengeId);
-
-    if (cost > 0) {
-      await applyBudgetTransaction(tx, userId, {
-        name: `Eval — ${firm.name} ${Math.round(input.accountSize / 1000)}K (${label})`,
-        amount: cost, accountId: input.budgetAccountId!, date: startDate, isPropFirm: true,
+    for (let i = 0; i < rawAccounts.length; i++) {
+      const item = rawAccounts[i] || {};
+      const result = await buyEvalOne(tx, {
+        ...input,
+        accountFirst4: item.accountFirst4 ?? item.first4,
+        accountLast4: item.accountLast4 ?? item.last4 ?? '',
+        cost: item.cost ?? input.cost,
+        budgetAccountId: item.budgetAccountId ?? input.budgetAccountId,
+        startDate: item.startDate ?? input.startDate,
+        purchaseGroupId,
+        purchaseGroupSize: rawAccounts.length,
+        purchaseGroupIndex: i + 1,
       });
+      results.push(result);
+      warnings.push(...result.warnings.map(w => `${result.label}: ${w}`));
     }
 
-    return { challengeId, accountId, calendarAccountId, label, lifecycle: 'eval_active', warnings };
+    return { count: results.length, purchaseGroupId, accounts: results, warnings };
   });
 }
 
@@ -398,6 +514,8 @@ export interface PassEvalInput {
   accountRef: string;
   /** Last4 of the NEW funded account the firm issued. */
   fundedLast4: string;
+  /** First4 of the NEW funded account, when known. */
+  fundedFirst4?: string;
   /** Funded accounts often carry different rules than the eval. */
   rules?: string[];
   maxDrawdown?: number;
@@ -447,9 +565,11 @@ export async function passEval(input: PassEvalInput): Promise<CascadeResult & { 
 
     // 2. Spawn the funded account.
     const firm = await findOrCreateFirm(tx, userId, String(src.firm), src.firm_type || 'futures');
-    const label = await allocateLabel(tx, userId, input.fundedLast4);
-    if (label !== input.fundedLast4) {
-      warnings.push(`${input.fundedLast4} was taken; funded account is "${label}".`);
+    const fundedLast4 = cleanLast4(input.fundedLast4);
+    const fundedFirst4 = cleanFirst4(input.fundedFirst4);
+    const label = await allocateLabel(tx, userId, fundedLast4, fundedFirst4);
+    if (!fundedFirst4 && label !== fundedLast4) {
+      warnings.push(`${fundedLast4} was taken; funded account is "${label}".`);
     }
     const size = input.accountSize ?? Number(src.account_size);
     const rules: string[] = input.rules ?? (Array.isArray(src.rules) ? src.rules : []);
@@ -458,7 +578,7 @@ export async function passEval(input: PassEvalInput): Promise<CascadeResult & { 
     }
 
     const accountId = await insertAccountCard(tx, userId, {
-      label, last4: input.fundedLast4, firmName: firm.name, accountSize: size,
+      label, first4: fundedFirst4, last4: fundedLast4, firmName: firm.name, accountSize: size,
       maxDrawdown: input.maxDrawdown ?? Number(src.max_drawdown),
       dailyDrawdown: input.dailyDrawdown ?? Number(src.daily_drawdown),
       riskPerTrade: Number(src.risk_per_trade), rules,
@@ -466,7 +586,7 @@ export async function passEval(input: PassEvalInput): Promise<CascadeResult & { 
     });
 
     const challengeId = await insertChallenge(tx, userId, {
-      accountId, firmId: firm.id, label, accountSize: size,
+      accountId, firmId: firm.id, label, accountFirst4: fundedFirst4, accountSize: size,
       cost: round2(input.activationFee ?? 0), startDate: todayET(),
       evalType: src.eval_type, firmType: src.firm_type, totalPhases: 1,
       lifecycle: 'funded_active', status: 'passed', phase1Completed: true,

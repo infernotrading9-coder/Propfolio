@@ -2,10 +2,9 @@
 /**
  * add-eval — buy a prop-firm eval from the CLI.
  *
- * This is a THIN WRAPPER. All logic lives in the app's own purchase service
- * (/root/Propfolio/server/db/purchaseService.ts), the exact same code path the
- * website uses. Nothing is duplicated here, so the CLI and the web app can
- * never drift apart.
+ * Thin wrapper around the app's cascade service (cascadeService.buyEval),
+ * the exact same code path the website and the Telegram bot API use.
+ * Nothing is duplicated here, so the CLI and the web app can never drift apart.
  *
  * Usage:
  *   node add-eval.mjs "<firmName>" <accountSize> <cost> <totalPhases> <startDate> <strategy> ["<brokerName>"] [maxDD] [dailyDD] [riskPerTrade] [accountLast4] [budgetAccountId] [--eval-type "<type>"] [--lock-level <n>]
@@ -22,15 +21,15 @@
  * LOSES the account, while on futures it's only a lockout until the next session.
  * Defaults to futures.
  *
- * Spawns ALL FOUR surfaces (single source of truth):
+ * Spawns ALL FOUR surfaces in ONE transaction (single source of truth):
  *   1. challenge row            (Prop Firm Dashboard)
  *   2. trading account card     (Accounts tab)
  *   3. budget expense           (Budget tab, tagged isPropFirm + balance deducted)
- *   4. rule calendar account    (Rule Calendar, linked to the challenge)
+ *   4. rule calendar account     (Rule Calendar, linked to the challenge)
  */
 import 'dotenv/config';
 import { createInterface } from 'readline';
-import { purchaseEval } from '../server/db/purchaseService';
+import { buyEval, CascadeError } from '../server/db/cascadeService';
 
 const USER_ID = '293080f9-a395-4482-9ec2-ad31bf105848';
 
@@ -82,35 +81,47 @@ async function main() {
   const rules = (rulesArg || '').split(';').map((r) => r.trim()).filter(Boolean);
   if (rules.length === 0) {
     console.warn('WARNING: no rules set for this account. The Rule Calendar will have nothing to check against.');
-    console.warn(`         Add them later with: node update-account-rules.mjs ${last4 || '<last4>'} "<rule1>" "<rule2>" ...`);
   }
 
-  const result = await purchaseEval({
+  if (cost > 0 && !budgetAccountId) {
+    throw new CascadeError('budgetAccountId is required when cost > 0 — which account paid?', 'no_funding_source');
+  }
+
+  const result = await buyEval({
     userId: USER_ID,
-    propFirmName: firmName,
+    firmName,
     brokerName: brokerName || 'Trading Account',
     accountSize,
     cost,
-    totalPhases: Number(totalPhasesStr) || 3,
-    startDate: startDate || undefined,
-    strategy: strategy || '',
-    firmType,
-    accountLast4: last4 || null,
+    accountFirst4: undefined, // CLI doesn't collect first4; set it via the API later
+    accountLast4: last4 || '',
+    evalType: evalTypeArg || undefined,
+    firmType: firmType as 'futures' | 'cfd',
     maxDrawdown: maxDDStr ? Number(maxDDStr) : 0,
     dailyDrawdown: dailyDDStr ? Number(dailyDDStr) : 0,
     riskPerTrade: riskStr ? Number(riskStr) : 0,
-    budgetAccountId: budgetAccountId || undefined,
-    evalType: evalTypeArg || undefined,
-    floorLockLevel: lockLevelArg ? Number(lockLevelArg) : undefined,
     rules,
-  } as any);
+    budgetAccountId: budgetAccountId || undefined,
+    totalPhases: Number(totalPhasesStr) || 3,
+  });
 
   const sizeK = Math.round(accountSize / 1000);
-  console.log('Eval purchase created — all surfaces:');
-  console.log(`  Challenge:     ${result.firmName} ${sizeK}K @ $${cost}${evalTypeArg ? ` [${evalTypeArg}]` : ''} (${result.challengeId})`);
-  console.log(`  Account card:  ${last4 ? `Acct ${last4}` : `${result.firmName} ${sizeK}K`} (${result.accountId})`);
+  console.log('Eval purchase created — all surfaces (one transaction):');
+  console.log(`  Challenge:      ${firmName} ${sizeK}K @ $${cost}${evalTypeArg ? ` [${evalTypeArg}]` : ''} (${result.challengeId})`);
+  console.log(`  Account card:   ${result.label} (${result.accountId})`);
   console.log(`  Budget expense: $${cost} from ${budgetAccountId || 'acc_sofi'} (isPropFirm)`);
-  console.log(`  Rule calendar:  ${result.calendarAccountId ? `linked (${result.calendarAccountId})` : 'skipped'}`);
+  console.log(`  Rule calendar:  linked (${result.calendarAccountId})`);
+  if (result.warnings.length) {
+    console.log(`  Warnings:`);
+    result.warnings.forEach((w) => console.log(`    - ${w}`));
+  }
 }
 
-main().catch((e) => { console.error('Error:', e.message); process.exit(1); });
+main().catch((e) => {
+  if (e instanceof CascadeError) {
+    console.error(`Error: ${e.message} (code: ${e.code})`);
+  } else {
+    console.error('Error:', e.message);
+  }
+  process.exit(1);
+});

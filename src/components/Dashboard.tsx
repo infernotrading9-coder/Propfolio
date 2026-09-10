@@ -12,7 +12,7 @@ import { Statistics } from './Statistics';
 import { PayoutManager } from './PayoutManager';
 import { CustomPnLChart } from './CustomPnLChart';
 import { AdditionalCharts } from './AdditionalCharts';
-import { AppState, Challenge, ChallengeStatus } from '../types';
+import { AppState, Challenge, ChallengeStatus, PropFirm } from '../types';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { AddChallengeModal } from './AddChallengeModal';
 // Switch to serverless API client
@@ -366,6 +366,13 @@ const Dashboard: React.FC = () => {
   
   // Note: ActiveChallenges functionality replaced with ChallengeCards
   
+  // Helper: resolve a firm name from a firm ID (used by the buy-eval cascade calls)
+  const resolveFirmName = async (firmId: string | null | undefined, firmsList: PropFirm[]): Promise<string | null> => {
+    if (!firmId) return null;
+    const firm = firmsList.find(f => f.id === firmId);
+    return firm?.name || null;
+  };
+
   // Helper function to get challenge number (oldest = #1)
   const getChallengeNumber = React.useCallback((challenge: Challenge): number => {
     const sortedChallenges = [...state.challenges].sort((a, b) => {
@@ -1645,42 +1652,176 @@ const Dashboard: React.FC = () => {
                 accountSize: (input as any)?.accountSize || null,
                 quantity,
               });
-              const createdChallenges = [] as any[];
 
-              for (let index = 0; index < quantity; index += 1) {
-                const payload = {
-                  ...rawInput,
-                  accountQuantity: undefined,
+              // ── Batch purchase: one buy-eval call with accounts[] ──────────
+              // The old loop called apiClient.addChallenge() N times with the
+              // same accountLast4, which hit the unique index and produced
+              // only 1 card for a batch of 3. buyEvalBatch handles N accounts
+              // in one transaction, each with its own last4 (or no last4 — the
+              // cascade allocates labels when last4 is blank).
+              if (quantity > 1) {
+                const accounts: Array<{ last4?: string; accountLast4?: string }> = [];
+                for (let i = 0; i < quantity; i++) {
+                  accounts.push({ last4: rawInput.accountLast4?.trim() || undefined });
+                }
+                const res = await fetch('/.netlify/functions/db-challenges', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(() => {
+                      const h: Record<string, string> = { 'X-Client': 'propfolio-web' };
+                      try {
+                        const raw = localStorage.getItem('user');
+                        if (raw) {
+                          const u = JSON.parse(raw);
+                          if (u?.id) h['X-User-Id'] = String(u.id);
+                          if (u?.email) h['X-User-Email'] = String(u.email);
+                          if (u?.name) h['X-User-Name'] = String(u.name);
+                        }
+                      } catch {}
+                      return h;
+                    })(),
+                  },
+                  body: JSON.stringify({
+                    action: 'buy-eval',
+                    firmName: (await resolveFirmName(rawInput.propFirmId, state.firms)) || rawInput.propFirmName || 'Prop Firm',
+                    accountSize: rawInput.accountSize,
+                    cost: rawInput.cost ?? rawInput.initialCost ?? 0,
+                    evalType: rawInput.evalType,
+                    firmType: rawInput.firmType || 'futures',
+                    maxDrawdown: rawInput.maxDrawdown,
+                    dailyDrawdown: rawInput.dailyDrawdown,
+                    riskPerTrade: rawInput.riskPerTrade,
+                    rules: rawInput.rules || [],
+                    budgetAccountId: rawInput.budgetAccountId,
+                    totalPhases: rawInput.totalPhases ?? 3,
+                    purchaseGroupId,
+                    purchaseGroupLabel,
+                    purchaseGroupSize: quantity,
+                    accounts,
+                  }),
+                });
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                  throw new Error(body?.error || `HTTP ${res.status}`);
+                }
+                // body is a BuyEvalBatchResult { count, accounts: CascadeResult[], ... }
+                const createdChallenges: any[] = (body.accounts || []).map((r: any) => ({
+                  id: r.challengeId,
+                  propFirmId: rawInput.propFirmId,
+                  brokerName: rawInput.brokerName || 'Trading Account',
+                  accountLast4: r.label,
                   purchaseGroupId,
                   purchaseGroupLabel,
-                  purchaseGroupSize: quantity > 1 ? quantity : undefined,
-                  purchaseGroupIndex: quantity > 1 ? index + 1 : undefined,
-                  brokerName: quantity > 1 ? `Account ${index + 1}` : (rawInput?.brokerName || 'Trading Account'),
-                };
-                const result = await apiClient.addChallenge(effectiveUser.id, payload);
-                createdChallenges.push(result.challenge);
+                  purchaseGroupSize: quantity,
+                  accountSize: rawInput.accountSize,
+                  cost: rawInput.cost ?? rawInput.initialCost ?? 0,
+                  totalPhases: rawInput.totalPhases ?? 3,
+                  status: 'active',
+                  strategy: rawInput.strategy || '',
+                  evalType: rawInput.evalType,
+                  firmType: rawInput.firmType,
+                  lifecycle: r.lifecycle,
+                  accountId: r.accountId,
+                  startDate: rawInput.startDate || new Date().toISOString().slice(0, 10),
+                  phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } },
+                  payouts: [],
+                  monthlyPnL: {},
+                  weeklyPnL: {},
+                  createdAt: new Date().toISOString(),
+                }));
+                setState(prev => ({ ...prev, challenges: [...createdChallenges, ...prev.challenges] }));
+                refreshState();
+                emitChallengeDebug('add:success', {
+                  challengeId: createdChallenges[0]?.id,
+                  quantity: createdChallenges.length,
+                  durationMs: Math.round(performance.now() - startedAt),
+                });
+                return;
               }
-              
-              // Update UI immediately with optimistic update
-              setState(prev => ({
-                ...prev,
-                challenges: [...createdChallenges, ...prev.challenges]
-              }));
-              
-              // Automatically create initial calendar account for new challenge (unless building mode is enabled)
-              if (ruleCalendarEnabled && !buildingMode) {
-                for (const createdChallenge of createdChallenges) {
-                  await handleAutomaticNewChallengeCalendar(createdChallenge);
+
+              // ── Single purchase: use the cascade via buy-eval ─────────────
+              const res = await fetch('/.netlify/functions/db-challenges', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(() => {
+                      const h: Record<string, string> = { 'X-Client': 'propfolio-web' };
+                      try {
+                        const raw = localStorage.getItem('user');
+                        if (raw) {
+                          const u = JSON.parse(raw);
+                          if (u?.id) h['X-User-Id'] = String(u.id);
+                          if (u?.email) h['X-User-Email'] = String(u.email);
+                          if (u?.name) h['X-User-Name'] = String(u.name);
+                        }
+                      } catch {}
+                      return h;
+                    })(),
+                  },
+                  body: JSON.stringify({
+                    action: 'buy-eval',
+                    firmName: (await resolveFirmName(rawInput.propFirmId, state.firms)) || rawInput.propFirmName || 'Prop Firm',
+                    accountSize: rawInput.accountSize,
+                    cost: rawInput.cost ?? rawInput.initialCost ?? 0,
+                    accountLast4: rawInput.accountLast4 || '',
+                    evalType: rawInput.evalType,
+                    firmType: rawInput.firmType || 'futures',
+                    maxDrawdown: rawInput.maxDrawdown,
+                    dailyDrawdown: rawInput.dailyDrawdown,
+                    riskPerTrade: rawInput.riskPerTrade,
+                    rules: rawInput.rules || [],
+                    budgetAccountId: rawInput.budgetAccountId,
+                    totalPhases: rawInput.totalPhases ?? 3,
+                    purchaseGroupId,
+                    purchaseGroupLabel,
+                    purchaseGroupSize: quantity > 1 ? quantity : undefined,
+                  }),
+                });
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                  throw new Error(body?.error || `HTTP ${res.status}`);
                 }
-              }
-              
-              // Refresh state in background to ensure consistency
-              refreshState();
-              emitChallengeDebug('add:success', {
-                challengeId: createdChallenges[0]?.id,
-                quantity: createdChallenges.length,
-                durationMs: Math.round(performance.now() - startedAt),
-              });
+                const createdChallenge: any = {
+                  id: body.challengeId,
+                  propFirmId: rawInput.propFirmId,
+                  brokerName: rawInput.brokerName || 'Trading Account',
+                  accountLast4: body.label,
+                  purchaseGroupId,
+                  purchaseGroupLabel,
+                  accountSize: rawInput.accountSize,
+                  cost: rawInput.cost ?? rawInput.initialCost ?? 0,
+                  totalPhases: rawInput.totalPhases ?? 3,
+                  status: 'active',
+                  strategy: rawInput.strategy || '',
+                  evalType: rawInput.evalType,
+                  firmType: rawInput.firmType,
+                  lifecycle: body.lifecycle,
+                  accountId: body.accountId,
+                  startDate: rawInput.startDate || new Date().toISOString().slice(0, 10),
+                  phases: { phase1: { completed: false }, phase2: { completed: false }, phase3: { completed: false } },
+                  payouts: [],
+                  monthlyPnL: {},
+                  weeklyPnL: {},
+                  createdAt: new Date().toISOString(),
+                };
+                const createdChallenges = [createdChallenge];
+                setState(prev => ({ ...prev, challenges: [...createdChallenges, ...prev.challenges] }));
+
+                // Automatically create initial calendar account for new challenge
+                if (ruleCalendarEnabled && !buildingMode) {
+                  for (const ch of createdChallenges) {
+                    await handleAutomaticNewChallengeCalendar(ch);
+                  }
+                }
+
+                // Refresh state in background to ensure consistency
+                refreshState();
+                emitChallengeDebug('add:success', {
+                  challengeId: createdChallenges[0]?.id,
+                  quantity: createdChallenges.length,
+                  durationMs: Math.round(performance.now() - startedAt),
+                });
             } catch (error) {
               console.error('Error adding challenge:', error);
               emitChallengeDebug('add:error', {

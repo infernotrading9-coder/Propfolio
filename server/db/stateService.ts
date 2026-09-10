@@ -96,6 +96,48 @@ export async function listRecentActions(userId: string, limit = 5): Promise<Undo
   });
 }
 
+
+function signedTradeAmount(row: { amount: unknown; result?: unknown }): number {
+  const amount = Number(row.amount) || 0;
+  if (amount < 0) return round2(amount);
+  return String(row.result || '').toLowerCase() === 'loss' ? -Math.abs(round2(amount)) : Math.abs(round2(amount));
+}
+
+function resultForAmount(amount: number): 'win' | 'loss' {
+  return amount < 0 ? 'loss' : 'win';
+}
+
+function toPgTextArray(values?: string[] | null): string {
+  const list = Array.isArray(values) ? values.filter(v => v != null) : [];
+  if (list.length === 0) return '{}';
+  return `{${list.map((v) => JSON.stringify(String(v))).join(',')}}`;
+}
+
+async function recomputeAccountFromTrades(tx: TxClient, userId: string, accountId: string) {
+  const { rows: acctRows } = await tx.query(
+    `SELECT id, account_size FROM trading_accounts WHERE id=$1 AND user_id=$2 FOR UPDATE`,
+    [accountId, userId]);
+  if (!acctRows.length) return;
+
+  const startingBalance = round2(acctRows[0].account_size);
+  let balance = startingBalance;
+  let highWaterMark = startingBalance;
+
+  const { rows: tradeRows } = await tx.query(
+    `SELECT amount, result FROM trades
+      WHERE user_id=$1 AND account_id=$2
+      ORDER BY trade_date, created_at, id`,
+    [userId, accountId]);
+  for (const trade of tradeRows) {
+    balance = round2(balance + signedTradeAmount(trade));
+    highWaterMark = Math.max(highWaterMark, balance);
+  }
+
+  await tx.query(
+    `UPDATE trading_accounts SET balance=$2, high_water_mark=$3, updated_at=NOW() WHERE id=$1`,
+    [accountId, String(balance), String(highWaterMark)]);
+}
+
 /**
  * Reverse an action.
  *
@@ -122,19 +164,45 @@ export async function undoAction(
 
     switch (entry.action) {
       case 'log-trade': {
-        // Restore the balance and either delete the row or un-net the amount.
-        await tx.query(
-          `UPDATE trading_accounts SET balance=$2, high_water_mark=$3, updated_at=NOW() WHERE id=$1`,
-          [d.accountId, String(d.balanceBefore), String(d.hwmBefore)]);
+        // Reverse the trade, then recompute the account from the remaining trade
+        // ledger. The old code restored a snapshot from before this action; if
+        // Daniel undid a middle trade, that wiped every later trade's P&L.
         if (d.netted) {
           await tx.query(`UPDATE trades SET amount=$2, result=$3 WHERE id=$1`,
-            [d.tradeId, String(d.priorAmount), Number(d.priorAmount) >= 0 ? 'win' : 'loss']);
+            [d.tradeId, String(d.priorAmount), resultForAmount(Number(d.priorAmount) || 0)]);
         } else {
           await tx.query(`DELETE FROM trades WHERE id=$1`, [d.tradeId]);
         }
+        await recomputeAccountFromTrades(tx, userId, d.accountId);
         if (d.calendarEntryCreated && d.calendarEntryId) {
           await tx.query(`DELETE FROM calendar_entries WHERE id=$1`, [d.calendarEntryId]);
         }
+        break;
+      }
+
+      case 'correct-trade': {
+        const p = d.prior || {};
+        await tx.query(`
+          UPDATE trades
+             SET direction=$2, instrument=$3, entry_price=$4, exit_price=$5,
+                 amount=$6, result=$7, risk_reward=$8, rules_followed=$9,
+                 notes=$10, behaviors=$11::text[], rules_broken=$12::text[], trade_date=$13
+           WHERE id=$1`, [
+          d.tradeId,
+          p.direction ?? null,
+          p.instrument ?? null,
+          p.entryPrice ?? null,
+          p.exitPrice ?? null,
+          String(p.amount ?? 0),
+          p.result ?? resultForAmount(Number(p.amount) || 0),
+          p.riskReward ?? null,
+          p.rulesFollowed ?? true,
+          p.notes ?? null,
+          toPgTextArray(p.behaviors || []),
+          toPgTextArray(p.rulesBroken || []),
+          p.tradeDate ?? new Date(),
+        ]);
+        await recomputeAccountFromTrades(tx, userId, d.accountId);
         break;
       }
 

@@ -35,6 +35,8 @@ import { computeDrawdown, settleAccount } from './drawdownModel';
 import { todayET, CascadeError } from './cascadeService';
 import { logAction } from './actionLog';
 
+const round2 = (n: unknown): number => Math.round((Number(n) || 0) * 100) / 100;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Per-plan drawdown semantics
 // ─────────────────────────────────────────────────────────────────────────────
@@ -182,6 +184,50 @@ async function resolveAccountForTrade(tx: TxClient, userId: string, ref: string)
       'ambiguous');
   }
   return rows[0];
+}
+
+
+function signedTradeAmount(row: { amount: unknown; result?: unknown }): number {
+  const amount = Number(row.amount) || 0;
+  if (amount < 0) return round2(amount);
+  return String(row.result || '').toLowerCase() === 'loss' ? -Math.abs(round2(amount)) : Math.abs(round2(amount));
+}
+
+function resultForAmount(amount: number): 'win' | 'loss' {
+  return amount < 0 ? 'loss' : 'win';
+}
+
+function toPgTextArray(values?: string[] | null): string {
+  const list = Array.isArray(values) ? values.filter(v => v != null) : [];
+  if (list.length === 0) return '{}';
+  return `{${list.map((v) => JSON.stringify(String(v))).join(',')}}`;
+}
+
+async function recomputeAccountFromTrades(tx: TxClient, userId: string, accountId: string) {
+  const { rows: acctRows } = await tx.query(
+    `SELECT id, account_size FROM trading_accounts WHERE id=$1 AND user_id=$2 FOR UPDATE`,
+    [accountId, userId]);
+  if (!acctRows.length) throw new CascadeError('Account not found for trade recompute', 'not_found');
+
+  const startingBalance = round2(acctRows[0].account_size);
+  let balance = startingBalance;
+  let highWaterMark = startingBalance;
+
+  const { rows: tradeRows } = await tx.query(
+    `SELECT amount, result FROM trades
+      WHERE user_id=$1 AND account_id=$2
+      ORDER BY trade_date, created_at, id`,
+    [userId, accountId]);
+
+  for (const trade of tradeRows) {
+    balance = round2(balance + signedTradeAmount(trade));
+    highWaterMark = Math.max(highWaterMark, balance);
+  }
+
+  await tx.query(
+    `UPDATE trading_accounts SET balance=$2, high_water_mark=$3, updated_at=NOW() WHERE id=$1`,
+    [accountId, String(balance), String(highWaterMark)]);
+  return { balance, highWaterMark };
 }
 
 /**
@@ -395,6 +441,114 @@ export async function logTrade(input: LogTradeInput): Promise<LogTradeResult> {
         balance: balanceAfter, stopOutLevel: dd.stopOutLevel,
         room: dd.room, dayPnL: dd.dayPnL, message,
       },
+    };
+  });
+}
+
+
+export interface CorrectTradeInput {
+  userId: string;
+  tradeId: string;
+  /** Signed P&L. Positive win, negative loss. If result is supplied too, result controls the sign. */
+  amount?: number;
+  result?: 'win' | 'loss';
+  accountRef?: string;
+  instrument?: string | null;
+  direction?: 'long' | 'short' | null;
+  entryPrice?: number | string | null;
+  exitPrice?: number | string | null;
+  riskReward?: number | string | null;
+  rulesFollowed?: boolean;
+  rulesBroken?: string[];
+  behaviors?: string[];
+  notes?: string | null;
+  tradeDate?: string;
+}
+
+export async function correctTrade(input: CorrectTradeInput): Promise<{
+  tradeId: string;
+  accountId: string;
+  label: string;
+  priorAmount: number;
+  amount: number;
+  balanceAfter: number;
+  highWaterMarkAfter: number;
+}> {
+  const tradeId = String(input.tradeId || '').trim();
+  if (!tradeId) throw new CascadeError('tradeId is required', 'missing_trade_id');
+
+  return withTransaction(async (tx) => {
+    const { rows } = await tx.query(`
+      SELECT t.*, ta.display_label, ta.id AS account_id
+        FROM trades t
+        JOIN trading_accounts ta ON ta.id = t.account_id
+       WHERE t.id=$1 AND t.user_id=$2
+       FOR UPDATE OF t, ta`, [tradeId, input.userId]);
+    if (!rows.length) throw new CascadeError(`No trade matching "${tradeId}"`, 'not_found');
+    const t = rows[0];
+
+    if (input.accountRef) {
+      const acct = await resolveAccountForTrade(tx, input.userId, input.accountRef);
+      if (String(acct.id) !== String(t.account_id)) {
+        throw new CascadeError(`Trade belongs to ${t.display_label}, not ${input.accountRef}`, 'wrong_account');
+      }
+    }
+
+    const priorAmount = signedTradeAmount(t);
+    let nextAmount = input.amount === undefined ? priorAmount : Number(input.amount);
+    if (!Number.isFinite(nextAmount)) throw new CascadeError('amount must be a number', 'bad_amount');
+    const requestedResult = input.result ?? resultForAmount(nextAmount);
+    nextAmount = requestedResult === 'loss' ? -Math.abs(round2(nextAmount)) : Math.abs(round2(nextAmount));
+
+    const prior = {
+      direction: t.direction ?? null,
+      instrument: t.instrument ?? null,
+      entryPrice: t.entry_price ?? null,
+      exitPrice: t.exit_price ?? null,
+      amount: String(t.amount),
+      result: t.result,
+      riskReward: t.risk_reward ?? null,
+      rulesFollowed: t.rules_followed,
+      notes: t.notes ?? null,
+      behaviors: Array.isArray(t.behaviors) ? t.behaviors : [],
+      rulesBroken: Array.isArray(t.rules_broken) ? t.rules_broken : [],
+      tradeDate: t.trade_date,
+    };
+
+    await tx.query(`
+      UPDATE trades
+         SET direction=$2, instrument=$3, entry_price=$4, exit_price=$5,
+             amount=$6, result=$7, risk_reward=$8, rules_followed=$9,
+             notes=$10, behaviors=$11::text[], rules_broken=$12::text[], trade_date=$13
+       WHERE id=$1`, [
+      tradeId,
+      input.direction === undefined ? t.direction : input.direction,
+      input.instrument === undefined ? t.instrument : input.instrument,
+      input.entryPrice === undefined ? t.entry_price : input.entryPrice,
+      input.exitPrice === undefined ? t.exit_price : input.exitPrice,
+      String(nextAmount), requestedResult,
+      input.riskReward === undefined ? t.risk_reward : input.riskReward,
+      input.rulesFollowed === undefined ? t.rules_followed : input.rulesFollowed,
+      input.notes === undefined ? t.notes : input.notes,
+      toPgTextArray(input.behaviors === undefined ? (Array.isArray(t.behaviors) ? t.behaviors : []) : input.behaviors),
+      toPgTextArray(input.rulesBroken === undefined ? (Array.isArray(t.rules_broken) ? t.rules_broken : []) : input.rulesBroken),
+      input.tradeDate === undefined ? t.trade_date : input.tradeDate,
+    ]);
+
+    const recalculated = await recomputeAccountFromTrades(tx, input.userId, String(t.account_id));
+
+    await logAction(tx, input.userId, 'correct-trade',
+      `Corrected trade on ${t.display_label}: $${priorAmount.toFixed(2)} -> $${nextAmount.toFixed(2)}`,
+      { tradeId, accountId: String(t.account_id), prior });
+
+    return {
+      tradeId,
+      accountId: String(t.account_id),
+      label: String(t.display_label),
+      priorAmount,
+      amount: nextAmount,
+      balanceAfter: recalculated.balance,
+      highWaterMarkAfter: recalculated.highWaterMark,
     };
   });
 }
