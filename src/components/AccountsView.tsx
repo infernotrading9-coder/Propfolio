@@ -68,7 +68,8 @@ const HolographicAccountCard: React.FC<{
   onSave: () => void;
   onCancel: () => void;
   setEditField: (field: string, value: string) => void;
-}> = ({ acct, isEditing, editData, onEdit, onDelete, onSave, onCancel, setEditField }) => {
+  glowOverride?: string;
+}> = ({ acct, isEditing, editData, onEdit, onDelete, onSave, onCancel, setEditField, glowOverride }) => {
   const balance = parseFloat(acct.balance);
   const drawdown = parseFloat(acct.drawdownUsed);
   const hwm = parseFloat(acct.highWaterMark);
@@ -110,7 +111,7 @@ const HolographicAccountCard: React.FC<{
   return (
     <div className="group relative transform-gpu transition-all duration-300 hover:scale-[1.02] hover:-translate-y-1">
       <NeonCard
-        glow={ddPercent > 80 ? 'pink' : 'purple'}
+        glow={(glowOverride as any) || (ddPercent > 80 ? 'pink' : 'purple')}
         className="relative overflow-hidden p-5 h-full"
       >
         {/* Holographic Reflection Layer */}
@@ -585,10 +586,9 @@ const CopyTradeGroupCard: React.FC<{
 
   return (
     <div className="relative">
-      {/* Same HolographicAccountCard but with a cyan tint to distinguish copy-trade groups */}
-      <div onDoubleClick={() => setExpanded(!expanded)}
-        className="rounded-xl border border-cyan-400/30 bg-cyan-500/5">
-        <div className="absolute top-2 right-2 z-20 px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 text-xs font-medium pointer-events-none">
+      {/* Same HolographicAccountCard — the cyan glow prop tints it */}
+      <div onDoubleClick={() => setExpanded(!expanded)} className="relative">
+        <div className="absolute top-2 right-2 z-30 px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 text-xs font-medium pointer-events-none">
           🔗 {groupLabel}
         </div>
         <HolographicAccountCard
@@ -600,6 +600,7 @@ const CopyTradeGroupCard: React.FC<{
           onSave={() => onSave(primary.id, editData)}
           onCancel={onCancel}
           setEditField={setEditField}
+          glowOverride="cyan"
         />
       </div>
 
