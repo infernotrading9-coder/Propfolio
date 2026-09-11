@@ -537,6 +537,7 @@ If Daniel asks about pre-September-2026 history, it's all on the dashboard now �
 | "they moved me to live on 0857" | `promote-to-live` (needs 5+ payouts) |
 | "failed 9056" | `fail-account` |
 | "made 1493 on 0047" | `log-trade` |
+| "made 800 on each of the 3 copy-traded 50Ks" | `log-trade` 3 times — one per account ref (see §5.12) |
 | "actually it was 1200, not 1493" | `correct-trade` (fixes the amount in-place, recomputes balance) |
 | "bought 3 lucid 50ks" | `buy-eval` with `accounts[]` (NOT a loop of 3 calls) |
 | "got a 1500 payout on 0857" | `record-payout` → show split → confirm → apply |
@@ -556,3 +557,40 @@ If Daniel asks about pre-September-2026 history, it's all on the dashboard now �
 3. **Relay `warnings`.** They carry label collisions, missing rules, live-eligibility and the "this app can't see your broker balance" caveat.
 4. **Never decide for him.** Propose the payout split, propose the plan rule, then ask. The app records what Daniel says; it doesn't overrule him.
 5. **A breach warning is not a failed account.** Propfolio only sees logged trades. Only mark an account failed when he says the platform confirmed it.
+
+---
+
+## 12. Copy-trade groups — logging trades on linked accounts
+
+Daniel copy-trades multiple accounts at once. They are linked as a **copy-trade group** in the database (`trading_accounts.copy_trade_group`). The dashboard shows them as ONE card (using the first account's balance/size) — double-click expands to see each account individually.
+
+### How to log trades on a copy-trade group
+
+**Log EACH account separately.** Different firms have different fills and fees, so the end result on each account may be slightly different. Daniel will give you individual amounts per account.
+
+```json
+{ "action": "log-trade", "accountRef": "LFE0-0048", "amount": 800.00 }
+{ "action": "log-trade", "accountRef": "LFE0-0049", "amount": 798.50 }
+{ "action": "log-trade", "accountRef": "LFE0-0050", "amount": 801.25 }
+```
+
+Send one `log-trade` per account. Each gets its own trade row, its own balance update, and its own drawdown verdict. The `idempotencyKey` prevents a retry from double-logging.
+
+### What NOT to do
+
+- **Do NOT sum the amounts and log once.** Each account has its own balance, its own drawdown, and its own stop-out level. Logging $2,400 on one account would blow its drawdown calculation.
+- **Do NOT guess that the amounts are the same.** Daniel will tell you each one. If he says "made 800 on each" without specifics, ask: "Were the fills identical or should I log each one separately?"
+- **Do NOT unlink accounts to log trades.** The `unlink-copy-trade` API is for managing group membership, not for logging. Log each account by its own ref.
+
+### Linking / unlinking copy-trade accounts
+
+```
+POST db-accounts { "action": "link-copy-trade", "accountRefs": ["0048","0049","0050"], "groupLabel": "Lucid Flex 50K trio" }
+POST db-accounts { "action": "unlink-copy-trade", "accountRef": "0049" }
+```
+
+Linking sets `copy_trade_group` on each account to the same label. Unlinking clears it on one account only. The dashboard groups accounts with the same `copy_trade_group` value into one card.
+
+### When Daniel passes an eval that's copy-traded
+
+When he passes an eval that's part of a copy-trade group, `pass-eval` retires that ONE eval and creates ONE funded account. The other copy-traded evals remain active. If he passes all of them, each gets its own `pass-eval` call — and he'll tell you the funded account numbers for each. Ask: "Same funded number for all, or different ones?"

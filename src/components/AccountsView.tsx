@@ -574,7 +574,7 @@ const CombinedRuleCalendar: React.FC<{
   );
 };
 
-// ─── Copy-Trade Group Card ───────────────────────────────────────────────────
+// ─── Copy-Trade Group Card (looks like one HolographicAccountCard, expands on double-click) ──
 const CopyTradeGroupCard: React.FC<{
   accounts: TradingAccount[];
   groupLabel: string;
@@ -586,66 +586,92 @@ const CopyTradeGroupCard: React.FC<{
   setEditField: (field: string, value: string) => void;
   onUnlink: (ref: string) => void;
 }> = ({ accounts: groupAccts, groupLabel, editingId, editData, onEdit, onSave, onCancel, setEditField, onUnlink }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [unlinkTarget, setUnlinkTarget] = useState<string | null>(null);
   const primary = groupAccts[0];
-  const sizeLabel = parseFloat(primary.accountSize) >= 1000 ? `$${(parseFloat(primary.accountSize) / 1000).toFixed(0)}K` : `$${primary.accountSize}`;
-  const phaseInfo = primary.phase === 'live'
-    ? { color: 'text-lime-400', bg: 'bg-lime-500/20', border: 'border-lime-400/50', label: 'Live' }
-    : primary.phase === 'funded'
-    ? { color: 'text-cyan-400', bg: 'bg-cyan-500/20', border: 'border-cyan-400/50', label: 'Funded' }
-    : { color: 'text-purple-400', bg: 'bg-purple-500/20', border: 'border-purple-400/50', label: 'Eval' };
 
   return (
-    <div className="rounded-xl border border-cyan-400/20 bg-gradient-to-br from-gray-900/80 to-gray-800/40 p-4">
-      {/* Group header */}
-      <div className="flex items-center justify-between mb-3 pb-3 border-b border-white/10">
-        <div className="flex items-center gap-2">
-          <span className="text-cyan-300 text-sm font-semibold">🔗 {groupLabel}</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${phaseInfo.bg} ${phaseInfo.border} border ${phaseInfo.color}`}>{phaseInfo.label}</span>
-          <span className="text-white/50 text-sm">{primary.firm} · {sizeLabel}{primary.evalType ? ` · ${primary.evalType}` : ''}</span>
-          <span className="text-white/30 text-xs">{groupAccts.length} accounts</span>
+    <div className="relative">
+      {/* The main card — identical to a standard HolographicAccountCard */}
+      <div onDoubleClick={() => setExpanded(!expanded)}>
+        <HolographicAccountCard
+          acct={primary}
+          isEditing={editingId === primary.id}
+          editData={editData}
+          onEdit={() => onEdit(primary.id)}
+          onDelete={() => {}}
+          onSave={() => onSave(primary.id, editData)}
+          onCancel={onCancel}
+          setEditField={setEditField}
+        />
+        {/* Copy-trade badge — small, top-right corner */}
+        <div className="absolute top-2 right-2 z-20 px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 text-xs font-medium">
+          🔗 {groupAccts.length}
         </div>
       </div>
-      {/* Individual account cards within the group */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {groupAccts.map((acct) => (
-          <div key={acct.id} className="relative">
-            <div className="bg-white/5 rounded-lg p-3 border border-white/10">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-white font-medium text-sm">{acct.displayLabel || acct.name}</span>
-                <button onClick={() => onUnlink(acct.displayLabel || acct.accountNumberLast4 || acct.id)} className="text-white/30 hover:text-red-400 text-xs" title="Unlink from group">✕</button>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div>
-                  <div className="text-white/40">Balance</div>
-                  <div className="text-white font-semibold">${parseFloat(acct.balance).toFixed(0)}</div>
-                </div>
-                <div>
-                  <div className="text-white/40">P&L</div>
-                  <div className={`font-semibold ${parseFloat(acct.balance) - parseFloat(acct.highWaterMark) >= 0 ? 'text-lime-400' : 'text-red-400'}`}>{parseFloat(acct.balance) - parseFloat(acct.highWaterMark) >= 0 ? '+' : ''}{(parseFloat(acct.balance) - parseFloat(acct.highWaterMark)).toFixed(0)}</div>
-                </div>
-                <div>
-                  <div className="text-white/40">Size</div>
-                  <div className="text-white/70">${parseFloat(acct.accountSize).toFixed(0)}</div>
-                </div>
-              </div>
-              <div className="flex gap-1 mt-2 justify-end">
-                <button onClick={() => onEdit(acct.id)} className="text-white/40 hover:text-cyan-300 text-xs">Edit</button>
-              </div>
-            </div>
-            {editingId === acct.id && (
-              <div className="absolute inset-0 bg-black/80 rounded-lg p-3 z-10 flex flex-col gap-2">
-                <input type="number" value={editData.balance || ''} onChange={(e) => setEditField('balance', e.target.value)} placeholder="Balance" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
-                <input type="number" value={editData.maxDrawdown || ''} onChange={(e) => setEditField('maxDrawdown', e.target.value)} placeholder="Max DD" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
-                <input type="number" value={editData.dailyDrawdown || ''} onChange={(e) => setEditField('dailyDrawdown', e.target.value)} placeholder="Daily DD" className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm" />
-                <div className="flex gap-1">
-                  <button onClick={() => onSave(acct.id, editData)} className="bg-neon-lime text-black px-2 py-1 rounded text-xs">Save</button>
-                  <button onClick={onCancel} className="bg-gray-700 text-white px-2 py-1 rounded text-xs">Cancel</button>
-                </div>
-              </div>
-            )}
+
+      {/* Expand panel — slides down on double-click */}
+      {expanded && (
+        <div className="mt-2 rounded-xl border border-cyan-400/20 bg-gray-900/80 p-4" style={{ animation: 'slideUp 0.3s ease-out' }}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-cyan-300 text-sm font-semibold">🔗 {groupLabel} — {groupAccts.length} accounts</span>
+            <button onClick={() => setExpanded(false)} className="text-white/40 hover:text-white text-xs">Collapse ✕</button>
           </div>
-        ))}
-      </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {groupAccts.map((acct) => (
+              <div key={acct.id} className="relative bg-white/5 rounded-lg p-3 border border-white/10">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-white font-medium text-sm">{acct.displayLabel || acct.name}</span>
+                  <button
+                    onClick={() => setUnlinkTarget(acct.displayLabel || acct.accountNumberLast4 || acct.id)}
+                    className="text-white/30 hover:text-red-400 text-xs"
+                    title="Unlink from group"
+                  >✕</button>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div>
+                    <div className="text-white/40">Balance</div>
+                    <div className="text-white font-semibold">${parseFloat(acct.balance).toFixed(0)}</div>
+                  </div>
+                  <div>
+                    <div className="text-white/40">P&L</div>
+                    <div className={`font-semibold ${parseFloat(acct.balance) - parseFloat(acct.highWaterMark) >= 0 ? 'text-lime-400' : 'text-red-400'}`}>
+                      {parseFloat(acct.balance) - parseFloat(acct.highWaterMark) >= 0 ? '+' : ''}{(parseFloat(acct.balance) - parseFloat(acct.highWaterMark)).toFixed(0)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-white/40">Size</div>
+                    <div className="text-white/70">${parseFloat(acct.accountSize).toFixed(0)}</div>
+                  </div>
+                </div>
+                <div className="flex gap-1 mt-2 justify-end">
+                  <button onClick={() => onEdit(acct.id)} className="text-white/40 hover:text-cyan-300 text-xs">Edit</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 text-center">
+            <span className="text-white/30 text-xs">Double-click the card to collapse</span>
+          </div>
+        </div>
+      )}
+
+      {/* Unlink confirm prompt */}
+      {unlinkTarget && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setUnlinkTarget(null)}>
+          <div className="bg-[#0a0e17] border border-red-500/40 rounded-xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-white mb-2">Unlink {unlinkTarget}?</h3>
+            <p className="text-white/60 text-sm mb-4">This will remove {unlinkTarget} from the copy-trade group. You can re-link it later.</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { onUnlink(unlinkTarget); setUnlinkTarget(null); }}
+                className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg font-medium text-sm"
+              >Yes, unlink</button>
+              <button onClick={() => setUnlinkTarget(null)} className="flex-1 bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -664,6 +690,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
   const [linkSelected, setLinkSelected] = useState<Set<string>>(new Set());
   const [linkFlash, setLinkFlash] = useState(false);
   const [linkLabel, setLinkLabel] = useState('');
+  const [linkTargetGroup, setLinkTargetGroup] = useState<string | null>(null);
 
   const [newAccount, setNewAccount] = useState({
     name: '', firm: '', accountNumberLast4: '', accountSize: '', balance: '', maxDrawdown: '', dailyDrawdown: '', lockedFloor: '', riskPerTrade: '', rules: '', notes: '', phase: 'challenge', platform: '', groupName: '', cost: '',
@@ -808,22 +835,24 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
   }, [accounts]);
 
   const handleLinkCopyTrade = async () => {
-    if (linkSelected.size < 2) { alert('Select at least 2 accounts'); return; }
+    if (linkSelected.size < 1) { alert('Select at least 1 account'); return; }
     const refs: string[] = [];
     for (const id of linkSelected) {
       const acct = accounts.find(a => a.id === id);
       if (acct) refs.push(acct.displayLabel || acct.accountNumberLast4 || acct.id);
     }
-    const label = linkLabel.trim() || `${refs[0]} +${refs.length - 1}`;
+    // If adding to an existing group, use that group's ID
+    const groupId = linkTargetGroup || (linkLabel.trim() || `${refs[0]} +${refs.length - 1}`);
     try {
       await fetch(`${apiBase}/db-accounts`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'link-copy-trade', accountRefs: refs, groupLabel: label }),
+        body: JSON.stringify({ action: 'link-copy-trade', accountRefs: refs, groupLabel: groupId }),
       });
       setLinkMode(false);
       setLinkSelected(new Set());
       setLinkLabel('');
+      setLinkTargetGroup(null);
       loadData();
     } catch (e) { console.error('Failed to link copy trades:', e); alert('Failed to link accounts'); }
   };
@@ -961,17 +990,17 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
         <>
           <div className="flex items-center justify-between bg-cyan-500/10 border border-cyan-400/30 rounded-xl px-4 py-3 animate-pulse">
             <span className="text-cyan-200 text-sm font-medium">
-              Click accounts to select them ({linkSelected.size} selected). Need at least 2 to link.
+              Click accounts to select them ({linkSelected.size} selected). Select 1+ to add to a group, or 2+ to create a new group.
             </span>
             <button onClick={() => { setLinkMode(false); setLinkSelected(new Set()); }} className="text-white/50 hover:text-white text-sm">Exit</button>
           </div>
 
-          {/* Floating confirm panel — slides in when 2+ selected */}
-          {linkSelected.size >= 2 && (
+          {/* Floating confirm panel — slides in when 1+ selected */}
+          {linkSelected.size >= 1 && (
             <div className="fixed bottom-6 right-6 z-40 bg-[#0a0e17] border border-cyan-400/50 rounded-xl p-4 shadow-[0_0_30px_rgba(6,182,212,0.3)] max-w-xs"
               style={{ animation: 'slideUp 0.3s ease-out' }}>
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-cyan-300 text-sm font-bold">🔗 Link {linkSelected.size} accounts?</span>
+                <span className="text-cyan-300 text-sm font-bold">🔗 Link {linkSelected.size} account{linkSelected.size > 1 ? 's' : ''}?</span>
               </div>
               <div className="flex flex-wrap gap-1 mb-3">
                 {[...linkSelected].map(id => {
@@ -983,19 +1012,35 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
                   );
                 })}
               </div>
-              <input
-                value={linkLabel}
-                onChange={(e) => setLinkLabel(e.target.value)}
-                placeholder="Group label (optional)"
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs mb-2"
-              />
+              {/* If existing groups exist, show a dropdown to add to one */}
+              {groupedAccounts.groups.size > 0 && (
+                <div className="mb-2">
+                  <label className="text-xs text-white/50 block mb-1">Add to existing group (optional):</label>
+                  <select
+                    value={linkTargetGroup || ''}
+                    onChange={(e) => setLinkTargetGroup(e.target.value || null)}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs mb-1"
+                  >
+                    <option value="">— Create new group —</option>
+                    {Array.from(groupedAccounts.groups.keys()).map(g => (
+                      <option key={g} value={g} className="bg-gray-800">{g} ({groupedAccounts.groups.get(g)!.length} accounts)</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {!linkTargetGroup && (
+                <input
+                  value={linkLabel}
+                  onChange={(e) => setLinkLabel(e.target.value)}
+                  placeholder="New group label (optional)"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs mb-2"
+                />
+              )}
               <div className="flex gap-2">
                 <button onClick={handleLinkCopyTrade} className="flex-1 bg-cyan-600 text-white px-3 py-2 rounded-lg font-medium text-sm">
-                  Link Accounts
+                  {linkTargetGroup ? 'Add to Group' : 'Link Accounts'}
                 </button>
-                <button onClick={() => setLinkSelected(new Set())} className="bg-gray-700 text-white px-3 py-2 rounded-lg text-sm">
-                  Clear
-                </button>
+                <button onClick={() => { setLinkSelected(new Set()); setLinkTargetGroup(null); }} className="bg-gray-700 text-white px-3 py-2 rounded-lg text-sm">Clear</button>
               </div>
             </div>
           )}
