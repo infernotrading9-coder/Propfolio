@@ -581,7 +581,6 @@ const CopyTradeGroupCard: React.FC<{
   editingId: string | null;
   editData: Partial<TradingAccount>;
   onEdit: (id: string) => void;
-  onDelete: (id: string) => void;
   onSave: (id: string, updates: Partial<TradingAccount>) => void;
   onCancel: () => void;
   setEditField: (field: string, value: string) => void;
@@ -661,8 +660,9 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
   const [orderMode, setOrderMode] = useState(false);
   const [orderedIds, setOrderedIds] = useState<string[]>([]);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [showLinkModal, setShowLinkModal] = useState(false);
-  const [linkRefs, setLinkRefs] = useState('');
+  const [linkMode, setLinkMode] = useState(false);
+  const [linkSelected, setLinkSelected] = useState<Set<string>>(new Set());
+  const [linkFlash, setLinkFlash] = useState(false);
   const [linkLabel, setLinkLabel] = useState('');
 
   const [newAccount, setNewAccount] = useState({
@@ -808,19 +808,35 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
   }, [accounts]);
 
   const handleLinkCopyTrade = async () => {
-    const refs = linkRefs.split(',').map(r => r.trim()).filter(Boolean);
-    if (refs.length < 2) { alert('Enter at least 2 account refs'); return; }
+    if (linkSelected.size < 2) { alert('Select at least 2 accounts'); return; }
+    const refs: string[] = [];
+    for (const id of linkSelected) {
+      const acct = accounts.find(a => a.id === id);
+      if (acct) refs.push(acct.displayLabel || acct.accountNumberLast4 || acct.id);
+    }
+    const label = linkLabel.trim() || `${refs[0]} +${refs.length - 1}`;
     try {
       await fetch(`${apiBase}/db-accounts`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'link-copy-trade', accountRefs: refs, groupLabel: linkLabel.trim() || undefined }),
+        body: JSON.stringify({ action: 'link-copy-trade', accountRefs: refs, groupLabel: label }),
       });
-      setShowLinkModal(false);
-      setLinkRefs('');
+      setLinkMode(false);
+      setLinkSelected(new Set());
       setLinkLabel('');
       loadData();
     } catch (e) { console.error('Failed to link copy trades:', e); alert('Failed to link accounts'); }
+  };
+
+  const toggleLinkSelect = (id: string) => {
+    setLinkSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setLinkFlash(true);
+    setTimeout(() => setLinkFlash(false), 400);
   };
 
   const handleUnlinkCopyTrade = async (ref: string) => {
@@ -840,6 +856,12 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
 
   return (
     <div className="space-y-6">
+      <style>{`
+        @keyframes slideUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
       {/* Daily Trading Order Section */}
       <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
@@ -912,25 +934,73 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
         </h2>
         <div className="flex gap-2">
           <button
-            onClick={() => setShowLinkModal(true)}
-            className="bg-gradient-to-r from-cyan-500/20 to-purple-500/20 border border-cyan-400/30 text-cyan-200 px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90"
+            onClick={() => { setLinkMode(!linkMode); setLinkSelected(new Set()); }}
+            className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${linkMode ? 'bg-cyan-500/30 border border-cyan-400/50 text-cyan-200 shadow-[0_0_20px_rgba(6,182,212,0.3)]' : 'bg-gradient-to-r from-cyan-500/20 to-purple-500/20 border border-cyan-400/30 text-cyan-200 hover:opacity-90'}`}
           >
-            🔗 Link Copy Trades
+            {linkMode ? 'Cancel Link' : '🔗 Link Copy Trades'}
           </button>
           <button
             onClick={() => { setOrderMode(!orderMode); if (!orderMode) setOrderedIds(accounts.map(a => a.id)); }}
-            className="bg-white/5 border border-white/10 text-white/70 px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90"
+            disabled={linkMode}
+            className="bg-white/5 border border-white/10 text-white/70 px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-30"
           >
             {orderMode ? 'Cancel' : '↕ Reorder'}
           </button>
           <button
             onClick={() => setShowAddAccount(!showAddAccount)}
-            className="bg-gradient-to-r from-neon-purple to-neon-cyan text-white px-4 py-2 rounded-lg font-medium hover:opacity-90"
+            disabled={linkMode || orderMode}
+            className="bg-gradient-to-r from-neon-purple to-neon-cyan text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-30"
           >
             + Add Account
           </button>
         </div>
       </div>
+
+      {/* Link mode banner + floating confirm panel */}
+      {linkMode && (
+        <>
+          <div className="flex items-center justify-between bg-cyan-500/10 border border-cyan-400/30 rounded-xl px-4 py-3 animate-pulse">
+            <span className="text-cyan-200 text-sm font-medium">
+              Click accounts to select them ({linkSelected.size} selected). Need at least 2 to link.
+            </span>
+            <button onClick={() => { setLinkMode(false); setLinkSelected(new Set()); }} className="text-white/50 hover:text-white text-sm">Exit</button>
+          </div>
+
+          {/* Floating confirm panel — slides in when 2+ selected */}
+          {linkSelected.size >= 2 && (
+            <div className="fixed bottom-6 right-6 z-40 bg-[#0a0e17] border border-cyan-400/50 rounded-xl p-4 shadow-[0_0_30px_rgba(6,182,212,0.3)] max-w-xs"
+              style={{ animation: 'slideUp 0.3s ease-out' }}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-cyan-300 text-sm font-bold">🔗 Link {linkSelected.size} accounts?</span>
+              </div>
+              <div className="flex flex-wrap gap-1 mb-3">
+                {[...linkSelected].map(id => {
+                  const a = accounts.find(x => x.id === id);
+                  return (
+                    <span key={id} className="text-xs bg-cyan-500/20 border border-cyan-400/30 text-cyan-200 px-2 py-0.5 rounded-full">
+                      {a?.displayLabel || a?.accountNumberLast4 || a?.name}
+                    </span>
+                  );
+                })}
+              </div>
+              <input
+                value={linkLabel}
+                onChange={(e) => setLinkLabel(e.target.value)}
+                placeholder="Group label (optional)"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs mb-2"
+              />
+              <div className="flex gap-2">
+                <button onClick={handleLinkCopyTrade} className="flex-1 bg-cyan-600 text-white px-3 py-2 rounded-lg font-medium text-sm">
+                  Link Accounts
+                </button>
+                <button onClick={() => setLinkSelected(new Set())} className="bg-gray-700 text-white px-3 py-2 rounded-lg text-sm">
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Reorder save bar */}
       {orderMode && (
@@ -986,7 +1056,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
         </div>
       )}
 
-      {/* Accounts Grid — Holographic Cards with copy-trade grouping + drag */}
+      {/* Accounts Grid — Holographic Cards with copy-trade grouping + drag + link select */}
       {accounts.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
           <Wallet className="w-12 h-12 mx-auto mb-3 opacity-30" />
@@ -1016,6 +1086,36 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
             );
           })}
         </div>
+      ) : linkMode ? (
+        /* Link mode: click-to-select standalone accounts */
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {groupedAccounts.standalone.map((acct) => {
+            const isSelected = linkSelected.has(acct.id);
+            return (
+              <div
+                key={acct.id}
+                onClick={() => toggleLinkSelect(acct.id)}
+                className={`cursor-pointer transition-all duration-300 rounded-xl border-2 ${isSelected ? 'border-cyan-400/70 bg-cyan-500/10 shadow-[0_0_25px_rgba(6,182,212,0.3)] scale-[1.02]' : 'border-white/10 hover:border-cyan-400/30 hover:scale-[1.01]'} ${linkFlash && isSelected ? 'animate-bounce' : ''}`}
+              >
+                <HolographicAccountCard
+                  acct={acct}
+                  isEditing={false}
+                  editData={editData}
+                  onEdit={() => {}}
+                  onDelete={() => {}}
+                  onSave={() => {}}
+                  onCancel={() => {}}
+                  setEditField={() => {}}
+                />
+                {isSelected && (
+                  <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-cyan-500 flex items-center justify-center text-white text-xs font-bold z-20">
+                    ✓
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <div className="space-y-4">
           {/* Copy-trade groups */}
@@ -1027,7 +1127,6 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
               editingId={editingId}
               editData={editData}
               onEdit={(id) => { setEditingId(id); const a = accounts.find(x => x.id === id); if (a) setEditData({ balance: a.balance, drawdownUsed: a.drawdownUsed, highWaterMark: a.highWaterMark, maxDrawdown: a.maxDrawdown, dailyDrawdown: a.dailyDrawdown, lockedFloor: a.lockedFloor, notes: a.notes, status: a.status, rules: a.rules }); }}
-              onDelete={handleDeleteAccount}
               onSave={handleUpdateAccount}
               onCancel={() => setEditingId(null)}
               setEditField={(field, value) => setEditData(prev => ({ ...prev, [field]: value }))}
@@ -1058,30 +1157,6 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
               })}
             </div>
           )}
-        </div>
-      )}
-
-      {/* Link Copy Trades Modal */}
-      {showLinkModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowLinkModal(false)}>
-          <div className="bg-[#0a0e17] border border-cyan-500/40 rounded-xl p-6 max-w-md w-full shadow-[0_0_30px_rgba(6,182,212,0.3)]" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-xl font-bold text-white mb-2">Link Copy-Trade Accounts</h3>
-            <p className="text-white/60 text-sm mb-4">Enter the account refs (last4, label, or nickname) to link. They will show as one card — each account's balance and P&L shown separately, not summed.</p>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-white/60 mb-1 block">Account refs (comma-separated, e.g. 0048, 0049, 0050)</label>
-                <input value={linkRefs} onChange={(e) => setLinkRefs(e.target.value)} placeholder="0048, 0049, 0050" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm" />
-              </div>
-              <div>
-                <label className="text-xs text-white/60 mb-1 block">Group label (optional)</label>
-                <input value={linkLabel} onChange={(e) => setLinkLabel(e.target.value)} placeholder="Lucid Flex 50K trio" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm" />
-              </div>
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button onClick={handleLinkCopyTrade} className="bg-cyan-600 text-white px-4 py-2 rounded-lg font-medium text-sm">Link Accounts</button>
-              <button onClick={() => setShowLinkModal(false)} className="bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Cancel</button>
-            </div>
-          </div>
         </div>
       )}
 
