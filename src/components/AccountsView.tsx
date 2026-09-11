@@ -34,13 +34,6 @@ interface TradingAccount {
   sortOrder: number;
 }
 
-interface DailyOrder {
-  id: string;
-  orderDate: string;
-  orderedAccountIds: string[];
-  notes?: string | null;
-}
-
 // --- Calendar types (server-backed) ---
 interface CalAccount {
   id: string;
@@ -574,7 +567,7 @@ const CombinedRuleCalendar: React.FC<{
   );
 };
 
-// ─── Copy-Trade Group Card (looks like one HolographicAccountCard, expands on double-click) ──
+// ─── Copy-Trade Group Card (same size as a regular card, slightly different color) ──
 const CopyTradeGroupCard: React.FC<{
   accounts: TradingAccount[];
   groupLabel: string;
@@ -592,8 +585,12 @@ const CopyTradeGroupCard: React.FC<{
 
   return (
     <div className="relative">
-      {/* The main card — identical to a standard HolographicAccountCard */}
-      <div onDoubleClick={() => setExpanded(!expanded)}>
+      {/* Same HolographicAccountCard but with a cyan tint to distinguish copy-trade groups */}
+      <div onDoubleClick={() => setExpanded(!expanded)}
+        className="rounded-xl border border-cyan-400/30 bg-cyan-500/5">
+        <div className="absolute top-2 right-2 z-20 px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 text-xs font-medium pointer-events-none">
+          🔗 {groupLabel}
+        </div>
         <HolographicAccountCard
           acct={primary}
           isEditing={editingId === primary.id}
@@ -604,10 +601,6 @@ const CopyTradeGroupCard: React.FC<{
           onCancel={onCancel}
           setEditField={setEditField}
         />
-        {/* Copy-trade badge — small, top-right corner */}
-        <div className="absolute top-2 right-2 z-20 px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 text-xs font-medium">
-          🔗 {groupAccts.length}
-        </div>
       </div>
 
       {/* Expand panel — slides down on double-click */}
@@ -682,7 +675,6 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
   const [loading, setLoading] = useState(true);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [dailyOrder, setDailyOrder] = useState<DailyOrder | null>(null);
   const [orderMode, setOrderMode] = useState(false);
   const [orderedIds, setOrderedIds] = useState<string[]>([]);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -701,14 +693,11 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [accountsRes, orderRes] = await Promise.all([
+      const [accountsRes] = await Promise.all([
         fetch(`${apiBase}/db-accounts`, { headers: getAuthHeaders() }),
-        fetch(`${apiBase}/db-accounts?action=daily-order&date=${todayLocalISO()}`, { headers: getAuthHeaders() }),
       ]);
       const accountsData = await accountsRes.json();
-      const orderData = await orderRes.json();
       if (accountsData.accounts) setAccounts(accountsData.accounts);
-      if (orderData.order) setDailyOrder(orderData.order);
     } catch (e) {
       console.error('Failed to load accounts:', e);
     } finally {
@@ -767,18 +756,6 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
     } catch (e) { console.error('Failed to delete account:', e); }
   };
 
-  const handleSaveDailyOrder = async () => {
-    if (orderedIds.length === 0) return;
-    try {
-      await fetch(`${apiBase}/db-accounts`, {
-        method: 'POST',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'set-daily-order', orderDate: todayLocalISO(), orderedAccountIds: orderedIds }),
-      });
-      setOrderMode(false);
-      loadData();
-    } catch (e) { console.error('Failed to save daily order:', e); }
-  };
 
   const moveAccount = (index: number, direction: 'up' | 'down') => {
     const newOrder = [...orderedIds];
@@ -891,7 +868,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
-      {/* Daily Trading Order Section */}
+      {/* Daily Trading Order — reads from account card order (sort_order) */}
       <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -901,7 +878,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
           <div className="flex gap-2">
             {orderMode ? (
               <>
-                <button onClick={handleSaveDailyOrder} className="bg-neon-lime text-black px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90">Save Order</button>
+                <button onClick={handleSaveDragOrder} className="bg-neon-lime text-black px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90">Save Order</button>
                 <button onClick={() => { setOrderMode(false); setOrderedIds([]); }} className="bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Cancel</button>
               </>
             ) : (
@@ -909,29 +886,14 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
                 onClick={() => { setOrderMode(true); setOrderedIds(accounts.map(a => a.id)); }}
                 className="bg-gradient-to-r from-neon-purple to-neon-cyan text-white px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90"
               >
-                Set Today's Order
+                Reorder
               </button>
             )}
           </div>
         </div>
 
-        {dailyOrder && !orderMode ? (
-          <div className="space-y-2">
-            {dailyOrder.orderedAccountIds.map((id, idx) => {
-              const acct = accounts.find(a => a.id === id);
-              if (!acct) return null;
-              return (
-                <div key={id} className="flex items-center gap-3 bg-gray-800/50 rounded-lg px-4 py-2">
-                  <span className="text-neon-cyan font-bold w-6 text-center">{idx + 1}</span>
-                  <span className="text-white font-medium">{acct.name}</span>
-                  <span className="text-gray-400 text-sm">{acct.firm}</span>
-                  <span className="text-gray-500 text-sm ml-auto">${parseFloat(acct.balance).toFixed(0)}</span>
-                </div>
-              );
-            })}
-            {dailyOrder.notes && <p className="text-gray-400 text-sm mt-2">{dailyOrder.notes}</p>}
-          </div>
-        ) : orderMode ? (
+        {/* In order mode, show the draggable list. Otherwise show the sorted accounts/groups. */}
+        {orderMode ? (
           <div className="space-y-2">
             {orderedIds.map((id, idx) => {
               const acct = accounts.find(a => a.id === id);
@@ -951,7 +913,47 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
             })}
           </div>
         ) : (
-          <p className="text-gray-500 text-sm">No order set for today. Click "Set Today's Order" to arrange your accounts.</p>
+          <div className="space-y-2">
+            {/* Show copy-trade groups as one line, standalone accounts as one line each, in sort_order */}
+            {(() => {
+              const seen = new Set<string>();
+              const items: Array<{ label: string; firm: string; balance: number; isGroup: boolean; groupLabel?: string; count: number }> = [];
+              for (const acct of accounts) {
+                if (seen.has(acct.id)) continue;
+                if (acct.copyTradeGroup) {
+                  const groupAccts = accounts.filter(a => a.copyTradeGroup === acct.copyTradeGroup);
+                  groupAccts.forEach(a => seen.add(a.id));
+                  items.push({
+                    label: acct.copyTradeGroup,
+                    firm: acct.firm,
+                    balance: parseFloat(acct.balance),
+                    isGroup: true,
+                    groupLabel: acct.copyTradeGroup,
+                    count: groupAccts.length,
+                  });
+                } else {
+                  seen.add(acct.id);
+                  items.push({
+                    label: acct.displayLabel || acct.name,
+                    firm: acct.firm,
+                    balance: parseFloat(acct.balance),
+                    isGroup: false,
+                    count: 1,
+                  });
+                }
+              }
+              return items.map((item, idx) => (
+                <div key={idx} className="flex items-center gap-3 bg-gray-800/50 rounded-lg px-4 py-2">
+                  <span className="text-neon-cyan font-bold w-6 text-center">{idx + 1}</span>
+                  {item.isGroup && <span className="text-cyan-400 text-sm">🔗</span>}
+                  <span className={`font-medium ${item.isGroup ? 'text-cyan-200' : 'text-white'}`}>{item.label}</span>
+                  <span className="text-gray-400 text-sm">{item.firm}</span>
+                  {item.isGroup && <span className="text-gray-500 text-xs">{item.count} accounts</span>}
+                  <span className="text-gray-500 text-sm ml-auto">${item.balance.toFixed(0)}</span>
+                </div>
+              ));
+            })()}
+          </div>
         )}
       </div>
 
