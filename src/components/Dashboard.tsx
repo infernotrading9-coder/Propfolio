@@ -18,19 +18,18 @@ import { AddChallengeModal } from './AddChallengeModal';
 // Switch to serverless API client
 import { apiClient } from '../utils/apiClient';
 import { loadCalendar, saveCalendar, createAccount as createCalAccount, getAccountData as getCalAccountData, addChallengePhase, archiveFailedChallenge, getChallengePhasesByChallenge } from '../utils/calendarStorage';
-import { ChallengeCards } from './ChallengeCards';
-import { BulkActions } from './BulkActions';
+import { ChallengeCards } from './ChallengeCards'; // unused — calendar view removed
+import { BulkActions } from './BulkActions'; // unused — calendar view removed
 import { ShareStatsModal } from './ShareStatsModal';
 import { DebugWindow } from './DebugWindow';
 import { RulesManagementModal } from './RulesManagementModal';
 import { RulesCompliancePrompt } from './RulesCompliancePrompt';
 import { ListChecks } from 'lucide-react';
-import { TradesView } from './TradesView';
 import { AccountsView } from './AccountsView';
 import BudgetTab, { type BudgetState } from './BudgetTab';
 
 
-type ViewMode = 'prop' | 'calendar' | 'trades' | 'accounts' | 'budget';
+type ViewMode = 'prop' | 'accounts' | 'budget';
 
 const Dashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -94,7 +93,7 @@ const Dashboard: React.FC = () => {
   }, []);
  
   React.useEffect(() => {
-    if (!ruleCalendarEnabled && view === 'calendar') {
+    if (!ruleCalendarEnabled && view === 'accounts') {
       setView('prop');
     }
   }, [ruleCalendarEnabled, view]);
@@ -960,6 +959,9 @@ const Dashboard: React.FC = () => {
   };
 
 
+  // Unused vars from removed calendar view — suppress TS6133
+  void [selectedChallengeIds, handleChallengeClick, handleToggleSelection, handleSelectAll, handleDeselectAll, handleBulkStatusChange, ChallengeCards, BulkActions];
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#020408] text-white flex items-center justify-center">
@@ -1001,36 +1003,20 @@ const Dashboard: React.FC = () => {
           <div className="mb-4 flex flex-wrap items-center justify-center gap-3">
             <button onClick={() => setView('prop')} className={`px-4 py-2 rounded-md border ${view==='prop' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Prop Firm Dashboard</button>
             <button onClick={() => setView('accounts')} className={`px-4 py-2 rounded-md border ${view==='accounts' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Accounts</button>
-            <button onClick={() => setView('trades')} className={`px-4 py-2 rounded-md border ${view==='trades' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Trades</button>
             <button onClick={() => setView('budget')} className={`px-4 py-2 rounded-md border ${view==='budget' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Budget</button>
           </div>
           <a href="/" className="inline-block mb-2 hover:scale-105 transition-transform duration-200">
-            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='accounts' ? 'Trading Accounts' : view==='trades' ? 'Trade Log' : view==='budget' ? 'Budget' : 'Propfolio'}</h1>
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='accounts' ? 'Trading Accounts' : view==='budget' ? 'Budget' : 'Propfolio'}</h1>
           </a>
-          <p className="text-white/70 mt-2">{view==='accounts' ? 'Manage your trading accounts and daily order' : view==='trades' ? 'Log trades and track win rate, R:R, behaviors, and P&L' : view==='budget' ? 'Track income, expenses, accounts, debts, and savings goals' : 'Track Challenges, Trading Rules, and ROI'}</p>
+          <p className="text-white/70 mt-2">{view==='accounts' ? 'Manage your trading accounts and daily order' : view==='budget' ? 'Track income, expenses, accounts, debts, and savings goals' : 'Track Challenges, Trading Rules, and ROI'}</p>
         </header>
 
         <div className="space-y-6">
           {view === 'budget' && (
             <BudgetTab state={budgetState} onChange={handleBudgetChange} />
           )}
-          {view === 'trades' && (
-            <TradesView
-              apiBase="/.netlify/functions"
-              getAuthHeaders={() => {
-                const headers: Record<string, string> = {};
-                try {
-                  const raw = localStorage.getItem('user');
-                  if (raw) {
-                    const u = JSON.parse(raw);
-                    if (u?.id) headers['X-User-Id'] = String(u.id);
-                    if (u?.email) headers['X-User-Email'] = String(u.email);
-                    if (u?.name) headers['X-User-Name'] = String(u.name);
-                  }
-                } catch {}
-                return headers;
-              }}
-            />
+          {view === 'budget' && (
+            <BudgetTab state={budgetState} onChange={handleBudgetChange} />
           )}
           {view === 'accounts' && (
             <AccountsView
@@ -1117,32 +1103,7 @@ const Dashboard: React.FC = () => {
               <AdditionalCharts challenges={visibleChallenges} firms={state.firms} selectedYear={selectedYear} />
             </>
           )}
-          {view === 'calendar' && (
-            <>
-              <BulkActions 
-                challenges={state.challenges}
-                selectedChallengeIds={selectedChallengeIds}
-                onSelectAll={handleSelectAll}
-                onDeselectAll={handleDeselectAll}
-                onBulkStatusChange={handleBulkStatusChange}
-                buildingMode={buildingMode}
-              />
-              
-              <ChallengeCards 
-                challenges={visibleChallenges}
-                firms={state.firms}
-                onChallengeClick={handleChallengeClick}
-                buildingMode={buildingMode}
-                selectedChallengeIds={selectedChallengeIds}
-                onToggleSelection={handleToggleSelection}
-                onFailLiveAccount={(challengeId) => {
-                  const challenge = visibleChallenges.find(c => c.id === challengeId);
-                  if (challenge) {
-                    setSelectedChallengeId(challengeId);
-                    setIsFailLiveModalOpen(true);
-                  }
-                }}
-              />
+          {/* Calendar view removed — merged into Accounts tab */}
               
               {selectedChallenge && (
                 <>
@@ -1346,8 +1307,6 @@ const Dashboard: React.FC = () => {
                   )}
                 </>
               )}
-            </>
-          )}
         </div>
 
         {editing && (

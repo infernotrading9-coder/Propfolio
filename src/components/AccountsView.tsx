@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Wallet, ArrowUp, ArrowDown, GripVertical, Calendar, Edit3, Save, X, Trash2, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Minus } from 'lucide-react';
+import { Wallet, GripVertical, Edit3, Save, X, Trash2, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Minus } from 'lucide-react';
 import { NeonCard } from './NeonCard';
 import { toLocalISODate, todayLocalISO, parseLocalDate } from '../utils/dates';
 import { computeDrawdown } from '../../server/db/drawdownModel';
@@ -70,6 +70,17 @@ const HolographicAccountCard: React.FC<{
   setEditField: (field: string, value: string) => void;
   glowOverride?: string;
 }> = ({ acct, isEditing, editData, onEdit, onDelete, onSave, onCancel, setEditField, glowOverride }) => {
+  // Collapsed state: if last_settled_at is after the current session start,
+  // the account was logged today and should be collapsed until 5pm EST.
+  const sessionStart5pm = (() => {
+    const now = new Date();
+    const offset = -4 * 3600e3; // EDT = UTC-4
+    const ny = new Date(now.getTime() + offset);
+    const cut = new Date(Date.UTC(ny.getUTCFullYear(), ny.getUTCMonth(), ny.getUTCDate(), 17, 0, 0));
+    const start = cut.getTime() <= ny.getTime() ? cut : new Date(cut.getTime() - 86400e3);
+    return new Date(start.getTime() - offset);
+  })();
+  const isCollapsed = acct.lastSettledAt && new Date(acct.lastSettledAt) >= sessionStart5pm && !isEditing;
   const balance = parseFloat(acct.balance);
   const drawdown = parseFloat(acct.drawdownUsed);
   const hwm = parseFloat(acct.highWaterMark);
@@ -114,6 +125,29 @@ const HolographicAccountCard: React.FC<{
         glow={(glowOverride as any) || (ddPercent > 80 ? 'pink' : 'purple')}
         className="relative overflow-hidden p-5 h-full"
       >
+        {isCollapsed ? (
+          /* Collapsed view — minimized until 5pm EST */
+          <div className="relative z-10 flex items-center justify-between">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="flex-1 min-w-0">
+                <h4 className="text-lg font-bold text-white/60 truncate">{acct.name}</h4>
+                <p className="text-sm text-white/40 truncate">
+                  {acct.firm}{(acct.displayLabel || acct.accountNumberLast4) ? ` · ...${acct.displayLabel || acct.accountNumberLast4}` : ''} · {sizeLabel}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <div className="text-white/40 text-xs">Balance</div>
+                <div className="text-white/60 font-semibold">${balance.toFixed(0)}</div>
+              </div>
+              <div className={`px-2 py-1 rounded-full text-xs font-medium ${profit >= 0 ? 'bg-lime-500/15 text-lime-300 border border-lime-400/30' : 'bg-red-500/15 text-red-300 border border-red-400/30'}`}>
+                {profit >= 0 ? '+' : ''}{profit.toFixed(0)} · ✓ Done
+              </div>
+            </div>
+          </div>
+        ) : (
+        <>
         {/* Holographic Reflection Layer */}
         <div
           className="absolute inset-0 opacity-0 group-hover:opacity-30 transition-opacity duration-700 pointer-events-none"
@@ -255,6 +289,8 @@ const HolographicAccountCard: React.FC<{
             </>
           )}
         </div>
+        </>
+        )}
       </NeonCard>
     </div>
   );
@@ -758,15 +794,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
   };
 
 
-  const moveAccount = (index: number, direction: 'up' | 'down') => {
-    const newOrder = [...orderedIds];
-    const swapIndex = direction === 'up' ? index - 1 : index + 1;
-    if (swapIndex < 0 || swapIndex >= newOrder.length) return;
-    [newOrder[index], newOrder[swapIndex]] = [newOrder[swapIndex], newOrder[index]];
-    setOrderedIds(newOrder);
-  };
-
-  // Drag-and-drop reorder
+  // Drag-and-drop reorder (moveAccount removed — reorder uses drag only)
   const handleDragStart = (index: number) => setDragIndex(index);
   const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
@@ -869,94 +897,6 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
-      {/* Daily Trading Order — reads from account card order (sort_order) */}
-      <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-neon-cyan" />
-            Today's Trading Order
-          </h2>
-          <div className="flex gap-2">
-            {orderMode ? (
-              <>
-                <button onClick={handleSaveDragOrder} className="bg-neon-lime text-black px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90">Save Order</button>
-                <button onClick={() => { setOrderMode(false); setOrderedIds([]); }} className="bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Cancel</button>
-              </>
-            ) : (
-              <button
-                onClick={() => { setOrderMode(true); setOrderedIds(accounts.map(a => a.id)); }}
-                className="bg-gradient-to-r from-neon-purple to-neon-cyan text-white px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90"
-              >
-                Reorder
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* In order mode, show the draggable list. Otherwise show the sorted accounts/groups. */}
-        {orderMode ? (
-          <div className="space-y-2">
-            {orderedIds.map((id, idx) => {
-              const acct = accounts.find(a => a.id === id);
-              if (!acct) return null;
-              return (
-                <div key={id} className="flex items-center gap-3 bg-gray-800/50 rounded-lg px-4 py-2">
-                  <GripVertical className="w-4 h-4 text-gray-500" />
-                  <span className="text-neon-cyan font-bold w-6 text-center">{idx + 1}</span>
-                  <span className="text-white font-medium">{acct.name}</span>
-                  <span className="text-gray-400 text-sm">{acct.firm}</span>
-                  <div className="ml-auto flex gap-1">
-                    <button onClick={() => moveAccount(idx, 'up')} disabled={idx === 0} className="text-gray-400 hover:text-white disabled:opacity-30"><ArrowUp className="w-4 h-4" /></button>
-                    <button onClick={() => moveAccount(idx, 'down')} disabled={idx === orderedIds.length - 1} className="text-gray-400 hover:text-white disabled:opacity-30"><ArrowDown className="w-4 h-4" /></button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {/* Show copy-trade groups as one line, standalone accounts as one line each, in sort_order */}
-            {(() => {
-              const seen = new Set<string>();
-              const items: Array<{ label: string; firm: string; balance: number; isGroup: boolean; groupLabel?: string; count: number }> = [];
-              for (const acct of accounts) {
-                if (seen.has(acct.id)) continue;
-                if (acct.copyTradeGroup) {
-                  const groupAccts = accounts.filter(a => a.copyTradeGroup === acct.copyTradeGroup);
-                  groupAccts.forEach(a => seen.add(a.id));
-                  items.push({
-                    label: acct.copyTradeGroup,
-                    firm: acct.firm,
-                    balance: parseFloat(acct.balance),
-                    isGroup: true,
-                    groupLabel: acct.copyTradeGroup,
-                    count: groupAccts.length,
-                  });
-                } else {
-                  seen.add(acct.id);
-                  items.push({
-                    label: acct.displayLabel || acct.name,
-                    firm: acct.firm,
-                    balance: parseFloat(acct.balance),
-                    isGroup: false,
-                    count: 1,
-                  });
-                }
-              }
-              return items.map((item, idx) => (
-                <div key={idx} className="flex items-center gap-3 bg-gray-800/50 rounded-lg px-4 py-2">
-                  <span className="text-neon-cyan font-bold w-6 text-center">{idx + 1}</span>
-                  {item.isGroup && <span className="text-cyan-400 text-sm">🔗</span>}
-                  <span className={`font-medium ${item.isGroup ? 'text-cyan-200' : 'text-white'}`}>{item.label}</span>
-                  <span className="text-gray-400 text-sm">{item.firm}</span>
-                  {item.isGroup && <span className="text-gray-500 text-xs">{item.count} accounts</span>}
-                  <span className="text-gray-500 text-sm ml-auto">${item.balance.toFixed(0)}</span>
-                </div>
-              ));
-            })()}
-          </div>
-        )}
-      </div>
 
       {/* Accounts Header */}
       <div className="flex items-center justify-between">
