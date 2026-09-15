@@ -706,6 +706,114 @@ const CopyTradeGroupCard: React.FC<{
   );
 };
 
+// ─── Combined Drawdown Tracker ──────────────────────────────────────────────
+const DrawdownTracker: React.FC<{ accounts: TradingAccount[] }> = ({ accounts }) => {
+  const groups = useMemo(() => {
+    const evalAccts = accounts.filter(a => a.phase === 'challenge');
+    const fundedAccts = accounts.filter(a => a.phase === 'funded');
+    const liveAccts = accounts.filter(a => a.phase === 'live');
+    
+    const sumGroup = (accts: TradingAccount[]) => {
+      if (accts.length === 0) return null;
+      let totalBalance = 0, totalSize = 0, totalMaxDD = 0, totalDailyDD = 0, totalDayStart = 0, count = 0;
+      for (const a of accts) {
+        const bal = parseFloat(a.balance || '0');
+        const size = parseFloat(a.accountSize || '0');
+        const maxDD = parseFloat(a.maxDrawdown || '0');
+        const dailyDD = parseFloat(a.dailyDrawdown || '0');
+        const dayStart = parseFloat(a.dayStartBalance || a.balance || '0');
+        totalBalance += bal;
+        totalSize += size;
+        totalMaxDD += maxDD;
+        totalDailyDD += dailyDD;
+        totalDayStart += dayStart;
+        count++;
+      }
+      // Combined drawdown = how much below the combined account size
+      const drawdownUsed = Math.max(0, totalSize - totalBalance);
+      const maxDDPct = totalSize > 0 ? (totalMaxDD / totalSize) * 100 : 0;
+      const drawdownPct = totalSize > 0 ? (drawdownUsed / totalSize) * 100 : 0;
+      // Daily drawdown = how much below combined day start
+      const dailyDDUsed = Math.max(0, totalDayStart - totalBalance);
+      const dailyDDPct = totalDayStart > 0 ? (totalDailyDD / totalDayStart) * 100 : 0;
+      const dailyUsedPct = totalDayStart > 0 ? (dailyDDUsed / totalDayStart) * 100 : 0;
+      
+      return {
+        count, totalBalance, totalSize, totalMaxDD, totalDailyDD,
+        drawdownUsed, maxDDPct, drawdownPct, dailyDDUsed, dailyDDPct, dailyUsedPct,
+        pnl: totalBalance - totalSize,
+      };
+    };
+    
+    return {
+      evals: sumGroup(evalAccts),
+      funded: sumGroup(fundedAccts),
+      live: sumGroup(liveAccts),
+    };
+  }, [accounts]);
+
+  const groupColor = (phase: string) => 
+    phase === 'live' ? { bg: 'bg-emerald-500/10', border: 'border-emerald-400/30', text: 'text-emerald-300', bar: 'bg-emerald-400' } :
+    phase === 'funded' ? { bg: 'bg-amber-500/10', border: 'border-amber-400/30', text: 'text-amber-300', bar: 'bg-amber-400' } :
+    { bg: 'bg-cyan-500/10', border: 'border-cyan-400/30', text: 'text-cyan-300', bar: 'bg-cyan-400' };
+
+  return (
+    <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-4 space-y-3">
+      <h3 className="text-sm font-bold text-white/80 flex items-center gap-2">
+        <span className="text-cyan-400">📊</span> Combined Drawdown Tracker
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {(['evals', 'funded', 'live'] as const).map((key) => {
+          const g = groups[key];
+          if (!g) return <div key={key} className={`rounded-lg border p-3 ${groupColor(key === 'evals' ? 'challenge' : key).bg} ${groupColor(key === 'evals' ? 'challenge' : key).border} opacity-30`}>
+            <div className="text-xs text-white/40 uppercase tracking-wider">{key}</div>
+            <div className="text-white/30 text-sm mt-1">No accounts</div>
+          </div>;
+          const c = groupColor(key === 'evals' ? 'challenge' : key);
+          return (
+            <div key={key} className={`rounded-lg border p-3 ${c.bg} ${c.border}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className={`text-xs uppercase tracking-wider font-bold ${c.text}`}>{key} ({g.count})</span>
+                <span className={`text-xs font-medium ${g.pnl >= 0 ? 'text-lime-400' : 'text-red-400'}`}>
+                  {g.pnl >= 0 ? '+' : ''}${g.pnl.toFixed(0)}
+                </span>
+              </div>
+              {/* Max DD bar */}
+              <div className="mb-1">
+                <div className="flex justify-between text-xs text-white/50 mb-0.5">
+                  <span>Max DD</span>
+                  <span>${g.totalMaxDD.toFixed(0)} ({g.maxDDPct.toFixed(1)}%)</span>
+                </div>
+                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${g.drawdownPct > 70 ? 'bg-red-500' : g.drawdownPct > 40 ? 'bg-amber-500' : c.bar}`} 
+                    style={{ width: `${Math.min(100, g.drawdownPct)}%` }} />
+                </div>
+                <div className="text-xs text-white/30 mt-0.5">
+                  Used: ${g.drawdownUsed.toFixed(0)} / ${g.totalMaxDD.toFixed(0)} ({g.drawdownPct.toFixed(1)}%)
+                </div>
+              </div>
+              {/* Daily DD bar */}
+              <div>
+                <div className="flex justify-between text-xs text-white/50 mb-0.5">
+                  <span>Daily DD</span>
+                  <span>${g.totalDailyDD.toFixed(0)} ({g.dailyDDPct.toFixed(1)}%)</span>
+                </div>
+                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${g.dailyUsedPct > 70 ? 'bg-red-500' : g.dailyUsedPct > 40 ? 'bg-amber-500' : c.bar}`} 
+                    style={{ width: `${Math.min(100, g.dailyUsedPct)}%` }} />
+                </div>
+                <div className="text-xs text-white/30 mt-0.5">
+                  Used: ${g.dailyDDUsed.toFixed(0)} / ${g.totalDailyDD.toFixed(0)} ({g.dailyUsedPct.toFixed(1)}%)
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 // ─── Main AccountsView ───────────────────────────────────────────────────────
 export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHeaders, calendarAccounts = [], calendarEntriesByAccount = {}, onCalendarEntryUpsert }) => {
   const [accounts, setAccounts] = useState<TradingAccount[]>([]);
@@ -897,6 +1005,9 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
+
+      {/* Combined Drawdown Tracker */}
+      <DrawdownTracker accounts={accounts} />
 
       {/* Accounts Header */}
       <div className="flex items-center justify-between">
