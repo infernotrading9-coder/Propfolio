@@ -336,7 +336,22 @@ A credit account stores the amount **owed**, so buying an eval on Destiny *incre
 
 Every action returns the touched account's new balance, so you can confirm the direction was right.
 
-### 5.7b Catch-up: "just update my balances" → `POST db-budget-state`
+### 5.7 Budget accounts — what counts as what
+
+**Never create budget accounts for one-time bills.** SplitPay and American Water were created as `credit` accounts by mistake — they're one-time payments, not revolving credit. This made the budget treat them as credit cards accumulating debt.
+
+| `loanKind` | What it is | Examples |
+|---|---|---|
+| `cash` | Money you have | Sofi, Cash, Atlas, One Pay |
+| `credit` | Revolving credit card — balance goes UP on expense, DOWN on payment | Destiny, Affirm, Klarna, Aspire, Premier, Capital One, Revel |
+| `debt` | Fixed debt / payment plan — not revolving | SplitPay (rent payment plan), Christian |
+| `borrow` | Loan | |
+
+**For utility bills and one-time payments:** use `log-expense` against the cash/bank account that paid (e.g. `acc_sofi`). Do NOT create a new budget account for the utility company. The expense is the bill, not a credit account.
+
+**For payment plans (SplitPay, Klarna, Affirm):** if it's a BNPL where you pay installments, it's `credit` (the balance owed goes up when you buy, down when you pay). If it's a fixed payment plan where you owe a set amount, it's `debt`.
+
+
 
 Daniel sometimes goes days without logging, or makes too many small transactions to bother itemising. Instead of reconstructing every one, he reads the real balances off his banking apps and hands them over.
 
