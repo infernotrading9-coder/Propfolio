@@ -123,7 +123,7 @@ const HolographicAccountCard: React.FC<{
     <div className="group relative transform-gpu transition-all duration-300 hover:scale-[1.02] hover:-translate-y-1">
       <NeonCard
         glow={(glowOverride as any) || (ddPercent > 80 ? 'pink' : 'purple')}
-        className="relative overflow-hidden p-5 h-full"
+        className="relative overflow-hidden p-5 h-full min-h-[340px]"
       >
         {isCollapsed ? (
           /* Collapsed view — minimized until 5pm EST */
