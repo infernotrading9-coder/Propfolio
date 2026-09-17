@@ -70,9 +70,9 @@ const HolographicAccountCard: React.FC<{
   setEditField: (field: string, value: string) => void;
   glowOverride?: string;
   onUncollapse?: () => void;
-}> = ({ acct, isEditing, editData, onEdit, onDelete, onSave, onCancel, setEditField, glowOverride, onUncollapse }) => {
-  // Collapsed state: if last_settled_at is after the current session start,
-  // the account was logged today and should be collapsed until 5pm EST.
+}> = ({ acct, isEditing, editData, onEdit, onDelete, onSave, onCancel, setEditField, glowOverride }) => {
+  // Done-for-today state: if last_settled_at is after the current session start,
+  // the account was logged today and shows a "Done for the Day" overlay.
   const sessionStart5pm = (() => {
     const now = new Date();
     const offset = -4 * 3600e3; // EDT = UTC-4
@@ -81,7 +81,7 @@ const HolographicAccountCard: React.FC<{
     const start = cut.getTime() <= ny.getTime() ? cut : new Date(cut.getTime() - 86400e3);
     return new Date(start.getTime() - offset);
   })();
-  const isCollapsed = acct.lastSettledAt && new Date(acct.lastSettledAt) >= sessionStart5pm && !isEditing;
+  const isDoneForDay = acct.lastSettledAt && new Date(acct.lastSettledAt) >= sessionStart5pm && !isEditing;
   const balance = parseFloat(acct.balance);
   const drawdown = parseFloat(acct.drawdownUsed);
   const hwm = parseFloat(acct.highWaterMark);
@@ -150,64 +150,20 @@ const HolographicAccountCard: React.FC<{
           ))}
         </div>
 
-        {isCollapsed ? (
-          /* Collapsed view - minimized but with DD info, same visual style */
-          <div className="relative z-10 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-start gap-3 flex-1 min-w-0">
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-lg font-bold text-white/60 truncate">{acct.name}</h4>
-                  <p className="text-sm text-white/40 truncate">
-                    {acct.firm}{(acct.displayLabel || acct.accountNumberLast4) ? ` · ...${acct.displayLabel || acct.accountNumberLast4}` : ''} · {sizeLabel}
-                  </p>
-                </div>
+        {isDoneForDay && (
+          /* "Done for the Day" overlay — same card, big badge across it */
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 backdrop-blur-[2px] rounded-xl pointer-events-none">
+            <div className="text-center">
+              <div className={`text-3xl font-black tracking-wider ${profit >= 0 ? 'text-lime-400' : 'text-red-400'} drop-shadow-lg`}>
+                DONE FOR THE DAY
               </div>
-              <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${phaseInfo.bgColor} ${phaseInfo.borderColor} border`}>
-                <span className={phaseInfo.color}>{phaseInfo.label}</span>
+              <div className={`text-lg font-bold mt-1 ${profit >= 0 ? 'text-lime-300' : 'text-red-300'}`}>
+                {profit >= 0 ? '+' : ''}${profit.toFixed(0)}
               </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div>
-                <div className="text-white/40 text-xs">Balance</div>
-                <div className="text-white/60 font-semibold">${balance.toFixed(0)}</div>
-              </div>
-              <div>
-                <div className="text-white/40 text-xs">Max DD {dd.floorLocked && <span className="text-amber-400/70">🔒</span>}</div>
-                <div className={`font-medium ${dd.maxDDRoom <= 0 ? 'text-red-400' : 'text-white/60'}`}>${dd.maxDDLevel.toFixed(0)}</div>
-                <div className="text-white/30 text-[10px]">{dd.maxDDRoom >= 0 ? `${dd.maxDDRoom.toFixed(0)} away` : `${Math.abs(dd.maxDDRoom).toFixed(0)} under`}</div>
-              </div>
-              <div>
-                <div className="text-white/40 text-xs">Daily DD</div>
-                <div className={`font-medium ${dd.dailyDDRoom <= 0 ? 'text-red-400' : 'text-white/60'}`}>{dailyDD > 0 ? `$${dd.dailyDDLevel.toFixed(0)}` : '—'}</div>
-                <div className="text-white/30 text-[10px]">{dailyDD > 0 ? (dd.dailyDDRoom >= 0 ? `${dd.dailyDDRoom.toFixed(0)} away` : `${Math.abs(dd.dailyDDRoom).toFixed(0)} under`) : 'not set'}</div>
-              </div>
-            </div>
-            <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-              {(() => {
-                const allowance = Math.max(dailyDD || 0, maxDD || 0, 1);
-                const pct = Math.max(0, Math.min(100, (dd.room / allowance) * 100));
-                return (
-                  <div
-                    className={`h-full rounded-full transition-all ${dd.breached || pct < 20 ? 'bg-red-500' : pct < 50 ? 'bg-amber-500' : 'bg-gradient-to-r from-cyan-400 to-purple-400'}`}
-                    style={{ width: `${dd.breached ? 100 : pct}%` }}
-                  />
-                );
-              })()}
-            </div>
-            <div className="flex items-center justify-between">
-              <div className={`px-2 py-1 rounded-full text-xs font-medium ${profit >= 0 ? 'bg-lime-500/15 text-lime-300 border border-lime-400/30' : 'bg-red-500/15 text-red-300 border border-red-400/30'}`}>
-                {profit >= 0 ? '+' : ''}{profit.toFixed(0)} · ✓ Done
-              </div>
-              <button
-                onClick={onUncollapse}
-                className="px-2 py-1 rounded-full text-xs font-medium bg-cyan-500/15 text-cyan-300 border border-cyan-400/30 hover:bg-cyan-500/25 transition-colors"
-              >
-                ↕ Uncollapse
-              </button>
             </div>
           </div>
-        ) : (
-        <>
+        )}
+
         {/* Content — holographic effects are rendered above, outside the ternary */}
 
         <div className="relative z-10 space-y-3">
@@ -327,8 +283,6 @@ const HolographicAccountCard: React.FC<{
             </>
           )}
         </div>
-        </>
-        )}
       </NeonCard>
     </div>
   );
@@ -1061,9 +1015,9 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
             onClick={handleUncollapseAll}
             disabled={linkMode || orderMode}
             className="bg-white/5 border border-white/10 text-white/70 px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-30"
-            title="Un-collapse all accounts for a fresh trading day"
+            title="Reset all cards - clears done-for-the-day status"
           >
-            ↕ Uncollapse All
+            ↕ Reset Day
           </button>
           <button
             onClick={() => { setLinkMode(!linkMode); setLinkSelected(new Set()); }}
