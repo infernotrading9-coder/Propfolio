@@ -377,7 +377,25 @@ Same for payouts (`record-payout`) and activation fees. Adjustments are for **li
 
 Ask him directly: *"Any eval purchases or payouts in that period? Those I need to log properly first."*
 
-### 5.8 Reading state → `GET db-state-full` ← **start here every time**
+### 5.7c Add / remove budget accounts → `POST db-budget-state`
+
+**Add a budget account:**
+
+```json
+{ "action": "add-budget-account", "id": "acc_newcard", "name": "New Card", "balance": 0, "loanKind": "credit" }
+```
+
+`id` must be unique (use `acc_` prefix). `loanKind` is `cash`, `credit`, `debt`, or `borrow`.
+
+**Remove a budget account:**
+
+```json
+{ "action": "remove-budget-account", "id": "acc_oldcard" }
+```
+
+This removes the account and all its transactions. Use carefully — removing an account deletes its history.
+
+
 
 **One call, the whole picture.** Use this instead of stitching together several reads:
 

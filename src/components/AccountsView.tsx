@@ -1216,7 +1216,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
           })}
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Copy-trade groups */}
           {Array.from(groupedAccounts.groups.entries()).map(([groupId, groupAccts]) => (
             <CopyTradeGroupCard
@@ -1233,29 +1233,25 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
             />
           ))}
           {/* Standalone accounts */}
-          {groupedAccounts.standalone.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {groupedAccounts.standalone.map((acct) => {
-                const isEditing = editingId === acct.id;
-                return (
-                  <HolographicAccountCard
-                    key={acct.id}
-                    acct={acct}
-                    isEditing={isEditing}
-                    editData={editData}
-                    onEdit={() => {
-                      setEditingId(acct.id);
-                      setEditData({ balance: acct.balance, drawdownUsed: acct.drawdownUsed, highWaterMark: acct.highWaterMark, maxDrawdown: acct.maxDrawdown, dailyDrawdown: acct.dailyDrawdown, lockedFloor: acct.lockedFloor, notes: acct.notes, status: acct.status, rules: acct.rules });
-                    }}
-                    onDelete={() => handleDeleteAccount(acct.id)}
-                    onSave={() => handleUpdateAccount(acct.id, editData)}
-                    onCancel={() => setEditingId(null)}
-                    setEditField={(field, value) => setEditData({ ...editData, [field]: value })}
-                  />
-                );
-              })}
-            </div>
-          )}
+          {groupedAccounts.standalone.map((acct) => {
+            const isEditing = editingId === acct.id;
+            return (
+              <HolographicAccountCard
+                key={acct.id}
+                acct={acct}
+                isEditing={isEditing}
+                editData={editData}
+                onEdit={() => {
+                  setEditingId(acct.id);
+                  setEditData({ balance: acct.balance, drawdownUsed: acct.drawdownUsed, highWaterMark: acct.highWaterMark, maxDrawdown: acct.maxDrawdown, dailyDrawdown: acct.dailyDrawdown, lockedFloor: acct.lockedFloor, notes: acct.notes, status: acct.status, rules: acct.rules });
+                }}
+                onDelete={() => handleDeleteAccount(acct.id)}
+                onSave={() => handleUpdateAccount(acct.id, editData)}
+                onCancel={() => setEditingId(null)}
+                setEditField={(field, value) => setEditData({ ...editData, [field]: value })}
+              />
+            );
+          })}
         </div>
       )}
 

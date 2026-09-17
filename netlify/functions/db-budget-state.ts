@@ -112,6 +112,46 @@ export const handler: Handler = async (event) => {
               return json(200, r)
             }
 
+            case 'add-budget-account': {
+              // Add a new budget account (cash, credit, or debt)
+              const { id, name, balance, loanKind } = body;
+              if (!id || !name) {
+                return json(400, { error: 'id and name required', code: 'missing_fields' });
+              }
+              const validKinds = ['cash', 'credit', 'debt', 'borrow'];
+              const kind = String(loanKind || 'cash');
+              if (!validKinds.includes(kind)) {
+                return json(400, { error: `loanKind must be one of: ${validKinds.join(', ')}`, code: 'bad_kind' });
+              }
+              const bal = Number(balance) || 0;
+              const bs = await budgetStateService.getByUserId(user.id);
+              const state = bs ?? { accounts: [], transactions: [], categories: [] };
+              if ((state.accounts || []).find((a: any) => a.id === id)) {
+                return json(400, { error: `Account "${id}" already exists`, code: 'duplicate' });
+              }
+              state.accounts = state.accounts || [];
+              state.accounts.push({
+                id, name, balance: bal, loanKind: kind,
+                interestRate: 0, dueDate: 0, isLiability: ['credit', 'debt', 'borrow'].includes(kind),
+              });
+              await budgetStateService.upsert(user.id, state);
+              return json(200, { ok: true, account: { id, name, balance: bal, loanKind: kind } });
+            }
+
+            case 'remove-budget-account': {
+              // Remove a budget account by id
+              const { id: acctId } = body;
+              if (!acctId) return json(400, { error: 'id required', code: 'missing_id' });
+              const bs = await budgetStateService.getByUserId(user.id);
+              if (!bs) return json(404, { error: 'No budget state', code: 'no_budget' });
+              const state = bs;
+              state.accounts = (state.accounts || []).filter((a: any) => a.id !== acctId);
+              // Also remove transactions referencing this account
+              state.transactions = (state.transactions || []).filter((t: any) => t.accountId !== acctId && t.toAccountId !== acctId);
+              await budgetStateService.upsert(user.id, state);
+              return json(200, { ok: true, removed: acctId });
+            }
+
             case 'reconcile-balances': {
               // "Here's what my accounts actually say" — for when Daniel hasn't
               // logged in days, or made too many small transactions to itemise.
