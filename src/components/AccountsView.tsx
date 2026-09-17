@@ -69,7 +69,8 @@ const HolographicAccountCard: React.FC<{
   onCancel: () => void;
   setEditField: (field: string, value: string) => void;
   glowOverride?: string;
-}> = ({ acct, isEditing, editData, onEdit, onDelete, onSave, onCancel, setEditField, glowOverride }) => {
+  onUncollapse?: () => void;
+}> = ({ acct, isEditing, editData, onEdit, onDelete, onSave, onCancel, setEditField, glowOverride, onUncollapse }) => {
   // Collapsed state: if last_settled_at is after the current session start,
   // the account was logged today and should be collapsed until 5pm EST.
   const sessionStart5pm = (() => {
@@ -123,10 +124,34 @@ const HolographicAccountCard: React.FC<{
     <div className="group relative transform-gpu transition-all duration-300 hover:scale-[1.02] hover:-translate-y-1">
       <NeonCard
         glow={(glowOverride as any) || (ddPercent > 80 ? 'pink' : 'purple')}
-        className="relative overflow-hidden p-5 h-full min-h-[340px]"
+        className="relative overflow-hidden p-5 h-full"
       >
+        {/* Holographic Reflection Layer — always present, even when collapsed */}
+        <div
+          className="absolute inset-0 opacity-0 group-hover:opacity-30 transition-opacity duration-700 pointer-events-none"
+          style={{
+            background: `conic-gradient(from 0deg at 50% 50%, transparent 0deg, rgba(34, 211, 238, 0.1) 60deg, rgba(168, 85, 247, 0.1) 120deg, rgba(236, 72, 153, 0.1) 180deg, rgba(34, 211, 238, 0.1) 240deg, rgba(168, 85, 247, 0.1) 300deg, transparent 360deg)`,
+            filter: 'blur(1px)',
+          }}
+        />
+        {/* Floating particles — always present */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          {[...Array(6)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute w-1 h-1 rounded-full bg-cyan-400 opacity-30"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+                animation: `floatingParticle ${4 + Math.random() * 3}s ease-in-out infinite ${i * 0.5}s`,
+                boxShadow: '0 0 6px rgba(34, 211, 238, 0.5)',
+              }}
+            />
+          ))}
+        </div>
+
         {isCollapsed ? (
-          /* Collapsed view — minimized until 5pm EST */
+          /* Collapsed view - minimized until 5pm EST, but same visual style */
           <div className="relative z-10 flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div className="flex-1 min-w-0">
@@ -144,33 +169,18 @@ const HolographicAccountCard: React.FC<{
               <div className={`px-2 py-1 rounded-full text-xs font-medium ${profit >= 0 ? 'bg-lime-500/15 text-lime-300 border border-lime-400/30' : 'bg-red-500/15 text-red-300 border border-red-400/30'}`}>
                 {profit >= 0 ? '+' : ''}{profit.toFixed(0)} · ✓ Done
               </div>
+              <button
+                onClick={onUncollapse}
+                className="px-2 py-1 rounded-full text-xs font-medium bg-cyan-500/15 text-cyan-300 border border-cyan-400/30 hover:bg-cyan-500/25 transition-colors"
+                title="Un-collapse this account"
+              >
+                ↕ Uncollapse
+              </button>
             </div>
           </div>
         ) : (
         <>
-        {/* Holographic Reflection Layer */}
-        <div
-          className="absolute inset-0 opacity-0 group-hover:opacity-30 transition-opacity duration-700 pointer-events-none"
-          style={{
-            background: `conic-gradient(from 0deg at 50% 50%, transparent 0deg, rgba(34, 211, 238, 0.1) 60deg, rgba(168, 85, 247, 0.1) 120deg, rgba(236, 72, 153, 0.1) 180deg, rgba(34, 211, 238, 0.1) 240deg, rgba(168, 85, 247, 0.1) 300deg, transparent 360deg)`,
-            filter: 'blur(1px)',
-          }}
-        />
-        {/* Floating particles */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden">
-          {[...Array(6)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute w-1 h-1 rounded-full bg-cyan-400 opacity-30"
-              style={{
-                left: `${Math.random() * 100}%`,
-                top: `${Math.random() * 100}%`,
-                animation: `floatingParticle ${4 + Math.random() * 3}s ease-in-out infinite ${i * 0.5}s`,
-                boxShadow: '0 0 6px rgba(34, 211, 238, 0.5)',
-              }}
-            />
-          ))}
-        </div>
+        {/* Content — holographic effects are rendered above, outside the ternary */}
 
         <div className="relative z-10 space-y-3">
           {/* Header */}
@@ -993,6 +1003,28 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
     } catch (e) { console.error('Failed to unlink:', e); }
   };
 
+  const handleUncollapse = async (id: string) => {
+    try {
+      await fetch(`${apiBase}/db-accounts`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'uncollapse-account', accountRef: id }),
+      });
+      loadData();
+    } catch (e) { console.error('Failed to uncollapse:', e); }
+  };
+
+  const handleUncollapseAll = async () => {
+    try {
+      await fetch(`${apiBase}/db-accounts`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'uncollapse-all' }),
+      });
+      loadData();
+    } catch (e) { console.error('Failed to uncollapse all:', e); }
+  };
+
   if (loading) {
     return <div className="flex items-center justify-center py-20 text-gray-400">Loading accounts...</div>;
   }
@@ -1016,6 +1048,14 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
           Trading Accounts
         </h2>
         <div className="flex gap-2">
+          <button
+            onClick={handleUncollapseAll}
+            disabled={linkMode || orderMode}
+            className="bg-white/5 border border-white/10 text-white/70 px-4 py-2 rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-30"
+            title="Un-collapse all accounts for a fresh trading day"
+          >
+            ↕ Uncollapse All
+          </button>
           <button
             onClick={() => { setLinkMode(!linkMode); setLinkSelected(new Set()); }}
             className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${linkMode ? 'bg-cyan-500/30 border border-cyan-400/50 text-cyan-200 shadow-[0_0_20px_rgba(6,182,212,0.3)]' : 'bg-gradient-to-r from-cyan-500/20 to-purple-500/20 border border-cyan-400/30 text-cyan-200 hover:opacity-90'}`}
@@ -1249,6 +1289,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({ apiBase, getAuthHead
                 onSave={() => handleUpdateAccount(acct.id, editData)}
                 onCancel={() => setEditingId(null)}
                 setEditField={(field, value) => setEditData({ ...editData, [field]: value })}
+                onUncollapse={() => handleUncollapse(acct.id)}
               />
             );
           })}

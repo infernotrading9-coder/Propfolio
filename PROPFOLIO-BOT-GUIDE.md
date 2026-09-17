@@ -465,7 +465,23 @@ Netlify can time out *after* the write committed. Retrying then double-logs the 
 
 Use something stable and unique — the Telegram message id is ideal. The response carries `idempotentReplay: true` when it's a replay. Supported on `buy-eval`, `pass-eval`, `fail-account`, `log-trade`, `record-payout` and `undo`.
 
-### 5.11 Undo → `POST db-state-full`
+### 5.7d Collapse / uncollapse account cards → `POST db-accounts`
+
+When a session P&L is logged, the account card collapses (minimizes) until 5pm EST. To un-collapse:
+
+**Un-collapse one account:**
+```json
+{ "action": "uncollapse-account", "accountRef": "0048" }
+```
+
+**Un-collapse all accounts:**
+```json
+{ "action": "uncollapse-all" }
+```
+
+These clear `last_settled_at` so the card shows full again. Use `uncollapse-all` when Daniel says he's starting a new trading day.
+
+
 
 "Scratch that, wrong account."
 
