@@ -31,6 +31,7 @@ interface TradingAccount {
   platform?: string | null;
   groupName?: string | null;
   copyTradeGroup?: string | null;
+  doneForDay?: boolean;
   sortOrder: number;
 }
 
@@ -71,17 +72,10 @@ const HolographicAccountCard: React.FC<{
   glowOverride?: string;
   onUncollapse?: () => void;
 }> = ({ acct, isEditing, editData, onEdit, onDelete, onSave, onCancel, setEditField, glowOverride }) => {
-  // Done-for-today state: if last_settled_at is after the current session start,
-  // the account was logged today and shows a "Done for the Day" overlay.
-  const sessionStart5pm = (() => {
-    const now = new Date();
-    const offset = -4 * 3600e3; // EDT = UTC-4
-    const ny = new Date(now.getTime() + offset);
-    const cut = new Date(Date.UTC(ny.getUTCFullYear(), ny.getUTCMonth(), ny.getUTCDate(), 17, 0, 0));
-    const start = cut.getTime() <= ny.getTime() ? cut : new Date(cut.getTime() - 86400e3);
-    return new Date(start.getTime() - offset);
-  })();
-  const isDoneForDay = acct.lastSettledAt && new Date(acct.lastSettledAt) >= sessionStart5pm && !isEditing;
+  // Done-for-today state: based on doneForDay flag, set by the bot
+  // and cleared by the Reset Day button. Independent of last_settled_at
+  // (which the 5pm settle logic controls for drawdown calculations).
+  const isDoneForDay = acct.doneForDay === true && !isEditing;
   const balance = parseFloat(acct.balance);
   const drawdown = parseFloat(acct.drawdownUsed);
   const hwm = parseFloat(acct.highWaterMark);

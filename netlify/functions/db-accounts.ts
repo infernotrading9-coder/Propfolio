@@ -299,8 +299,8 @@ export const handler: Handler = async (event) => {
         return json(200, { unlinked: matches[0].displayLabel || matches[0].accountNumberLast4 });
       }
 
-      // Uncollapse an account — clears last_settled_at so it un-collapses
-      if (input.action === 'uncollapse-account') {
+      // Mark account as done for the day
+      if (input.action === 'done-for-day') {
         const { accountRef } = input;
         if (!accountRef) return json(400, { error: 'accountRef required', code: 'no_ref' });
         const all = await tradingAccountService.getByUserId(user.id);
@@ -311,16 +311,16 @@ export const handler: Handler = async (event) => {
         ));
         if (matches.length === 0) return json(404, { error: `No active account "${accountRef}"`, code: 'not_found' });
         if (matches.length > 1) return json(400, { error: `"${accountRef}" matches multiple`, code: 'ambiguous' });
-        await tradingAccountService.update(matches[0].id, { lastSettledAt: null } as any);
-        return json(200, { uncollapsed: matches[0].displayLabel || matches[0].accountNumberLast4 });
+        await tradingAccountService.update(matches[0].id, { doneForDay: true } as any);
+        return json(200, { done: matches[0].displayLabel || matches[0].accountNumberLast4 });
       }
 
       if (input.action === 'uncollapse-all') {
         const all = await tradingAccountService.getByUserId(user.id);
         for (const a of all.filter((a: any) => a.status === 'active')) {
-          await tradingAccountService.update(a.id, { lastSettledAt: null } as any);
+          await tradingAccountService.update(a.id, { doneForDay: false } as any);
         }
-        return json(200, { uncollapsed: all.filter((a: any) => a.status === 'active').length });
+        return json(200, { reset: all.filter((a: any) => a.status === 'active').length });
       }
 
       // Reorder accounts

@@ -467,14 +467,19 @@ Use something stable and unique — the Telegram message id is ideal. The respon
 
 ### 5.7d "Done for the Day" → `POST db-accounts`
 
-When Daniel says he's done trading an account for the day, `log-trade` sets `last_settled_at` and the card shows a "DONE FOR THE DAY" overlay with the session P&L. The card stays the same — it's just marked as done.
+When Daniel says he's done trading an account for the day, after logging the session P&L with `log-trade`, mark it done:
+
+**Mark one account done:**
+```json
+{ "action": "done-for-day", "accountRef": "0048" }
+```
 
 **Reset all cards (start a new trading day):**
 ```json
 { "action": "uncollapse-all" }
 ```
 
-This clears `last_settled_at` on all accounts so the "Done for the Day" overlay disappears.
+This clears `done_for_day` on all accounts so the "DONE FOR THE DAY" overlay disappears. Use when Daniel says "new day", "reset", or "starting fresh".
 
 
 
