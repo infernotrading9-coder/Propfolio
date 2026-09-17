@@ -151,28 +151,56 @@ const HolographicAccountCard: React.FC<{
         </div>
 
         {isCollapsed ? (
-          /* Collapsed view - minimized until 5pm EST, but same visual style */
-          <div className="relative z-10 flex items-center justify-between">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <div className="flex-1 min-w-0">
-                <h4 className="text-lg font-bold text-white/60 truncate">{acct.name}</h4>
-                <p className="text-sm text-white/40 truncate">
-                  {acct.firm}{(acct.displayLabel || acct.accountNumberLast4) ? ` · ...${acct.displayLabel || acct.accountNumberLast4}` : ''} · {sizeLabel}
-                </p>
+          /* Collapsed view - minimized but with DD info, same visual style */
+          <div className="relative z-10 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-lg font-bold text-white/60 truncate">{acct.name}</h4>
+                  <p className="text-sm text-white/40 truncate">
+                    {acct.firm}{(acct.displayLabel || acct.accountNumberLast4) ? ` · ...${acct.displayLabel || acct.accountNumberLast4}` : ''} · {sizeLabel}
+                  </p>
+                </div>
+              </div>
+              <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${phaseInfo.bgColor} ${phaseInfo.borderColor} border`}>
+                <span className={phaseInfo.color}>{phaseInfo.label}</span>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="text-right">
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
                 <div className="text-white/40 text-xs">Balance</div>
                 <div className="text-white/60 font-semibold">${balance.toFixed(0)}</div>
               </div>
+              <div>
+                <div className="text-white/40 text-xs">Max DD {dd.floorLocked && <span className="text-amber-400/70">🔒</span>}</div>
+                <div className={`font-medium ${dd.maxDDRoom <= 0 ? 'text-red-400' : 'text-white/60'}`}>${dd.maxDDLevel.toFixed(0)}</div>
+                <div className="text-white/30 text-[10px]">{dd.maxDDRoom >= 0 ? `${dd.maxDDRoom.toFixed(0)} away` : `${Math.abs(dd.maxDDRoom).toFixed(0)} under`}</div>
+              </div>
+              <div>
+                <div className="text-white/40 text-xs">Daily DD</div>
+                <div className={`font-medium ${dd.dailyDDRoom <= 0 ? 'text-red-400' : 'text-white/60'}`}>{dailyDD > 0 ? `$${dd.dailyDDLevel.toFixed(0)}` : '—'}</div>
+                <div className="text-white/30 text-[10px]">{dailyDD > 0 ? (dd.dailyDDRoom >= 0 ? `${dd.dailyDDRoom.toFixed(0)} away` : `${Math.abs(dd.dailyDDRoom).toFixed(0)} under`) : 'not set'}</div>
+              </div>
+            </div>
+            <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+              {(() => {
+                const allowance = Math.max(dailyDD || 0, maxDD || 0, 1);
+                const pct = Math.max(0, Math.min(100, (dd.room / allowance) * 100));
+                return (
+                  <div
+                    className={`h-full rounded-full transition-all ${dd.breached || pct < 20 ? 'bg-red-500' : pct < 50 ? 'bg-amber-500' : 'bg-gradient-to-r from-cyan-400 to-purple-400'}`}
+                    style={{ width: `${dd.breached ? 100 : pct}%` }}
+                  />
+                );
+              })()}
+            </div>
+            <div className="flex items-center justify-between">
               <div className={`px-2 py-1 rounded-full text-xs font-medium ${profit >= 0 ? 'bg-lime-500/15 text-lime-300 border border-lime-400/30' : 'bg-red-500/15 text-red-300 border border-red-400/30'}`}>
                 {profit >= 0 ? '+' : ''}{profit.toFixed(0)} · ✓ Done
               </div>
               <button
                 onClick={onUncollapse}
                 className="px-2 py-1 rounded-full text-xs font-medium bg-cyan-500/15 text-cyan-300 border border-cyan-400/30 hover:bg-cyan-500/25 transition-colors"
-                title="Un-collapse this account"
               >
                 ↕ Uncollapse
               </button>
@@ -725,33 +753,27 @@ const DrawdownTracker: React.FC<{ accounts: TradingAccount[] }> = ({ accounts })
     
     const sumGroup = (accts: TradingAccount[]) => {
       if (accts.length === 0) return null;
-      let totalBalance = 0, totalSize = 0, totalMaxDD = 0, totalDailyDD = 0, totalDayStart = 0, count = 0;
+      let totalBalance = 0, totalSize = 0, totalMaxDD = 0, count = 0;
       for (const a of accts) {
         const bal = parseFloat(a.balance || '0');
         const size = parseFloat(a.accountSize || '0');
         const maxDD = parseFloat(a.maxDrawdown || '0');
-        const dailyDD = parseFloat(a.dailyDrawdown || '0');
-        const dayStart = parseFloat(a.dayStartBalance || a.balance || '0');
         totalBalance += bal;
         totalSize += size;
         totalMaxDD += maxDD;
-        totalDailyDD += dailyDD;
-        totalDayStart += dayStart;
         count++;
       }
-      // Combined drawdown = how much below the combined account size
+      // Profit = balance - size (positive means in profit)
+      const profit = totalBalance - totalSize;
+      // Combined drawdown = profit + max DD (a profitable account adds headroom)
+      // e.g. $25K + $259 profit + $1000 max DD = $1,259 total drawdown room
+      const combinedDrawdownRoom = profit + totalMaxDD;
       const drawdownUsed = Math.max(0, totalSize - totalBalance);
-      const maxDDPct = totalSize > 0 ? (totalMaxDD / totalSize) * 100 : 0;
-      const drawdownPct = totalSize > 0 ? (drawdownUsed / totalSize) * 100 : 0;
-      // Daily drawdown = how much below combined day start
-      const dailyDDUsed = Math.max(0, totalDayStart - totalBalance);
-      const dailyDDPct = totalDayStart > 0 ? (totalDailyDD / totalDayStart) * 100 : 0;
-      const dailyUsedPct = totalDayStart > 0 ? (dailyDDUsed / totalDayStart) * 100 : 0;
+      const drawdownPct = combinedDrawdownRoom > 0 ? (drawdownUsed / combinedDrawdownRoom) * 100 : 100;
       
       return {
-        count, totalBalance, totalSize, totalMaxDD, totalDailyDD,
-        drawdownUsed, maxDDPct, drawdownPct, dailyDDUsed, dailyDDPct, dailyUsedPct,
-        pnl: totalBalance - totalSize,
+        count, totalBalance, totalSize, totalMaxDD,
+        profit, combinedDrawdownRoom, drawdownUsed, drawdownPct,
       };
     };
     
@@ -775,45 +797,32 @@ const DrawdownTracker: React.FC<{ accounts: TradingAccount[] }> = ({ accounts })
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {(['evals', 'funded', 'live'] as const).map((key) => {
           const g = groups[key];
-          if (!g) return <div key={key} className={`rounded-lg border p-3 ${groupColor(key === 'evals' ? 'challenge' : key).bg} ${groupColor(key === 'evals' ? 'challenge' : key).border} opacity-30`}>
+          const phaseKey = key === 'evals' ? 'challenge' : key;
+          if (!g) return <div key={key} className={`rounded-lg border p-3 ${groupColor(phaseKey).bg} ${groupColor(phaseKey).border} opacity-30`}>
             <div className="text-xs text-white/40 uppercase tracking-wider">{key}</div>
             <div className="text-white/30 text-sm mt-1">No accounts</div>
           </div>;
-          const c = groupColor(key === 'evals' ? 'challenge' : key);
+          const c = groupColor(phaseKey);
           return (
             <div key={key} className={`rounded-lg border p-3 ${c.bg} ${c.border}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className={`text-xs uppercase tracking-wider font-bold ${c.text}`}>{key} ({g.count})</span>
-                <span className={`text-xs font-medium ${g.pnl >= 0 ? 'text-lime-400' : 'text-red-400'}`}>
-                  {g.pnl >= 0 ? '+' : ''}${g.pnl.toFixed(0)}
+                <span className={`text-xs font-medium ${g.profit >= 0 ? 'text-lime-400' : 'text-red-400'}`}>
+                  {g.profit >= 0 ? '+' : ''}${g.profit.toFixed(0)}
                 </span>
               </div>
-              {/* Max DD bar */}
+              {/* Max DD — combined with profit */}
               <div className="mb-1">
                 <div className="flex justify-between text-xs text-white/50 mb-0.5">
-                  <span>Max DD</span>
-                  <span>${g.totalMaxDD.toFixed(0)} ({g.maxDDPct.toFixed(1)}%)</span>
+                  <span>Max DD (incl. profit)</span>
+                  <span>${g.combinedDrawdownRoom.toFixed(0)}</span>
                 </div>
                 <div className="h-2 bg-white/5 rounded-full overflow-hidden">
                   <div className={`h-full rounded-full ${g.drawdownPct > 70 ? 'bg-red-500' : g.drawdownPct > 40 ? 'bg-amber-500' : c.bar}`} 
                     style={{ width: `${Math.min(100, g.drawdownPct)}%` }} />
                 </div>
                 <div className="text-xs text-white/30 mt-0.5">
-                  Used: ${g.drawdownUsed.toFixed(0)} / ${g.totalMaxDD.toFixed(0)} ({g.drawdownPct.toFixed(1)}%)
-                </div>
-              </div>
-              {/* Daily DD bar */}
-              <div>
-                <div className="flex justify-between text-xs text-white/50 mb-0.5">
-                  <span>Daily DD</span>
-                  <span>${g.totalDailyDD.toFixed(0)} ({g.dailyDDPct.toFixed(1)}%)</span>
-                </div>
-                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${g.dailyUsedPct > 70 ? 'bg-red-500' : g.dailyUsedPct > 40 ? 'bg-amber-500' : c.bar}`} 
-                    style={{ width: `${Math.min(100, g.dailyUsedPct)}%` }} />
-                </div>
-                <div className="text-xs text-white/30 mt-0.5">
-                  Used: ${g.dailyDDUsed.toFixed(0)} / ${g.totalDailyDD.toFixed(0)} ({g.dailyUsedPct.toFixed(1)}%)
+                  Used: ${g.drawdownUsed.toFixed(0)} / ${g.combinedDrawdownRoom.toFixed(0)} ({g.drawdownPct.toFixed(1)}%)
                 </div>
               </div>
             </div>
