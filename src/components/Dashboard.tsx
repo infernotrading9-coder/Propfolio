@@ -93,9 +93,7 @@ const Dashboard: React.FC = () => {
   }, []);
  
   React.useEffect(() => {
-    if (!ruleCalendarEnabled && view === 'accounts') {
-      setView('prop');
-    }
+    // 'accounts' is always available — no view gating needed.
   }, [ruleCalendarEnabled, view]);
 
 
