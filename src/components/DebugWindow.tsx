@@ -25,7 +25,7 @@ export const DebugWindow: React.FC<DebugWindowProps> = ({
   const { tier, isAdmin, canCreateMoreChallenges, hasReachedLimit } = useFeatureAccess();
   
   const [isEnabled] = useState(false);
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({

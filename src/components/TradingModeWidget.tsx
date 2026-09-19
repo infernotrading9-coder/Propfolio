@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Shield, AlertTriangle, Zap, ChevronDown, ChevronUp, Plus, X } from 'lucide-react';
 
 interface TradingModeData {
@@ -11,36 +11,35 @@ interface TradingModeData {
 
 interface ModeRule { id: string; text: string; }
 
+const AVG_EVAL_COST = 85;
+
 function computeRiskScore(data: TradingModeData): number {
   const { evalCount, fundedCount, liveCount, cashOnHand, totalDebt } = data;
-  const netWorth = cashOnHand - totalDebt;
   const totalAccounts = evalCount + fundedCount + liveCount;
 
-  // Cash is the PRIMARY factor — need at least $500 to even think about balanced
+  // Dynamic threshold: how many shots at a payout do you have?
+  // Each existing account is a shot + cash can buy more
+  const cashShots = Math.max(0, cashOnHand / AVG_EVAL_COST);
+  const effectiveShots = totalAccounts + cashShots;
+
+  // Debt eats into your shots — $1000 of debt = 1 fewer shot
+  // (you need that cash for debt payments, not eval resets)
+  const debtPenalty = totalDebt / 1000;
+  const adjustedShots = effectiveShots - debtPenalty;
+
+  // Map to 0-100 score:
+  // < 5 adjusted shots = deeply defensive (score 0-25)
+  // 5-10 = balanced (score 40-65)
+  // > 15 = aggressive (score 80+)
   let score = 50;
-  if (cashOnHand < 200) score -= 35;
-  else if (cashOnHand < 500) score -= 25;
-  else if (cashOnHand < 1000) score -= 10;
-  else if (cashOnHand > 2000) score += 20;
-  else if (cashOnHand > 1000) score += 10;
-
-  // Debt is secondary — only matters when cash is low
-  if (totalDebt > 5000) score -= 15;
-  else if (totalDebt > 2000) score -= 8;
-  else if (totalDebt > 500) score -= 3;
-  else if (totalDebt < 100) score += 10;
-
-  // Net worth
-  if (netWorth < -5000) score -= 10;
-  else if (netWorth < 0) score -= 5;
-  else if (netWorth > 1000) score += 10;
-
-  // Accounts provide opportunities
-  if (totalAccounts >= 5) score += 8;
-  else if (totalAccounts <= 1) score -= 5;
-
-  // Live accounts add stability (payouts = income)
-  if (liveCount > 0) score += 5;
+  if (adjustedShots < 0) score = 5;
+  else if (adjustedShots < 2) score = 15;
+  else if (adjustedShots < 5) score = 25;
+  else if (adjustedShots < 8) score = 45;
+  else if (adjustedShots < 12) score = 55;
+  else if (adjustedShots < 18) score = 70;
+  else if (adjustedShots < 25) score = 85;
+  else score = 95;
 
   return Math.max(0, Math.min(100, score));
 }
@@ -78,7 +77,6 @@ const DEFAULT_RULES: Record<string, ModeRule[]> = {
   ],
 };
 
-// Tick marks: 0-60° = red, 60-120° = amber, 120-180° = green
 const TICK_ANGLES = [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180];
 function tickColor(deg: number): string {
   if (deg <= 60) return '#ef4444';
@@ -97,24 +95,18 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
   const [newRuleText, setNewRuleText] = useState('');
   const [activeMode, setActiveMode] = useState(currentMode);
   const [position, setPosition] = useState({ x: 20, y: 80 });
-  const [size, setSize] = useState({ w: 200, h: 105 });
+  const [widgetWidth, setWidgetWidth] = useState(220);
   const [dragging, setDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [resizing, setResizing] = useState(false);
-  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, w: 0, h: 0 });
-  const [animNeedle, setAnimNeedle] = useState(0);
-  const prevScore = useRef(0);
+  const [resizeStartX, setResizeStartX] = useState(0);
+  const [resizeStartW, setResizeStartW] = useState(220);
 
   useEffect(() => { setActiveMode(currentMode); }, [currentMode]);
 
-  useEffect(() => {
-    const target = (riskScore / 100) * 180;
-    setAnimNeedle(target);
-    prevScore.current = riskScore;
-  }, [riskScore]);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handleDragStart = (e: React.MouseEvent) => {
     if (editing) return;
+    e.preventDefault();
     setDragging(true);
     setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
   };
@@ -133,21 +125,19 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
     };
   }, [dragging, dragStart]);
 
-  const handleResizeMouseDown = (e: React.MouseEvent) => {
+  const handleResizeStart = (e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     setResizing(true);
-    setResizeStart({ x: e.clientX, y: e.clientY, w: size.w, h: size.h });
+    setResizeStartX(e.clientX);
+    setResizeStartW(widgetWidth);
   };
 
   useEffect(() => {
     if (!resizing) return;
     const handleMove = (e: MouseEvent) => {
-      const dx = e.clientX - resizeStart.x;
-      const dy = e.clientY - resizeStart.y;
-      setSize({
-        w: Math.max(160, Math.min(500, resizeStart.w + dx)),
-        h: Math.max(80, Math.min(200, resizeStart.h + dy)),
-      });
+      const dx = e.clientX - resizeStartX;
+      setWidgetWidth(Math.max(180, Math.min(480, resizeStartW + dx)));
     };
     const handleUp = () => setResizing(false);
     window.addEventListener('mousemove', handleMove);
@@ -156,7 +146,7 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-  }, [resizing, resizeStart]);
+  }, [resizing, resizeStartX, resizeStartW]);
 
   const addRule = (mode: string, text: string) => {
     if (!text.trim()) return;
@@ -168,7 +158,7 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
     setRules(prev => ({ ...prev, [mode]: prev[mode].filter(r => r.id !== ruleId) }));
   };
 
-  const needleAngle = animNeedle;
+  const needleAngle = (riskScore / 100) * 180;
   const colorHex = meta.color;
   const colorText = currentMode === 'defensive' ? 'text-red-400' : currentMode === 'balanced' ? 'text-amber-400' : 'text-green-400';
   const colorBorder = currentMode === 'defensive' ? 'border-red-400/50' : currentMode === 'balanced' ? 'border-amber-400/50' : 'border-green-400/50';
@@ -176,9 +166,8 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
 
   return (
     <div
-      className="fixed z-40 select-none"
-      style={{ left: `${position.x}px`, top: `${position.y}px`, cursor: dragging ? 'grabbing' : 'grab' }}
-      onMouseDown={handleMouseDown}
+      className="fixed z-40"
+      style={{ left: `${position.x}px`, top: `${position.y}px` }}
     >
       <style>{`
         @keyframes gaugePulse {
@@ -202,7 +191,7 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
         className={`rounded-2xl border-2 ${colorBorder} ${colorBg} backdrop-blur-xl shadow-2xl overflow-hidden transition-all duration-300`}
         style={{
           pointerEvents: 'auto',
-          width: expanded ? Math.max(340, size.w) : `${size.w}px`,
+          width: expanded ? Math.max(340, widgetWidth) : `${widgetWidth}px`,
           boxShadow: `0 0 30px ${colorHex}22, 0 0 60px ${colorHex}11`,
         }}
         onClick={(e) => e.stopPropagation()}
@@ -216,26 +205,30 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
           }}
         />
 
-        {/* Gauge SVG — tick marks are the color zones */}
-        <div className="relative flex flex-col items-center pt-4 pb-2">
-          <div className="relative" style={{ width: expanded ? Math.max(340, size.w) : size.w, height: size.h }}>
+        {/* Drag handle area — the gauge SVG */}
+        <div
+          className="relative flex flex-col items-center pt-4 pb-2"
+          style={{ cursor: dragging ? 'grabbing' : 'grab' }}
+          onMouseDown={handleDragStart}
+        >
+          <div className="relative" style={{ width: '100%', height: 110 }}>
             {/* Glow behind gauge */}
             <div
-              className="absolute top-0 left-1/2 -translate-x-1/2 rounded-full pointer-events-none"
+              className="absolute top-0 left-1/2 -translate-x-1/2 rounded-full pointer-events-none z-0"
               style={{
-                width: 120, height: 60,
+                width: 120, height: 50,
                 background: colorHex,
                 animation: `gaugePulse ${currentMode === 'defensive' ? '1.2s' : currentMode === 'balanced' ? '2s' : '3s'} ease-in-out infinite`,
               }}
             />
 
-            <svg width="100%" height="100%" viewBox={`0 0 200 105`} className="relative overflow-visible" preserveAspectRatio="xMidYMin meet">
-              {/* Colored tick marks — these ARE the zone indicators */}
+            <svg viewBox="0 0 200 105" className="relative w-full h-full" style={{ overflow: 'visible' }}>
+              {/* Colored tick marks — the zone indicators */}
               {TICK_ANGLES.map((deg) => {
                 const rad = (deg - 90) * Math.PI / 180;
                 const isMajor = deg % 45 === 0;
-                const inner = isMajor ? 68 : 73;
-                const outer = isMajor ? 88 : 82;
+                const inner = isMajor ? 65 : 70;
+                const outer = isMajor ? 90 : 83;
                 const x1 = 100 + Math.cos(rad) * inner;
                 const y1 = 95 + Math.sin(rad) * inner;
                 const x2 = 100 + Math.cos(rad) * outer;
@@ -246,11 +239,10 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
                     key={deg}
                     x1={x1} y1={y1} x2={x2} y2={y2}
                     stroke={tc}
-                    strokeWidth={isMajor ? 3 : 1.5}
-                    strokeOpacity="0.7"
+                    strokeWidth={isMajor ? 4 : 2}
                     strokeLinecap="round"
                     style={{
-                      filter: `drop-shadow(0 0 ${isMajor ? 6 : 3}px ${tc})`,
+                      filter: `drop-shadow(0 0 ${isMajor ? 8 : 4}px ${tc})`,
                       animation: `tickGlow ${1.5 + (deg / 180) * 2}s ease-in-out infinite ${deg * 0.01}s`,
                     }}
                   />
@@ -271,14 +263,14 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
               </g>
 
               {/* Floating particles */}
-              <circle cx={40 + (size.w - 200) * 0.1} cy="30" r="2" fill={colorHex} opacity="0.4" style={{ animation: 'float0 3s ease-in-out infinite' }} />
-              <circle cx={160 + (size.w - 200) * 0.1} cy="25" r="1.5" fill={colorHex} opacity="0.3" style={{ animation: 'float1 2.5s ease-in-out infinite' }} />
+              <circle cx="40" cy="30" r="2" fill={colorHex} opacity="0.4" style={{ animation: 'float0 3s ease-in-out infinite' }} />
+              <circle cx="160" cy="25" r="1.5" fill={colorHex} opacity="0.3" style={{ animation: 'float1 2.5s ease-in-out infinite' }} />
               <circle cx="100" cy="15" r="1" fill={colorHex} opacity="0.5" style={{ animation: 'float2 2s ease-in-out infinite' }} />
             </svg>
           </div>
 
           {/* Mode label */}
-          <div className="flex items-center gap-2 -mt-3">
+          <div className="flex items-center gap-2 -mt-2 relative z-10">
             <meta.icon className={`w-4 h-4 ${colorText}`} />
             <span className={`text-base font-bold ${colorText} tracking-wide`}>{meta.label}</span>
             <span className="text-[10px] text-white/30">({riskScore}/100)</span>
@@ -288,7 +280,7 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
           <button
             onClick={() => setExpanded(!expanded)}
             style={{ pointerEvents: 'auto' }}
-            className="mt-1 text-white/40 hover:text-white/80 transition-colors"
+            className="mt-1 text-white/40 hover:text-white/80 transition-colors relative z-10"
           >
             {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
@@ -401,14 +393,16 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
 
         {/* Resize handle — bottom right corner */}
         <div
-          onMouseDown={handleResizeMouseDown}
+          onMouseDown={handleResizeStart}
           style={{
             position: 'absolute',
             bottom: 0, right: 0,
-            width: 16, height: 16,
+            width: 20, height: 20,
             cursor: 'nwse-resize',
             pointerEvents: 'auto',
-            background: 'linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.15) 50%)',
+            background: 'linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.2) 50%)',
+            borderRadius: '0 0 12px 0',
+            zIndex: 50,
           }}
         />
       </div>
