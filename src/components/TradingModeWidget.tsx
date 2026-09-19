@@ -201,12 +201,7 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
             />
 
             <svg width={expanded ? 320 : 200} height="105" viewBox="0 0 200 105" className="relative overflow-visible">
-              {/* Arc zones */}
-              <path d="M 15 95 A 85 85 0 0 1 65 95" fill="none" stroke="#ef4444" strokeWidth="12" strokeOpacity="0.5" strokeLinecap="round" style={{ animation: 'arcGlow 2s ease-in-out infinite' }} />
-              <path d="M 60 95 A 60 60 0 0 1 140 95" fill="none" stroke="#f59e0b" strokeWidth="12" strokeOpacity="0.4" strokeLinecap="round" style={{ animation: 'arcGlow 2.5s ease-in-out infinite 0.3s' }} />
-              <path d="M 135 95 A 35 35 0 0 1 185 95" fill="none" stroke="#22c55e" strokeWidth="12" strokeOpacity="0.5" strokeLinecap="round" style={{ animation: 'arcGlow 3s ease-in-out infinite 0.6s' }} />
-
-              {/* Active zone highlight */}
+              {/* Active zone highlight only — no static arc bars */}
               {currentMode === 'defensive' && <path d="M 15 95 A 85 85 0 0 1 65 95" fill="none" stroke="#ef4444" strokeWidth="14" strokeOpacity="0.8" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 8px #ef4444)` }} />}
               {currentMode === 'balanced' && <path d="M 60 95 A 60 60 0 0 1 140 95" fill="none" stroke="#f59e0b" strokeWidth="14" strokeOpacity="0.8" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 8px #f59e0b)` }} />}
               {currentMode === 'aggressive' && <path d="M 135 95 A 35 35 0 0 1 185 95" fill="none" stroke="#22c55e" strokeWidth="14" strokeOpacity="0.8" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 8px #22c55e)` }} />}
