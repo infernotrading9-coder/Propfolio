@@ -309,7 +309,7 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
                 <div
                   key={rule.id}
                   className="flex items-start gap-1.5 group"
-                  style={{ animation: `slideUpFade 0.2s ease-out ${i * 0.06}s both` }}
+                  style={{ animation: `slideUpFade 0.4s ease-out ${i * 0.15}s both` }}
                 >
                   <span className={`text-xs mt-0.5 ${colorText}`}>•</span>
                   <span className="text-xs text-white/70 leading-snug flex-1">{rule.text}</span>
