@@ -15,22 +15,33 @@ function computeRiskScore(data: TradingModeData): number {
   const { evalCount, fundedCount, liveCount, cashOnHand, totalDebt } = data;
   const netWorth = cashOnHand - totalDebt;
   const totalAccounts = evalCount + fundedCount + liveCount;
+
+  // Cash is the PRIMARY factor — need at least $500 to even think about balanced
   let score = 50;
-  if (cashOnHand < 100) score -= 25;
-  else if (cashOnHand < 300) score -= 15;
-  else if (cashOnHand < 500) score -= 5;
-  else if (cashOnHand > 1000) score += 20;
-  else if (cashOnHand > 500) score += 10;
-  if (totalDebt > 5000) score -= 20;
-  else if (totalDebt > 2000) score -= 10;
-  else if (totalDebt > 500) score -= 5;
+  if (cashOnHand < 200) score -= 35;
+  else if (cashOnHand < 500) score -= 25;
+  else if (cashOnHand < 1000) score -= 10;
+  else if (cashOnHand > 2000) score += 20;
+  else if (cashOnHand > 1000) score += 10;
+
+  // Debt is secondary — only matters when cash is low
+  if (totalDebt > 5000) score -= 15;
+  else if (totalDebt > 2000) score -= 8;
+  else if (totalDebt > 500) score -= 3;
   else if (totalDebt < 100) score += 10;
+
+  // Net worth
   if (netWorth < -5000) score -= 10;
   else if (netWorth < 0) score -= 5;
   else if (netWorth > 1000) score += 10;
+
+  // Accounts provide opportunities
   if (totalAccounts >= 5) score += 8;
   else if (totalAccounts <= 1) score -= 5;
+
+  // Live accounts add stability (payouts = income)
   if (liveCount > 0) score += 5;
+
   return Math.max(0, Math.min(100, score));
 }
 
@@ -67,6 +78,14 @@ const DEFAULT_RULES: Record<string, ModeRule[]> = {
   ],
 };
 
+// Tick marks: 0-60° = red, 60-120° = amber, 120-180° = green
+const TICK_ANGLES = [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180];
+function tickColor(deg: number): string {
+  if (deg <= 60) return '#ef4444';
+  if (deg <= 120) return '#f59e0b';
+  return '#22c55e';
+}
+
 export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data }) => {
   const riskScore = useMemo(() => computeRiskScore(data), [data]);
   const currentMode = scoreToMode(riskScore);
@@ -78,29 +97,21 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
   const [newRuleText, setNewRuleText] = useState('');
   const [activeMode, setActiveMode] = useState(currentMode);
   const [position, setPosition] = useState({ x: 20, y: 80 });
+  const [size, setSize] = useState({ w: 200, h: 105 });
   const [dragging, setDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [resizing, setResizing] = useState(false);
+  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, w: 0, h: 0 });
   const [animNeedle, setAnimNeedle] = useState(0);
-  const [mounted, setMounted] = useState(false);
   const prevScore = useRef(0);
 
   useEffect(() => { setActiveMode(currentMode); }, [currentMode]);
 
-  // Animate needle on mount and when score changes
   useEffect(() => {
-    setMounted(true);
     const target = (riskScore / 100) * 180;
-    // Start from 0 on first mount, animate to target
-    if (prevScore.current === 0 && !mounted) {
-      setAnimNeedle(0);
-      requestAnimationFrame(() => {
-        setTimeout(() => setAnimNeedle(target), 50);
-      });
-    } else {
-      setAnimNeedle(target);
-    }
+    setAnimNeedle(target);
     prevScore.current = riskScore;
-  }, [riskScore, mounted]);
+  }, [riskScore]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (editing) return;
@@ -122,6 +133,31 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
     };
   }, [dragging, dragStart]);
 
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setResizing(true);
+    setResizeStart({ x: e.clientX, y: e.clientY, w: size.w, h: size.h });
+  };
+
+  useEffect(() => {
+    if (!resizing) return;
+    const handleMove = (e: MouseEvent) => {
+      const dx = e.clientX - resizeStart.x;
+      const dy = e.clientY - resizeStart.y;
+      setSize({
+        w: Math.max(160, Math.min(500, resizeStart.w + dx)),
+        h: Math.max(80, Math.min(200, resizeStart.h + dy)),
+      });
+    };
+    const handleUp = () => setResizing(false);
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [resizing, resizeStart]);
+
   const addRule = (mode: string, text: string) => {
     if (!text.trim()) return;
     setRules(prev => ({ ...prev, [mode]: [...prev[mode], { id: `${mode[0]}${Date.now()}`, text: text.trim() }] }));
@@ -138,8 +174,6 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
   const colorBorder = currentMode === 'defensive' ? 'border-red-400/50' : currentMode === 'balanced' ? 'border-amber-400/50' : 'border-green-400/50';
   const colorBg = currentMode === 'defensive' ? 'bg-red-500/5' : currentMode === 'balanced' ? 'bg-amber-500/5' : 'bg-green-500/5';
 
-  // Stats
-
   return (
     <div
       className="fixed z-40 select-none"
@@ -148,31 +182,27 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
     >
       <style>{`
         @keyframes gaugePulse {
-          0%, 100% { opacity: 0.4; filter: blur(8px); }
-          50% { opacity: 0.8; filter: blur(12px); }
-        }
-        @keyframes needleSweep {
-          0% { transform: rotate(-90deg); }
-          100% { transform: rotate(${needleAngle - 90}deg); }
+          0%, 100% { opacity: 0.3; filter: blur(8px); }
+          50% { opacity: 0.6; filter: blur(14px); }
         }
         @keyframes slideUpFade {
           from { opacity: 0; transform: translateY(8px); }
           to { opacity: 1; transform: translateY(0); }
         }
-        @keyframes arcGlow {
-          0%, 100% { opacity: 0.5; }
-          50% { opacity: 0.9; }
-        }
         @keyframes float0 { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
         @keyframes float1 { 0%,100%{transform:translateY(-2px)} 50%{transform:translateY(2px)} }
         @keyframes float2 { 0%,100%{transform:translateY(1px)} 50%{transform:translateY(-2px)} }
+        @keyframes tickGlow {
+          0%, 100% { opacity: 0.5; }
+          50% { opacity: 1; }
+        }
       `}</style>
 
       <div
-        className={`rounded-2xl border-2 ${colorBorder} ${colorBg} backdrop-blur-xl shadow-2xl overflow-hidden transition-all duration-500 ease-out`}
+        className={`rounded-2xl border-2 ${colorBorder} ${colorBg} backdrop-blur-xl shadow-2xl overflow-hidden transition-all duration-300`}
         style={{
           pointerEvents: 'auto',
-          width: expanded ? '340px' : '200px',
+          width: expanded ? Math.max(340, size.w) : `${size.w}px`,
           boxShadow: `0 0 30px ${colorHex}22, 0 0 60px ${colorHex}11`,
         }}
         onClick={(e) => e.stopPropagation()}
@@ -186,34 +216,45 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
           }}
         />
 
-        {/* Gauge SVG */}
+        {/* Gauge SVG — tick marks are the color zones */}
         <div className="relative flex flex-col items-center pt-4 pb-2">
-          <div className="relative" style={{ width: expanded ? 320 : 200, height: 105 }}>
+          <div className="relative" style={{ width: expanded ? Math.max(340, size.w) : size.w, height: size.h }}>
             {/* Glow behind gauge */}
             <div
               className="absolute top-0 left-1/2 -translate-x-1/2 rounded-full pointer-events-none"
               style={{
-                width: 120,
-                height: 60,
+                width: 120, height: 60,
                 background: colorHex,
                 animation: `gaugePulse ${currentMode === 'defensive' ? '1.2s' : currentMode === 'balanced' ? '2s' : '3s'} ease-in-out infinite`,
               }}
             />
 
-            <svg width={expanded ? 320 : 200} height="105" viewBox="0 0 200 105" className="relative overflow-visible">
-              {/* Active zone highlight only — no static arc bars */}
-              {currentMode === 'defensive' && <path d="M 15 95 A 85 85 0 0 1 65 95" fill="none" stroke="#ef4444" strokeWidth="14" strokeOpacity="0.8" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 8px #ef4444)` }} />}
-              {currentMode === 'balanced' && <path d="M 60 95 A 60 60 0 0 1 140 95" fill="none" stroke="#f59e0b" strokeWidth="14" strokeOpacity="0.8" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 8px #f59e0b)` }} />}
-              {currentMode === 'aggressive' && <path d="M 135 95 A 35 35 0 0 1 185 95" fill="none" stroke="#22c55e" strokeWidth="14" strokeOpacity="0.8" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 8px #22c55e)` }} />}
-
-              {/* Tick marks */}
-              {[0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180].map((deg) => {
+            <svg width="100%" height="100%" viewBox={`0 0 200 105`} className="relative overflow-visible" preserveAspectRatio="xMidYMin meet">
+              {/* Colored tick marks — these ARE the zone indicators */}
+              {TICK_ANGLES.map((deg) => {
                 const rad = (deg - 90) * Math.PI / 180;
-                const x1 = 100 + Math.cos(rad) * 82;
-                const y1 = 95 + Math.sin(rad) * 82;
-                const x2 = 100 + Math.cos(rad) * 72;
-                const y2 = 95 + Math.sin(rad) * 72;
-                return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(255,255,255,0.15)" strokeWidth="1" />;
+                const isMajor = deg % 45 === 0;
+                const inner = isMajor ? 68 : 73;
+                const outer = isMajor ? 88 : 82;
+                const x1 = 100 + Math.cos(rad) * inner;
+                const y1 = 95 + Math.sin(rad) * inner;
+                const x2 = 100 + Math.cos(rad) * outer;
+                const y2 = 95 + Math.sin(rad) * outer;
+                const tc = tickColor(deg);
+                return (
+                  <line
+                    key={deg}
+                    x1={x1} y1={y1} x2={x2} y2={y2}
+                    stroke={tc}
+                    strokeWidth={isMajor ? 3 : 1.5}
+                    strokeOpacity="0.7"
+                    strokeLinecap="round"
+                    style={{
+                      filter: `drop-shadow(0 0 ${isMajor ? 6 : 3}px ${tc})`,
+                      animation: `tickGlow ${1.5 + (deg / 180) * 2}s ease-in-out infinite ${deg * 0.01}s`,
+                    }}
+                  />
+                );
               })}
 
               {/* Needle */}
@@ -221,7 +262,7 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
                 style={{
                   transform: `rotate(${needleAngle - 90}deg)`,
                   transformOrigin: '100px 95px',
-                  transition: 'transform 1s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                  transition: 'transform 1.2s cubic-bezier(0.34, 1.56, 0.64, 1)',
                 }}
               >
                 <line x1="100" y1="95" x2="100" y2="18" stroke={colorHex} strokeWidth="3" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 6px ${colorHex})` }} />
@@ -230,8 +271,8 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
               </g>
 
               {/* Floating particles */}
-              <circle cx="40" cy="30" r="2" fill={colorHex} opacity="0.4" style={{ animation: 'float0 3s ease-in-out infinite' }} />
-              <circle cx="160" cy="25" r="1.5" fill={colorHex} opacity="0.3" style={{ animation: 'float1 2.5s ease-in-out infinite' }} />
+              <circle cx={40 + (size.w - 200) * 0.1} cy="30" r="2" fill={colorHex} opacity="0.4" style={{ animation: 'float0 3s ease-in-out infinite' }} />
+              <circle cx={160 + (size.w - 200) * 0.1} cy="25" r="1.5" fill={colorHex} opacity="0.3" style={{ animation: 'float1 2.5s ease-in-out infinite' }} />
               <circle cx="100" cy="15" r="1" fill={colorHex} opacity="0.5" style={{ animation: 'float2 2s ease-in-out infinite' }} />
             </svg>
           </div>
@@ -253,7 +294,7 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
           </button>
         </div>
 
-        {/* Stats bar — 5 columns: evals, funded, live, cash, debt */}
+        {/* Stats bar */}
         <div className="px-3 py-2 border-t border-white/10 grid grid-cols-5 gap-1 text-center">
           <div>
             <div className="text-[8px] text-white/40 uppercase tracking-wider">Eval</div>
@@ -279,7 +320,7 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
 
         {/* Expanded content */}
         {expanded && (
-          <div className="px-3 py-2 space-y-2" style={{ animation: 'slideUpFade 0.3s ease-out' }}>
+          <div className="px-3 py-2 space-y-2" style={{ animation: 'slideUpFade 0.4s ease-out' }}>
             {/* Mode tabs */}
             <div className="flex gap-1 pb-1">
               {Object.entries(MODE_META).map(([key, m]) => (
@@ -325,7 +366,7 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
 
             {/* Add rule */}
             {editing && (
-              <div className="flex gap-1" style={{ animation: 'slideUpFade 0.2s ease-out' }}>
+              <div className="flex gap-1" style={{ animation: 'slideUpFade 0.4s ease-out' }}>
                 <input
                   type="text"
                   value={newRuleText}
@@ -357,6 +398,19 @@ export const TradingModeWidget: React.FC<{ data: TradingModeData }> = ({ data })
             </button>
           </div>
         )}
+
+        {/* Resize handle — bottom right corner */}
+        <div
+          onMouseDown={handleResizeMouseDown}
+          style={{
+            position: 'absolute',
+            bottom: 0, right: 0,
+            width: 16, height: 16,
+            cursor: 'nwse-resize',
+            pointerEvents: 'auto',
+            background: 'linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.15) 50%)',
+          }}
+        />
       </div>
     </div>
   );
