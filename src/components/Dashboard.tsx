@@ -26,6 +26,7 @@ import { RulesManagementModal } from './RulesManagementModal';
 import { RulesCompliancePrompt } from './RulesCompliancePrompt';
 import { ListChecks } from 'lucide-react';
 import { AccountsView } from './AccountsView';
+import { TradingModeWidget } from './TradingModeWidget';
 import BudgetTab, { type BudgetState } from './BudgetTab';
 
 
@@ -1017,6 +1018,16 @@ const Dashboard: React.FC = () => {
             <BudgetTab state={budgetState} onChange={handleBudgetChange} />
           )}
           {view === 'accounts' && (
+            <>
+            <TradingModeWidget
+              data={{
+                evalCount: state.challenges.filter(c => (c as any).lifecycle?.startsWith('eval') || (!c.lifecycle && c.status === 'active')).length,
+                fundedCount: state.challenges.filter(c => (c as any).lifecycle === 'funded_active').length,
+                liveCount: state.challenges.filter(c => (c as any).lifecycle === 'live_active').length,
+                cashOnHand: budgetState ? (budgetState.accounts || []).filter((a: any) => !['credit','debt','borrow'].includes(String(a.loanKind || ''))).reduce((s: number, a: any) => s + Number(a.balance || 0), 0) : 0,
+                totalDebt: budgetState ? (budgetState.accounts || []).filter((a: any) => ['credit','debt','borrow'].includes(String(a.loanKind || ''))).reduce((s: number, a: any) => s + Math.max(0, Number(a.balance || 0)), 0) : 0,
+              }}
+            />
             <AccountsView
               apiBase="/.netlify/functions"
               getAuthHeaders={() => {
@@ -1036,6 +1047,7 @@ const Dashboard: React.FC = () => {
               calendarEntriesByAccount={serverCalEntries}
               onCalendarEntryUpsert={handleServerCalEntryUpsert}
             />
+            </>
           )}
           {view === 'prop' && (
             <>
