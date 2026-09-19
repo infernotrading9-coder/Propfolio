@@ -1021,9 +1021,9 @@ const Dashboard: React.FC = () => {
             <>
             <TradingModeWidget
               data={{
-                evalCount: state.challenges.filter(c => c.status === 'active' && ((c as any).lifecycle?.startsWith('eval') || !c.lifecycle)).length,
-                fundedCount: state.challenges.filter(c => c.status === 'active' && (c as any).lifecycle === 'funded_active').length,
-                liveCount: state.challenges.filter(c => c.status === 'active' && (c as any).lifecycle === 'live_active').length,
+                evalCount: (state.challenges as any[]).filter(c => c.status === 'active' && ((c as any).lifecycle?.startsWith('eval') || !c.lifecycle)).length,
+                fundedCount: (state.challenges as any[]).filter(c => (c as any).lifecycle === 'funded_active').length,
+                liveCount: (state.challenges as any[]).filter(c => (c as any).lifecycle === 'live_active').length,
                 cashOnHand: budgetState ? (budgetState.accounts || []).filter((a: any) => !['credit','debt','borrow'].includes(String(a.loanKind || ''))).reduce((s: number, a: any) => s + Number(a.balance || 0), 0) : 0,
                 totalDebt: budgetState ? (budgetState.accounts || []).filter((a: any) => ['credit','debt','borrow'].includes(String(a.loanKind || ''))).reduce((s: number, a: any) => s + Math.max(0, Number(a.balance || 0)), 0) : 0,
               }}
