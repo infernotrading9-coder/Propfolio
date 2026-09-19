@@ -395,6 +395,32 @@ Ask him directly: *"Any eval purchases or payouts in that period? Those I need t
 
 This removes the account and all its transactions. Use carefully — removing an account deletes its history.
 
+### 5.7e Trading Mode rules → `POST db-accounts`
+
+Daniel can add and remove bullet points per mode (defensive, balanced, aggressive) on the gauge widget. The bot can manage them:
+
+**List all modes and rules:**
+```json
+{ "action": "list-trading-modes" }
+```
+
+**Add a rule to a mode:**
+```json
+{ "action": "add-trading-mode-rule", "mode": "defensive", "rule": "New rule text" }
+```
+
+**Remove a rule by index:**
+```json
+{ "action": "remove-trading-mode-rule", "mode": "defensive", "index": 2 }
+```
+
+**Replace all rules for a mode:**
+```json
+{ "action": "edit-trading-mode", "mode": "defensive", "rules": ["rule 1", "rule 2", "rule 3"] }
+```
+
+When Daniel says "add a rule to defensive that says X" or "remove rule 2 from aggressive", use these endpoints.
+
 
 
 **One call, the whole picture.** Use this instead of stitching together several reads:
