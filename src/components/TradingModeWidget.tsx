@@ -16,19 +16,21 @@ function computeRiskScore(data: TradingModeData): number {
   const netWorth = cashOnHand - totalDebt;
   const totalAccounts = evalCount + fundedCount + liveCount;
   let score = 50;
-  if (totalAccounts >= 5) score += 15;
-  else if (totalAccounts >= 3) score += 5;
-  else if (totalAccounts <= 1) score -= 20;
-  if (cashOnHand > 500) score += 15;
-  else if (cashOnHand > 200) score += 5;
-  else if (cashOnHand < 50) score -= 20;
-  if (totalDebt > 5000) score -= 15;
-  else if (totalDebt > 2000) score -= 8;
-  else if (totalDebt < 500) score += 10;
-  if (netWorth < 0) score -= 10;
+  if (cashOnHand < 100) score -= 25;
+  else if (cashOnHand < 300) score -= 15;
+  else if (cashOnHand < 500) score -= 5;
+  else if (cashOnHand > 1000) score += 20;
+  else if (cashOnHand > 500) score += 10;
+  if (totalDebt > 5000) score -= 20;
+  else if (totalDebt > 2000) score -= 10;
+  else if (totalDebt > 500) score -= 5;
+  else if (totalDebt < 100) score += 10;
+  if (netWorth < -5000) score -= 10;
+  else if (netWorth < 0) score -= 5;
   else if (netWorth > 1000) score += 10;
-  if (fundedCount > 0) score += 5;
-  if (liveCount > 0) score += 10;
+  if (totalAccounts >= 5) score += 8;
+  else if (totalAccounts <= 1) score -= 5;
+  if (liveCount > 0) score += 5;
   return Math.max(0, Math.min(100, score));
 }
 
