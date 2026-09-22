@@ -158,17 +158,23 @@ export const handler: Handler = async (event) => {
             case 'set-recurring': {
               const { transactionId, recurring, frequency, dayOfMonth } = input;
               if (!transactionId) return json(400, { error: 'transactionId required' });
-              const bs = await budgetStateService.getByUserId(user.id);
-              if (!bs) return json(404, { error: 'No budget state' });
-              const state = bs;
-              const txn = (state.transactions || []).find((t: any) => t.id === transactionId);
-              if (!txn) return json(404, { error: 'Transaction not found' });
-              txn.recurring = !!recurring;
-              if (frequency) txn.recurringFrequency = frequency;
-              if (dayOfMonth !== undefined) txn.recurringDayOfMonth = dayOfMonth;
-              if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
-              await budgetStateService.upsert(user.id, state);
-              return json(200, { ok: true, transaction: txn });
+              try {
+                const bs = await budgetStateService.getByUserId(user.id);
+                if (!bs) return json(404, { error: 'No budget state' });
+                const state = typeof bs === 'string' ? JSON.parse(bs) : bs;
+                const txns = state.transactions || [];
+                const txn = txns.find((t: any) => t.id === transactionId);
+                if (!txn) return json(404, { error: 'Transaction not found' });
+                txn.recurring = !!recurring;
+                if (frequency) txn.recurringFrequency = frequency;
+                if (dayOfMonth !== undefined) txn.recurringDayOfMonth = dayOfMonth;
+                if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
+                // Save the whole state back
+                await budgetStateService.upsert(user.id, state);
+                return json(200, { ok: true, transaction: txn });
+              } catch (e: any) {
+                return json(500, { error: e.message || String(e), stack: e.stack?.split('\n')[0] });
+              }
             }
 
             case 'get-recurring': {
