@@ -91,11 +91,14 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
   const [activeMode, setActiveMode] = useState(state.mode);
   const [position, setPosition] = useState({ x: 20, y: 80 });
   const [widgetWidth, setWidgetWidth] = useState(220);
+  const [widgetHeight, setWidgetHeight] = useState(120);
   const [dragging, setDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [resizing, setResizing] = useState(false);
   const [resizeStartX, setResizeStartX] = useState(0);
+  const [resizeStartY, setResizeStartY] = useState(0);
   const [resizeStartW, setResizeStartW] = useState(220);
+  const [resizeStartH, setResizeStartH] = useState(120);
   const [loading, setLoading] = useState(true);
   const [animNeedle, setAnimNeedle] = useState(0);
 
@@ -156,20 +159,24 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
     e.preventDefault();
     setResizing(true);
     setResizeStartX(e.clientX);
+    setResizeStartY(e.clientY);
     setResizeStartW(widgetWidth);
+    setResizeStartH(widgetHeight);
   };
 
   useEffect(() => {
     if (!resizing) return;
     const handleMove = (e: MouseEvent) => {
       const dx = e.clientX - resizeStartX;
+      const dy = e.clientY - resizeStartY;
       setWidgetWidth(Math.max(180, Math.min(480, resizeStartW + dx)));
+      setWidgetHeight(Math.max(100, Math.min(300, resizeStartH + dy)));
     };
     const handleUp = () => setResizing(false);
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
     return () => { window.removeEventListener('mousemove', handleMove); window.removeEventListener('mouseup', handleUp); };
-  }, [resizing, resizeStartX, resizeStartW]);
+  }, [resizing, resizeStartX, resizeStartY, resizeStartW, resizeStartH]);
 
   const meta = MODE_META[state.mode] || MODE_META.survival;
   const needleAngle = animNeedle;
@@ -206,9 +213,9 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
 
         {/* Drag handle area — the gauge SVG */}
         <div className="relative flex flex-col items-center pt-4 pb-2" style={{ cursor: dragging ? 'grabbing' : 'grab' }} onMouseDown={handleDragStart}>
-          <div className="relative" style={{ width: '100%', height: 110 }}>
+          <div className="relative" style={{ width: '100%', height: widgetHeight, overflow: 'hidden' }}>
             <div className="absolute top-0 left-1/2 -translate-x-1/2 rounded-full pointer-events-none z-0" style={{ width: 120, height: 50, background: colorHex, animation: `gaugePulse ${state.mode === 'survival' ? '1s' : state.mode === 'defensive' ? '1.2s' : state.mode === 'cautious' ? '1.8s' : state.mode === 'balanced' ? '2.5s' : state.mode === 'confident' ? '3s' : '3.5s'} ease-in-out infinite` }} />
-            <svg viewBox="0 0 200 105" className="relative w-full h-full" style={{ overflow: 'visible' }}>
+            <svg viewBox="0 0 200 105" className="relative w-full h-full" preserveAspectRatio="xMidYMid meet" style={{ overflow: 'hidden' }}>
               {TICK_ANGLES.map((deg) => {
                 const rad = (deg - 90) * Math.PI / 180;
                 const isMajor = deg % 30 === 0;
