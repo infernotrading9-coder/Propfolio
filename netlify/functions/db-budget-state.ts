@@ -1,6 +1,9 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
 import { budgetStateService } from '../../server/db/service'
+import { db } from '../../server/db/connection'
+import { budgetState } from '../../server/db/schema'
+import { eq } from 'drizzle-orm'
 import {
   logExpense, listBudgetAccounts, transferBetweenAccounts, CascadeError,
 } from '../../server/db/cascadeService'
@@ -170,10 +173,7 @@ export const handler: Handler = async (event) => {
                 if (dayOfMonth !== undefined) txn.recurringDayOfMonth = dayOfMonth;
                 if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
                 // Write directly to the DB instead of going through the merge-based upsert
-                const { db } = require('../../server/db/connection');
-                const { budgetState: bsTable } = require('../../server/db/schema');
-                const { eq: eqFn } = require('drizzle-orm');
-                await db.update(bsTable).set({ state: state, updatedAt: new Date() }).where(eqFn(bsTable.userId, user.id));
+                await db.update(budgetState).set({ state: state, updatedAt: new Date() }).where(eq(budgetState.userId, user.id));
                 return json(200, { ok: true, transaction: txn });
               } catch (e: any) {
                 return json(500, { error: e.message || String(e), stack: e.stack?.split('\n')[0] });
