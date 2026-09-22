@@ -169,8 +169,11 @@ export const handler: Handler = async (event) => {
                 if (frequency) txn.recurringFrequency = frequency;
                 if (dayOfMonth !== undefined) txn.recurringDayOfMonth = dayOfMonth;
                 if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
-                // Save the whole state back
-                await budgetStateService.upsert(user.id, state);
+                // Write directly to the DB instead of going through the merge-based upsert
+                const { db } = require('../../server/db/connection');
+                const { budgetState: bsTable } = require('../../server/db/schema');
+                const { eq: eqFn } = require('drizzle-orm');
+                await db.update(bsTable).set({ state: state, updatedAt: new Date() }).where(eqFn(bsTable.userId, user.id));
                 return json(200, { ok: true, transaction: txn });
               } catch (e: any) {
                 return json(500, { error: e.message || String(e), stack: e.stack?.split('\n')[0] });
