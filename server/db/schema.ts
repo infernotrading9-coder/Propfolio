@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, boolean, decimal, uuid, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, boolean, decimal, uuid, jsonb, serial } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Users table (matches existing structure)
@@ -144,7 +144,7 @@ export const tradingModeState = pgTable('trading_mode_state', {
 });
 
 export const tradingModeRules = pgTable('trading_mode_rules', {
-  id: integer('id').primaryKey().generatedAlways().autoincrement(),
+  id: serial('id').primaryKey(),
   userId: text('user_id').notNull(),
   mode: text('mode').notNull(),
   ruleText: text('rule_text').notNull(),
