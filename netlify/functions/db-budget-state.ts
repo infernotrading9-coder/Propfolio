@@ -171,21 +171,21 @@ export const handler: Handler = async (event) => {
               const { transactionId, recurring, frequency, dayOfMonth } = input;
               if (!transactionId) return json(400, { error: 'transactionId required' });
               try {
-                if (!sqlClient) throw new Error('sqlClient not initialized — DATABASE_URL may be missing');
-                const rows = await sqlClient`SELECT state FROM budget_state WHERE user_id = ${user.id} LIMIT 1`;
-                if (!rows.length) return json(404, { error: 'No budget state' });
-                const state = typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state;
-                const txns = state.transactions || [];
-                const txn = txns.find((t: any) => t.id === transactionId);
+                const bs = await budgetStateService.getByUserId(user.id);
+                if (!bs) return json(404, { error: 'No budget state' });
+                const state = typeof bs === 'string' ? JSON.parse(bs) : bs;
+                const txns = Array.isArray(state.transactions) ? state.transactions : [];
+                const txn = txns.find((t: any) => String(t.id) === String(transactionId));
                 if (!txn) return json(404, { error: 'Transaction not found: ' + transactionId + ' (have: ' + txns.map((t:any)=>t.id).join(',') + ')' });
                 txn.recurring = !!recurring;
                 if (frequency) txn.recurringFrequency = frequency;
                 if (dayOfMonth !== undefined) txn.recurringDayOfMonth = dayOfMonth;
                 if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
-                await sqlClient`UPDATE budget_state SET state = ${JSON.stringify(state)}::jsonb, updated_at = NOW() WHERE user_id = ${user.id}`;
+                // Use db.update directly — same pattern that works for reconcile-balances
+                await db.update(budgetState).set({ state: state, updatedAt: new Date() }).where(eq(budgetState.userId, user.id));
                 return json(200, { ok: true, transaction: txn });
               } catch (e: any) {
-                return json(500, { error: e.message || String(e), stack: e.stack?.split('\n').slice(0,3).join(' | ') });
+                return json(500, { error: e.message || String(e), name: e.name, stack: e.stack?.split('\n').slice(0,3).join(' | ') });
               }
             }
 
