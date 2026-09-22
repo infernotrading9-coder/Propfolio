@@ -217,10 +217,14 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
             <div className="absolute top-0 left-1/2 -translate-x-1/2 rounded-full pointer-events-none z-0" style={{ width: 120, height: 50, background: colorHex, animation: `gaugePulse ${state.mode === 'survival' ? '1s' : state.mode === 'defensive' ? '1.2s' : state.mode === 'cautious' ? '1.8s' : state.mode === 'balanced' ? '2.5s' : state.mode === 'confident' ? '3s' : '3.5s'} ease-in-out infinite` }} />
             <svg viewBox="0 0 200 105" className="relative w-full h-full" preserveAspectRatio="xMidYMid meet" style={{ overflow: 'hidden' }}>
               {TICK_ANGLES.map((deg) => {
-                const rad = (deg - 90) * Math.PI / 180;
+                // Semicircle: 0° = 9 o'clock (left), 90° = 12 o'clock (top), 180° = 3 o'clock (right)
+                // At 0°: point is at (100-R, 95) — left side
+                // At 90°: point is at (100, 95-R) — top
+                // At 180°: point is at (100+R, 95) — right side
+                const rad = (deg + 180) * Math.PI / 180;
                 const isMajor = deg % 30 === 0;
-                const inner = isMajor ? 65 : 70;
-                const outer = isMajor ? 90 : 83;
+                const inner = isMajor ? 70 : 74;
+                const outer = isMajor ? 88 : 82;
                 const x1 = 100 + Math.cos(rad) * inner;
                 const y1 = 95 + Math.sin(rad) * inner;
                 const x2 = 100 + Math.cos(rad) * outer;

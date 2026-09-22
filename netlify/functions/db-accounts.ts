@@ -20,6 +20,21 @@ export const handler: Handler = async (event) => {
         return json(200, { order })
       }
 
+      // Get trading mode state (widget reads this)
+      if (params.action === 'get-trading-mode') {
+        const [modeState, modeRules] = await Promise.all([
+          tradingModeStateService.get(user.id),
+          tradingModeRulesService.list(user.id),
+        ]);
+        return json(200, { ...modeState, rules: modeRules });
+      }
+
+      // Get session limits
+      if (params.action === 'get-session-limits') {
+        const limits = await sessionLimitsService.get(user.id);
+        return json(200, limits);
+      }
+
       // Get all daily orders
       if (params.action === 'daily-orders') {
         const orders = await accountDailyOrderService.getByUserId(user.id)
