@@ -119,6 +119,39 @@ export const payouts = pgTable('payouts', {
 });
 
 // Trading accounts table (migrated from Focus Hub blobs)
+export const tradingSessionLimits = pgTable('trading_session_limits', {
+  userId: text('user_id').notNull(),
+  maxEvalLoss: integer('max_eval_loss').default(2),
+  maxFundedLoss: integer('max_funded_loss').default(1),
+  maxLiveLoss: integer('max_live_loss').default(0),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const tradingModeState = pgTable('trading_mode_state', {
+  userId: text('user_id').notNull(),
+  score: integer('score').default(50),
+  mode: text('mode').default('defensive'),
+  evalCount: integer('eval_count').default(0),
+  fundedCount: integer('funded_count').default(0),
+  liveCount: integer('live_count').default(0),
+  cashOnHand: numeric('cash_on_hand').default('0'),
+  totalDebt: numeric('total_debt').default('0'),
+  maxEvalLoss: integer('max_eval_loss').default(2),
+  maxFundedLoss: integer('max_funded_loss').default(1),
+  maxLiveLoss: integer('max_live_loss').default(0),
+  notes: text('notes'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const tradingModeRules = pgTable('trading_mode_rules', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  mode: text('mode').notNull(),
+  ruleText: text('rule_text').notNull(),
+  sortOrder: integer('sort_order').default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const tradingAccounts = pgTable('trading_accounts', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').references(() => users.id).notNull(),

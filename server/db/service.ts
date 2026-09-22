@@ -1,6 +1,6 @@
 import { eq, and, desc, asc } from 'drizzle-orm';
 import { db } from './connection';
-import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, trades, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState } from './schema';
+import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, tradingSessionLimits, tradingModeState, tradingModeRules, trades, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState } from './schema';
 
 // Type aliases for the original schema
 type User = typeof users.$inferSelect;
@@ -251,6 +251,104 @@ export const userStateService = {
 };
 
 // Trading account operations
+export const sessionLimitsService = {
+  async get(userId: string) {
+    const result = await db.select().from(tradingSessionLimits).where(eq(tradingSessionLimits.userId, userId)).limit(1);
+    if (result.length === 0) return { maxEvalLoss: 2, maxFundedLoss: 1, maxLiveLoss: 0, defaults: true };
+    return result[0];
+  },
+  async upsert(userId: string, data: { maxEvalLoss?: number; maxFundedLoss?: number; maxLiveLoss?: number }) {
+    const existing = await db.select().from(tradingSessionLimits).where(eq(tradingSessionLimits.userId, userId)).limit(1);
+    if (existing.length > 0) {
+      await db.update(tradingSessionLimits).set({
+        ...(data.maxEvalLoss !== undefined && { maxEvalLoss: data.maxEvalLoss }),
+        ...(data.maxFundedLoss !== undefined && { maxFundedLoss: data.maxFundedLoss }),
+        ...(data.maxLiveLoss !== undefined && { maxLiveLoss: data.maxLiveLoss }),
+        updatedAt: new Date(),
+      }).where(eq(tradingSessionLimits.userId, userId));
+    } else {
+      await db.insert(tradingSessionLimits).values({
+        userId,
+        maxEvalLoss: data.maxEvalLoss ?? 2,
+        maxFundedLoss: data.maxFundedLoss ?? 1,
+        maxLiveLoss: data.maxLiveLoss ?? 0,
+      });
+    }
+    return this.get(userId);
+  },
+};
+
+// Trading mode state — bot writes, widget reads
+export const tradingModeStateService = {
+  async get(userId: string) {
+    const result = await db.select().from(tradingModeState).where(eq(tradingModeState.userId, userId)).limit(1);
+    if (result.length === 0) {
+      return { score: 50, mode: 'defensive', evalCount: 0, fundedCount: 0, liveCount: 0, cashOnHand: 0, totalDebt: 0, maxEvalLoss: 2, maxFundedLoss: 1, maxLiveLoss: 0, notes: null, defaults: true };
+    }
+    return result[0];
+  },
+  async upsert(userId: string, data: Record<string, any>) {
+    const existing = await db.select().from(tradingModeState).where(eq(tradingModeState.userId, userId)).limit(1);
+    if (existing.length > 0) {
+      const updates: Record<string, any> = { updatedAt: new Date() };
+      for (const key of ['score', 'mode', 'evalCount', 'fundedCount', 'liveCount', 'cashOnHand', 'totalDebt', 'maxEvalLoss', 'maxFundedLoss', 'maxLiveLoss', 'notes']) {
+        if (data[key] !== undefined) updates[key] = data[key];
+      }
+      await db.update(tradingModeState).set(updates).where(eq(tradingModeState.userId, userId));
+    } else {
+      await db.insert(tradingModeState).values({
+        userId,
+        score: data.score ?? 50,
+        mode: data.mode ?? 'defensive',
+        evalCount: data.evalCount ?? 0,
+        fundedCount: data.fundedCount ?? 0,
+        liveCount: data.liveCount ?? 0,
+        cashOnHand: data.cashOnHand ?? 0,
+        totalDebt: data.totalDebt ?? 0,
+        maxEvalLoss: data.maxEvalLoss ?? 2,
+        maxFundedLoss: data.maxFundedLoss ?? 1,
+        maxLiveLoss: data.maxLiveLoss ?? 0,
+        notes: data.notes ?? null,
+      });
+    }
+    return this.get(userId);
+  },
+};
+
+export const tradingModeRulesService = {
+  async list(userId: string) {
+    const result = await db.select().from(tradingModeRules).where(eq(tradingModeRules.userId, userId)).orderBy(asc(tradingModeRules.mode), asc(tradingModeRules.sortOrder));
+    const grouped: Record<string, string[]> = {};
+    for (const r of result) {
+      if (!grouped[r.mode]) grouped[r.mode] = [];
+      grouped[r.mode].push(r.ruleText);
+    }
+    return grouped;
+  },
+  async setRules(userId: string, mode: string, rules: string[]) {
+    await db.delete(tradingModeRules).where(and(eq(tradingModeRules.userId, userId), eq(tradingModeRules.mode, mode)));
+    for (let i = 0; i < rules.length; i++) {
+      await db.insert(tradingModeRules).values({ userId, mode, ruleText: rules[i], sortOrder: i });
+    }
+    return this.list(userId);
+  },
+  async addRule(userId: string, mode: string, rule: string) {
+    const existing = await db.select().from(tradingModeRules).where(and(eq(tradingModeRules.userId, userId), eq(tradingModeRules.mode, mode)));
+    await db.insert(tradingModeRules).values({ userId, mode, ruleText: rule, sortOrder: existing.length });
+    return this.list(userId);
+  },
+  async removeRule(userId: string, mode: string, index: number) {
+    const existing = await db.select().from(tradingModeRules).where(and(eq(tradingModeRules.userId, userId), eq(tradingModeRules.mode, mode))).orderBy(asc(tradingModeRules.sortOrder));
+    if (index < 0 || index >= existing.length) return this.list(userId);
+    await db.delete(tradingModeRules).where(eq(tradingModeRules.id, existing[index].id));
+    const remaining = existing.filter((_, i) => i !== index);
+    for (let i = 0; i < remaining.length; i++) {
+      await db.update(tradingModeRules).set({ sortOrder: i }).where(eq(tradingModeRules.id, remaining[i].id));
+    }
+    return this.list(userId);
+  },
+};
+
 export const tradingAccountService = {
   async getByUserId(userId: string): Promise<TradingAccount[]> {
     return db

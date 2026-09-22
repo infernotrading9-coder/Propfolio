@@ -108,6 +108,8 @@ export const handler: Handler = async (event) => {
                 amount: Number(body.amount),
                 name: body.name,
                 date: body.date,
+                fee: body.fee ? Number(body.fee) : undefined,
+                feeName: body.feeName,
               })
               return json(200, r)
             }
@@ -150,6 +152,45 @@ export const handler: Handler = async (event) => {
               state.transactions = (state.transactions || []).filter((t: any) => t.accountId !== acctId && t.toAccountId !== acctId);
               await budgetStateService.upsert(user.id, state);
               return json(200, { ok: true, removed: acctId });
+            }
+
+            // Recurring transactions — tag monthly cost-of-living expenses
+            case 'set-recurring': {
+              const { transactionId, recurring, frequency, dayOfMonth } = input;
+              if (!transactionId) return json(400, { error: 'transactionId required' });
+              const bs = await budgetStateService.getByUserId(user.id);
+              if (!bs) return json(404, { error: 'No budget state' });
+              const state = bs;
+              const txn = (state.transactions || []).find((t: any) => t.id === transactionId);
+              if (!txn) return json(404, { error: 'Transaction not found' });
+              txn.recurring = !!recurring;
+              if (frequency) txn.recurringFrequency = frequency;
+              if (dayOfMonth !== undefined) txn.recurringDayOfMonth = dayOfMonth;
+              if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
+              await budgetStateService.upsert(user.id, state);
+              return json(200, { ok: true, transaction: txn });
+            }
+
+            case 'get-recurring': {
+              const bs = await budgetStateService.getByUserId(user.id);
+              if (!bs) return json(200, { recurring: [], monthlyTotal: 0 });
+              const recurring = (bs.transactions || []).filter((t: any) => t.recurring);
+              const monthlyTotal = recurring.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
+              return json(200, {
+                recurring: recurring.map((t: any) => ({ id: t.id, name: t.name, amount: t.amount, type: t.type, frequency: t.recurringFrequency || 'monthly', dayOfMonth: t.recurringDayOfMonth })),
+                monthlyTotal,
+              });
+            }
+
+            case 'get-cost-of-living': {
+              const bs = await budgetStateService.getByUserId(user.id);
+              if (!bs) return json(200, { monthlyCostOfLiving: 0, recurring: [] });
+              const recurring = (bs.transactions || []).filter((t: any) => t.recurring && t.type === 'expense');
+              const monthlyCostOfLiving = recurring.reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
+              return json(200, {
+                monthlyCostOfLiving,
+                recurring: recurring.map((t: any) => ({ id: t.id, name: t.name, amount: t.amount })),
+              });
             }
 
             case 'reconcile-balances': {

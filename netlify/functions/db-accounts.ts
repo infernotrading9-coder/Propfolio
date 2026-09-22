@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
-import { tradingAccountService, accountDailyOrderService } from '../../server/db/service'
+import { tradingAccountService, accountDailyOrderService, sessionLimitsService, tradingModeStateService, tradingModeRulesService } from '../../server/db/service'
 import { settleAccount } from '../../server/db/drawdownModel'
 import { correctPlan } from '../../server/db/correctPlanService'
 import { buyEval, CascadeError } from '../../server/db/cascadeService'
@@ -321,6 +321,76 @@ export const handler: Handler = async (event) => {
           await tradingAccountService.update(a.id, { doneForDay: false } as any);
         }
         return json(200, { reset: all.filter((a: any) => a.status === 'active').length });
+      }
+
+      // Trading Mode — bot writes full state, widget reads it
+      if (input.action === 'get-trading-mode') {
+        const [state, modeRules] = await Promise.all([
+          tradingModeStateService.get(user.id),
+          tradingModeRulesService.list(user.id),
+        ]);
+        return json(200, { ...state, rules: modeRules });
+      }
+
+      if (input.action === 'update-trading-mode') {
+        // Bot pushes the full widget state — score, mode, stats, limits, notes
+        const state = await tradingModeStateService.upsert(user.id, {
+          score: input.score,
+          mode: input.mode,
+          evalCount: input.evalCount,
+          fundedCount: input.fundedCount,
+          liveCount: input.liveCount,
+          cashOnHand: input.cashOnHand,
+          totalDebt: input.totalDebt,
+          maxEvalLoss: input.maxEvalLoss,
+          maxFundedLoss: input.maxFundedLoss,
+          maxLiveLoss: input.maxLiveLoss,
+          notes: input.notes,
+        });
+        return json(200, { ok: true, ...state });
+      }
+
+      // Trading Mode rules — managed by bot, read by widget
+      if (input.action === 'list-trading-mode-rules') {
+        const rules = await tradingModeRulesService.list(user.id);
+        return json(200, { rules });
+      }
+
+      if (input.action === 'set-trading-mode-rules') {
+        const { mode, rules } = input;
+        if (!mode || !Array.isArray(rules)) return json(400, { error: 'mode and rules[] required' });
+        const result = await tradingModeRulesService.setRules(user.id, mode, rules);
+        return json(200, { ok: true, rules: result });
+      }
+
+      if (input.action === 'add-trading-mode-rule') {
+        const { mode, rule } = input;
+        if (!mode || !rule) return json(400, { error: 'mode and rule required' });
+        const result = await tradingModeRulesService.addRule(user.id, mode, rule);
+        return json(200, { ok: true, rules: result });
+      }
+
+      if (input.action === 'remove-trading-mode-rule') {
+        const { mode, index } = input;
+        if (!mode || index === undefined) return json(400, { error: 'mode and index required' });
+        const result = await tradingModeRulesService.removeRule(user.id, mode, parseInt(index));
+        return json(200, { ok: true, rules: result });
+      }
+
+      // Session loss limits — how many evals/funded/live accounts can be risked per session
+      if (input.action === 'get-session-limits') {
+        const limits = await sessionLimitsService.get(user.id);
+        return json(200, limits);
+      }
+
+      if (input.action === 'set-session-limits') {
+        const { maxEvalLoss, maxFundedLoss, maxLiveLoss } = input;
+        const limits = await sessionLimitsService.upsert(user.id, {
+          maxEvalLoss: maxEvalLoss !== undefined ? Math.max(0, parseInt(maxEvalLoss)) : undefined,
+          maxFundedLoss: maxFundedLoss !== undefined ? Math.max(0, parseInt(maxFundedLoss)) : undefined,
+          maxLiveLoss: maxLiveLoss !== undefined ? Math.max(0, parseInt(maxLiveLoss)) : undefined,
+        });
+        return json(200, { ok: true, ...limits });
       }
 
       // Trading Mode rules — list/add/remove/edit

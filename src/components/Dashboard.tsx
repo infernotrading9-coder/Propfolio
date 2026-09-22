@@ -1020,12 +1020,19 @@ const Dashboard: React.FC = () => {
           {view === 'accounts' && (
             <>
             <TradingModeWidget
-              data={{
-                evalCount: (state.challenges as any[]).filter(c => c.status === 'active' && ((c as any).lifecycle?.startsWith('eval') || !c.lifecycle)).length,
-                fundedCount: (state.challenges as any[]).filter(c => (c as any).lifecycle === 'funded_active').length,
-                liveCount: (state.challenges as any[]).filter(c => (c as any).lifecycle === 'live_active').length,
-                cashOnHand: budgetState ? (budgetState.accounts || []).filter((a: any) => !['credit','debt','borrow'].includes(String(a.loanKind || ''))).reduce((s: number, a: any) => s + Number(a.balance || 0), 0) : 0,
-                totalDebt: budgetState ? (budgetState.accounts || []).filter((a: any) => ['credit','debt','borrow'].includes(String(a.loanKind || ''))).reduce((s: number, a: any) => s + Math.max(0, Number(a.balance || 0)), 0) : 0,
+              apiBase="/.netlify/functions"
+              getAuthHeaders={() => {
+                const headers: Record<string, string> = {};
+                try {
+                  const raw = localStorage.getItem('user');
+                  if (raw) {
+                    const u = JSON.parse(raw);
+                    if (u?.id) headers['X-User-Id'] = String(u.id);
+                    if (u?.email) headers['X-User-Email'] = String(u.email);
+                    if (u?.name) headers['X-User-Name'] = String(u.name);
+                  }
+                } catch {}
+                return headers;
               }}
             />
             <AccountsView

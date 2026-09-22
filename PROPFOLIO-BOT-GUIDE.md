@@ -395,7 +395,168 @@ Ask him directly: *"Any eval purchases or payouts in that period? Those I need t
 
 This removes the account and all its transactions. Use carefully — removing an account deletes its history.
 
-### 5.7e Trading Mode rules → `POST db-accounts`
+### 5.7h Reorder accounts → `POST db-accounts`
+
+The bot can reorder the trading order of accounts (sort_order is the single source of truth for card order).
+
+**Get current order:** Just GET accounts — they come back sorted by sort_order already.
+
+**Set new order:**
+```json
+{ "action": "reorder", "orderedIds": ["id1", "id2", "id3", "id4", "id5"] }
+```
+
+This sets sort_order 0,1,2,3,4... for each account in the order given. The account cards on the Accounts tab and the drag-and-drop order both read from sort_order.
+
+**When Daniel says "put 0048 first then 0049 then 0050"** — look up the account IDs by last4/displayLabel, build the orderedIds array in that order, and call reorder.
+
+### 5.7i Transfers with fees → `POST db-budget-state`
+
+When Daniel pays a credit card and there's a fee (e.g. $4.95 debit card fee), use the `fee` field on the transfer — it auto-logs the fee as a separate expense in the same call. No need for two transactions.
+
+```json
+{ "action": "transfer", "fromAccountId": "acc_sofi", "toAccountId": "acc_capitalone", "amount": 200, "fee": 4.95, "feeName": "Capital One payment fee" }
+```
+
+This creates:
+1. A transfer of $200 from Sofi to Capital One
+2. An expense of $4.95 on Sofi (the fee)
+
+All in one call, one atomic transaction. The `feeName` is optional — defaults to "Fee — [from] → [to]".
+
+### 5.7j Recurring expenses / cost of living → `POST db-budget-state`
+
+The bot can tag transactions as recurring (monthly cost-of-living) so the gauge can factor in fixed monthly obligations.
+
+**Tag a transaction as recurring:**
+```json
+{ "action": "set-recurring", "transactionId": "abc123", "recurring": true, "frequency": "monthly", "dayOfMonth": 15 }
+```
+
+**Untag:**
+```json
+{ "action": "set-recurring", "transactionId": "abc123", "recurring": false }
+```
+
+**List all recurring transactions:**
+```json
+{ "action": "get-recurring" }
+```
+Returns: `{ recurring: [{ id, name, amount, type, frequency, dayOfMonth }], monthlyTotal }`
+
+**Get monthly cost of living (for gauge scoring):**
+```json
+{ "action": "get-cost-of-living" }
+```
+Returns: `{ monthlyCostOfLiving, recurring: [{ id, name, amount }] }`
+
+**How the gauge uses this:** The cron job calls `get-cost-of-living` and factors the monthly cost of living into the score. If monthly cost of living is high relative to cash on hand, the gauge pushes more defensive — Daniel needs to keep cash for living expenses, not just eval resets.
+
+**When Daniel says "my rent is $1099/month on the 1st" or "Hermes costs $10.60/month"** — find the transaction by name, then call `set-recurring` to tag it.
+
+### 5.7g Trading Mode widget — full bot control → `POST db-accounts`
+
+The Trading Mode gauge widget on the Accounts tab is fully bot-driven. The bot computes the score, sets the mode, manages the bullet points, and sets the session loss limits. The widget just reads from the API.
+
+**The bot's job (every NY + Asian session):**
+
+1. Read state: `GET db-state-full` → get active accounts, payouts, budget
+2. Compute score (see formula below)
+3. Push state: `POST db-accounts { action: "update-trading-mode", score, mode, evalCount, fundedCount, liveCount, cashOnHand, totalDebt, maxEvalLoss, maxFundedLoss, maxLiveLoss, notes }`
+4. Ask Daniel for session limits if needed: "How many evals, funded, and live accounts can you risk losing this session?"
+5. Set limits: `POST db-accounts { action: "set-session-limits", maxEvalLoss, maxFundedLoss, maxLiveLoss }`
+6. Send summary to Daniel on Telegram
+
+**Score formula:**
+
+```
+avgEvalCost = average of cost field from active challenges
+  (fallback: $25K ≈ $70, $50K ≈ $90, $100K ≈ $175)
+
+monthlyCostOfLiving = sum of recurring expense transactions (GET db-budget-state action=get-cost-of-living)
+
+adjustedCash = cashOnHand - monthlyCostOfLiving
+cushion = adjustedCash / avgEvalCost
+
+debtPenalty = totalDebt / 1000
+adjustedCushion = cushion - debtPenalty
+
+Payout bonus: if payouts last 30 days > $500 → +10, > $2000 → +15 (cumulative)
+Loss penalty: if 3+ accounts failed last 7 days → -10, if 5+ → -15
+
+Score mapping:
+  adjustedCushion < 0  → 5   (Survival)
+  < 3  → 15  (Survival)
+  < 7  → 25  (Defensive)
+  < 10 → 40  (Cautious)
+  < 15 → 55  (Balanced)
+  < 20 → 70  (Confident)
+  else → 90  (Aggressive)
+
+Mode: < 15 = survival, < 30 = defensive, < 45 = cautious,
+      < 60 = balanced, < 75 = confident, else = aggressive
+```
+
+**6 Modes and their rules:**
+
+| Score | Mode | Cushion | Rules |
+|-------|------|---------|-------|
+| 0-15 | Survival | < 3 evals | One account at a time. No copy trading. No new eval purchases. You are one loss from zero. |
+| 15-30 | Defensive | 3-7 | One account at a time. No copy trading. Can buy 1-2 evals to replace losses. If you lose 2 evals in one session, STOP. |
+| 30-45 | Cautious | 7-10 | 1-2 accounts at a time, all individual. No copy trading until 5 funded accounts. Can buy 2-3 evals to replace losses. If you lose 3 evals, STOP. |
+| 45-60 | Balanced | 10-15 | 2-3 accounts, all individual (need 5 funded to start copy trading). Do not waste your cushion. Aim for consistent payouts. Last time you were here you splurged — trade carefully. |
+| 60-75 | Confident | 15-20 | 3-5 accounts. If 5+ funded: 3 individual + 2 copy traded. Copy group max 2. Aim for consistent payouts. You can absorb losses. Do not splurge on evals. |
+| 75-100 | Aggressive | 20+ | Copy trade all — 4+ individual + 3+ copy. Always more individual than copy (4 individual + 3 copy at 7 accounts). Max out payouts. This is the goal. Even here: do not go back to zero. Keep your floor. |
+
+**Copy-trading rule (HARD RULE — not a suggestion):**
+- You need at least 5 funded accounts to start copy trading
+- Below 5 funded: ALL accounts traded individually
+- At 5 funded: 3 individual + 2 copy-traded
+- At 6 funded: 4 individual + 2 copy-traded
+- At 7+ funded: 4+ individual + 3+ copy-traded
+- Individual accounts are ALWAYS the majority
+- If Daniel says "copy trade 0001 and 0002" but he only has 4 funded accounts, say: "You only have 4 funded accounts. You need 5 to start copy trading. Keep them individual."
+
+**Splurge guardrail:**
+When Daniel moves UP a level (e.g., from Cautious to Balanced), send: "You just reached [mode]. Last time you were at Level 2, you splurged and lost it all. Trade carefully — do not buy 10 evals just because you can."
+
+**Managing bullet points (rules):**
+
+List all rules: `POST db-accounts { action: "list-trading-mode-rules" }`
+Replace all rules for a mode: `POST db-accounts { action: "set-trading-mode-rules", mode: "defensive", rules: ["rule 1", "rule 2"] }`
+Add one rule: `POST db-accounts { action: "add-trading-mode-rule", mode: "defensive", rule: "new rule" }`
+Remove by index: `POST db-accounts { action: "remove-trading-mode-rule", mode: "defensive", index: 2 }`
+
+When Daniel says "add a rule to defensive that says X" or "remove rule 2 from aggressive", use these.
+
+**Session loss limits:**
+
+Get: `POST db-accounts { action: "get-session-limits" }`
+Set: `POST db-accounts { action: "set-session-limits", maxEvalLoss: 2, maxFundedLoss: 1, maxLiveLoss: 0 }`
+
+Ask Daniel at the start of each session: "How many evals, funded, and live accounts can you risk losing this session?"
+
+**Cron jobs:**
+- NY session: 09:00 UTC (5am EST), Mon-Fri
+- Asian session: 21:00 UTC (5pm EST), Sun-Thu
+
+
+
+Daniel sets how many evals, funded, and live accounts he can risk losing per session. The bot should ask him for these when his situation changes.
+
+**Get current limits:**
+```json
+{ "action": "get-session-limits" }
+```
+
+**Set limits (ask Daniel first, then set):**
+```json
+{ "action": "set-session-limits", "maxEvalLoss": 2, "maxFundedLoss": 1, "maxLiveLoss": 0 }
+```
+
+**When to ask:** If Daniel says "I can lose 3 evals today" or "how many accounts can I risk?" or at the start of a new trading day if limits haven't been set recently. The bot should ask: "How many evals, funded, and live accounts can you risk losing this session?" and then set the limits.
+
+
 
 Daniel can add and remove bullet points per mode (defensive, balanced, aggressive) on the gauge widget. The bot can manage them:
 

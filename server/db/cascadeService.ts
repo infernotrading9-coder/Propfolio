@@ -804,9 +804,10 @@ export async function listBudgetAccounts(userId: string): Promise<BudgetAccountS
  */
 export async function transferBetweenAccounts(input: {
   userId: string; fromAccountId: string; toAccountId: string;
-  amount: number; name?: string; date?: string;
-}): Promise<{ ok: true; from: number; to: number }> {
+  amount: number; name?: string; date?: string; fee?: number; feeName?: string;
+}): Promise<{ ok: true; from: number; to: number; fee: number }> {
   const amount = round2(input.amount);
+  const fee = input.fee ? round2(input.fee) : 0;
   if (amount <= 0) throw new CascadeError('Transfer amount must be positive', 'bad_amount');
   if (input.fromAccountId === input.toAccountId) {
     throw new CascadeError('Cannot transfer to the same account', 'same_account');
@@ -843,12 +844,27 @@ export async function transferBetweenAccounts(input: {
       toAccountId: input.toAccountId,
       excluded: false,
     });
+
+    // Auto-log the fee as a separate expense on the from account — one call, one transaction
+    if (fee > 0) {
+      from.balance = round2(Number(from.balance) + (isLiab(from) ? fee : -fee));
+      state.transactions.push({
+        id: randomUUID().slice(0, 8),
+        name: input.feeName || `Fee — ${from.name} → ${to.name}`,
+        amount: fee,
+        type: 'expense',
+        date: input.date || todayET(),
+        accountId: input.fromAccountId,
+        excluded: false,
+      });
+    }
+
     state.accounts = accounts;
 
     await tx.query(
       `UPDATE budget_state SET state = $2::jsonb, updated_at = NOW() WHERE user_id = $1`,
       [input.userId, JSON.stringify(state)]);
 
-    return { ok: true as const, from: from.balance, to: to.balance };
+    return { ok: true as const, from: from.balance, to: to.balance, fee };
   });
 }
