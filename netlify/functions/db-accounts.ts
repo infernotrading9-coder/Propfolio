@@ -408,29 +408,10 @@ export const handler: Handler = async (event) => {
         return json(200, { ok: true, ...limits });
       }
 
-      // Trading Mode rules — list/add/remove/edit
+      // Trading Mode rules — list from DB (bot-managed)
       if (input.action === 'list-trading-modes') {
-        const DEFAULT_MODES: Record<string, { label: string; color: string; rules: string[] }> = {
-          defensive: { label: 'Defensive', color: 'red', rules: [
-            'Trade ONE account at a time',
-            'No copy trading',
-            'Aim for consistent small payouts, not max',
-            'If you lose 2 evals in one session, STOP',
-            'Do not buy new evals until debt is under control',
-          ]},
-          balanced: { label: 'Balanced', color: 'amber', rules: [
-            'Trade up to 2 accounts at a time',
-            'Copy trading OK for 2-3 accounts',
-            'Aim for consistent payouts',
-            'If you lose 3 evals in one session, STOP for the day',
-          ]},
-          aggressive: { label: 'Aggressive', color: 'green', rules: [
-            'Copy trade all accounts',
-            'Aim to max out payouts',
-            'Trade with confidence - you can afford to reset',
-          ]},
-        };
-        return json(200, { modes: DEFAULT_MODES });
+        const rules = await tradingModeRulesService.list(user.id);
+        return json(200, { modes: rules });
       }
 
       if (input.action === 'add-trading-mode-rule') {
@@ -448,7 +429,8 @@ export const handler: Handler = async (event) => {
       if (input.action === 'edit-trading-mode') {
         const { mode, rules } = input;
         if (!mode || !Array.isArray(rules)) return json(400, { error: 'mode and rules[] required', code: 'missing_fields' });
-        return json(200, { ok: true, note: 'Replaced ' + rules.length + ' rules for ' + mode });
+        const result = await tradingModeRulesService.setRules(user.id, mode, rules);
+        return json(200, { ok: true, rules: result });
       }
 
       // Reorder accounts
