@@ -176,16 +176,16 @@ export const handler: Handler = async (event) => {
                 const state = typeof bs === 'string' ? JSON.parse(bs) : bs;
                 const txns = Array.isArray(state.transactions) ? state.transactions : [];
                 const txn = txns.find((t: any) => String(t.id) === String(transactionId));
-                if (!txn) return json(404, { error: 'Transaction not found: ' + transactionId + ' (have: ' + txns.map((t:any)=>t.id).join(',') + ')' });
+                if (!txn) return json(404, { error: 'Transaction not found: ' + transactionId });
                 txn.recurring = !!recurring;
                 if (frequency) txn.recurringFrequency = frequency;
                 if (dayOfMonth !== undefined) txn.recurringDayOfMonth = dayOfMonth;
                 if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
-                // Use db.update directly — same pattern that works for reconcile-balances
-                await db.update(budgetState).set({ state: state, updatedAt: new Date() }).where(eq(budgetState.userId, user.id));
+                // Use the same upsert that the PUT handler uses (line 256)
+                const saved = await budgetStateService.upsert(user.id, state);
                 return json(200, { ok: true, transaction: txn });
               } catch (e: any) {
-                return json(500, { error: e.message || String(e), name: e.name, stack: e.stack?.split('\n').slice(0,3).join(' | ') });
+                return json(500, { error: e.message || String(e), name: e.name });
               }
             }
 
