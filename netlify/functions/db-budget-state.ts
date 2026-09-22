@@ -80,6 +80,29 @@ export const handler: Handler = async (event) => {
     if (event.httpMethod === 'POST') {
       const body = JSON.parse(event.body || '{}')
 
+      // set-recurring — handled BEFORE the cascade switch to avoid the outer
+      // catch block that swallows non-CascadeError exceptions as generic 500s
+      if (body.action === 'set-recurring') {
+        const { transactionId, recurring, frequency, dayOfMonth } = body;
+        if (!transactionId) return json(400, { error: 'transactionId required' });
+        try {
+          const bs = await budgetStateService.getByUserId(user.id);
+          if (!bs) return json(404, { error: 'No budget state' });
+          const state = typeof bs === 'string' ? JSON.parse(bs) : bs;
+          const txns = Array.isArray(state.transactions) ? state.transactions : [];
+          const txn = txns.find((t: any) => String(t.id) === String(transactionId));
+          if (!txn) return json(404, { error: 'Transaction not found: ' + transactionId });
+          txn.recurring = !!recurring;
+          if (frequency) txn.recurringFrequency = frequency;
+          if (dayOfMonth !== undefined) txn.recurringDayOfMonth = dayOfMonth;
+          if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
+          const saved = await budgetStateService.upsert(user.id, JSON.parse(JSON.stringify(state)));
+          return json(200, { ok: true, transaction: txn });
+        } catch (e: any) {
+          return json(500, { error: e.message || String(e), name: e.name });
+        }
+      }
+
       // ── Cascade actions: one targeted mutation, row-locked ───────────────
       if (body.action) {
         try {
@@ -167,28 +190,6 @@ export const handler: Handler = async (event) => {
             }
 
             // Recurring transactions — tag monthly cost-of-living expenses
-            case 'set-recurring': {
-              const { transactionId, recurring, frequency, dayOfMonth } = input;
-              if (!transactionId) return json(400, { error: 'transactionId required' });
-              try {
-                const bs = await budgetStateService.getByUserId(user.id);
-                if (!bs) return json(404, { error: 'No budget state' });
-                const state = typeof bs === 'string' ? JSON.parse(bs) : bs;
-                const txns = Array.isArray(state.transactions) ? state.transactions : [];
-                const txn = txns.find((t: any) => String(t.id) === String(transactionId));
-                if (!txn) return json(404, { error: 'Transaction not found: ' + transactionId });
-                txn.recurring = !!recurring;
-                if (frequency) txn.recurringFrequency = frequency;
-                if (dayOfMonth !== undefined) txn.recurringDayOfMonth = dayOfMonth;
-                if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
-                // Use the same upsert that the PUT handler uses — deep copy to avoid merge issues
-                const saved = await budgetStateService.upsert(user.id, JSON.parse(JSON.stringify(state)));
-                return json(200, { ok: true, transaction: txn });
-              } catch (e: any) {
-                return json(500, { error: e.message || String(e), name: e.name });
-              }
-            }
-
             case 'get-recurring': {
               const bs = await budgetStateService.getByUserId(user.id);
               if (!bs) return json(200, { recurring: [], monthlyTotal: 0 });
