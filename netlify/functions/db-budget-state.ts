@@ -4,10 +4,13 @@ import { budgetStateService } from '../../server/db/service'
 import { db } from '../../server/db/connection'
 import { budgetState } from '../../server/db/schema'
 import { eq } from 'drizzle-orm'
+import { neon } from '@neondatabase/serverless'
 import {
   logExpense, listBudgetAccounts, transferBetweenAccounts, CascadeError,
 } from '../../server/db/cascadeService'
 import { reconcileBalances } from '../../server/db/reconcileService'
+
+const sqlClient = neon(process.env.DATABASE_URL || process.env.PGHOST || '')
 
 /**
  * db-budget-state — the Budget tab's state, plus the budget cascade actions.
@@ -162,21 +165,22 @@ export const handler: Handler = async (event) => {
               const { transactionId, recurring, frequency, dayOfMonth } = input;
               if (!transactionId) return json(400, { error: 'transactionId required' });
               try {
-                const bs = await budgetStateService.getByUserId(user.id);
-                if (!bs) return json(404, { error: 'No budget state' });
-                const state = typeof bs === 'string' ? JSON.parse(bs) : bs;
+                // Read state via raw SQL to avoid any ORM serialization issues
+                const rows = await sqlClient`SELECT state FROM budget_state WHERE user_id = ${user.id} LIMIT 1`;
+                if (!rows.length) return json(404, { error: 'No budget state' });
+                const state = typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state;
                 const txns = state.transactions || [];
                 const txn = txns.find((t: any) => t.id === transactionId);
-                if (!txn) return json(404, { error: 'Transaction not found' });
+                if (!txn) return json(404, { error: 'Transaction not found: ' + transactionId + ' (have: ' + txns.map((t:any)=>t.id).join(',') + ')' });
                 txn.recurring = !!recurring;
                 if (frequency) txn.recurringFrequency = frequency;
                 if (dayOfMonth !== undefined) txn.recurringDayOfMonth = dayOfMonth;
                 if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
-                // Write directly to the DB instead of going through the merge-based upsert
-                await db.update(budgetState).set({ state: state, updatedAt: new Date() }).where(eq(budgetState.userId, user.id));
+                // Write back via raw SQL
+                await sqlClient`UPDATE budget_state SET state = ${JSON.stringify(state)}::jsonb, updated_at = NOW() WHERE user_id = ${user.id}`;
                 return json(200, { ok: true, transaction: txn });
               } catch (e: any) {
-                return json(500, { error: e.message || String(e), stack: e.stack?.split('\n')[0] });
+                return json(500, { error: e.message || String(e), stack: e.stack?.split('\n').slice(0,3).join(' | ') });
               }
             }
 
