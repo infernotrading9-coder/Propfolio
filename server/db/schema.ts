@@ -144,7 +144,7 @@ export const tradingModeState = pgTable('trading_mode_state', {
 });
 
 export const tradingModeRules = pgTable('trading_mode_rules', {
-  id: serial('id').primaryKey(),
+  id: integer('id').primaryKey().generatedAlways().autoincrement(),
   userId: text('user_id').notNull(),
   mode: text('mode').notNull(),
   ruleText: text('rule_text').notNull(),
