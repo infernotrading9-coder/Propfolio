@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Shield, AlertTriangle, Zap, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 
 interface TradingModeState {
@@ -182,6 +182,22 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
   const needleAngle = animNeedle;
   const colorHex = meta.color;
 
+  // Needle tip position on the arc — where the glow goes
+  const needleRad = (needleAngle + 180) * Math.PI / 180;
+  const needleTipX = 100 + Math.cos(needleRad) * 78;
+  const needleTipY = 95 + Math.sin(needleRad) * 78;
+
+  // Ripple fires when the score changes
+  const [rippleKey, setRippleKey] = useState(0);
+  const prevScoreRef = useRef(0);
+
+  useEffect(() => {
+    if (prevScoreRef.current !== state.score && prevScoreRef.current !== 0) {
+      setRippleKey(k => k + 1);
+    }
+    prevScoreRef.current = state.score;
+  }, [state.score]);
+
   // Fallback for Tailwind not generating dynamic classes — use inline styles
   const borderColor = colorHex + '80'; // 50% opacity
   const bgColor = colorHex + '0D'; // 5% opacity
@@ -195,6 +211,12 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
         @keyframes float1 { 0%,100%{transform:translateY(-2px)} 50%{transform:translateY(2px)} }
         @keyframes float2 { 0%,100%{transform:translateY(1px)} 50%{transform:translateY(-2px)} }
         @keyframes tickGlow { 0%,100%{opacity:0.5} 50%{opacity:1} }
+        @keyframes tipPulse { 0%,100%{opacity:0.4} 50%{opacity:0.8} }
+        @keyframes rippleExpand {
+          0% { r: 4; opacity: 0.8; }
+          50% { opacity: 0.4; }
+          100% { r: 40; opacity: 0; }
+        }
       `}</style>
 
       <div
@@ -214,13 +236,17 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
         {/* Drag handle area — the gauge SVG */}
         <div className="relative flex flex-col items-center pt-4 pb-2" style={{ cursor: dragging ? 'grabbing' : 'grab' }} onMouseDown={handleDragStart}>
           <div className="relative" style={{ width: '100%', height: widgetHeight, overflow: 'hidden' }}>
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 rounded-full pointer-events-none z-0" style={{ width: 120, height: 50, background: colorHex, animation: `gaugePulse ${state.mode === 'survival' ? '1s' : state.mode === 'defensive' ? '1.2s' : state.mode === 'cautious' ? '1.8s' : state.mode === 'balanced' ? '2.5s' : state.mode === 'confident' ? '3s' : '3.5s'} ease-in-out infinite` }} />
             <svg viewBox="0 0 200 105" className="relative w-full h-full" preserveAspectRatio="xMidYMid meet" style={{ overflow: 'hidden' }}>
+              <defs>
+                <radialGradient id="needleGlow">
+                  <stop offset="0%" stopColor={colorHex} stopOpacity="0.8" />
+                  <stop offset="40%" stopColor={colorHex} stopOpacity="0.4" />
+                  <stop offset="100%" stopColor={colorHex} stopOpacity="0" />
+                </radialGradient>
+              </defs>
+
               {TICK_ANGLES.map((deg) => {
                 // Semicircle: 0° = 9 o'clock (left), 90° = 12 o'clock (top), 180° = 3 o'clock (right)
-                // At 0°: point is at (100-R, 95) — left side
-                // At 90°: point is at (100, 95-R) — top
-                // At 180°: point is at (100+R, 95) — right side
                 const rad = (deg + 180) * Math.PI / 180;
                 const isMajor = deg % 30 === 0;
                 const inner = isMajor ? 70 : 74;
@@ -230,16 +256,42 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
                 const x2 = 100 + Math.cos(rad) * outer;
                 const y2 = 95 + Math.sin(rad) * outer;
                 const tc = tickColor(deg);
-                return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} stroke={tc} strokeWidth={isMajor ? 4 : 2} strokeLinecap="round" style={{ filter: `drop-shadow(0 0 ${isMajor ? 8 : 4}px ${tc})`, animation: `tickGlow ${1.5 + (deg / 180) * 2}s ease-in-out infinite ${deg * 0.01}s` }} />;
+                // Ticks near the needle pulse faster
+                const distFromNeedle = Math.abs(deg - needleAngle);
+                const isNearNeedle = distFromNeedle < 30;
+                return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} stroke={tc} strokeWidth={isMajor ? 4 : 2} strokeLinecap="round" style={{ filter: `drop-shadow(0 0 ${isNearNeedle ? 10 : isMajor ? 8 : 4}px ${tc})`, animation: `tickGlow ${isNearNeedle ? 0.8 : 1.5 + (deg / 180) * 2}s ease-in-out infinite ${deg * 0.01}s`, opacity: isNearNeedle ? 1 : 0.5 }} />;
               })}
+
+              {/* Ripple — fires when needle settles after a score change */}
+              {rippleKey > 0 && (
+                <g key={rippleKey} style={{ transformOrigin: '100px 95px' }}>
+                  <circle
+                    cx={needleTipX} cy={needleTipY} r="4" fill="none" stroke={colorHex} strokeWidth="2"
+                    style={{ animation: 'rippleExpand 1.5s ease-out forwards' }}
+                  />
+                  <circle
+                    cx={needleTipX} cy={needleTipY} r="4" fill="none" stroke={colorHex} strokeWidth="1" opacity="0.5"
+                    style={{ animation: 'rippleExpand 1.5s ease-out 0.2s forwards' }}
+                  />
+                </g>
+              )}
+
+              {/* Needle */}
               <g style={{ transform: `rotate(${needleAngle - 90}deg)`, transformOrigin: '100px 95px', transition: 'transform 1.2s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
                 <line x1="100" y1="95" x2="100" y2="18" stroke={colorHex} strokeWidth="3" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 6px ${colorHex})` }} />
                 <circle cx="100" cy="95" r="6" fill={colorHex} style={{ filter: `drop-shadow(0 0 8px ${colorHex})` }} />
                 <circle cx="100" cy="95" r="3" fill="white" opacity="0.6" />
               </g>
-              <circle cx="40" cy="30" r="2" fill={colorHex} opacity="0.4" style={{ animation: 'float0 3s ease-in-out infinite' }} />
-              <circle cx="160" cy="25" r="1.5" fill={colorHex} opacity="0.3" style={{ animation: 'float1 2.5s ease-in-out infinite' }} />
-              <circle cx="100" cy="15" r="1" fill={colorHex} opacity="0.5" style={{ animation: 'float2 2s ease-in-out infinite' }} />
+
+              {/* Pulsing glow at needle tip position on the arc */}
+              <circle
+                cx={needleTipX} cy={needleTipY} r="14" fill="url(#needleGlow)"
+                style={{ animation: `tipPulse ${state.mode === 'survival' ? '1s' : state.mode === 'defensive' ? '1.3s' : state.mode === 'cautious' ? '1.8s' : state.mode === 'balanced' ? '2.5s' : state.mode === 'confident' ? '3s' : '3.5s'} ease-in-out infinite` }}
+              />
+              <circle
+                cx={needleTipX} cy={needleTipY} r="5" fill={colorHex} opacity="0.8"
+                style={{ filter: `drop-shadow(0 0 12px ${colorHex})`, animation: `tipPulse ${state.mode === 'survival' ? '1s' : state.mode === 'defensive' ? '1.3s' : state.mode === 'cautious' ? '1.8s' : state.mode === 'balanced' ? '2.5s' : state.mode === 'confident' ? '3s' : '3.5s'} ease-in-out infinite` }}
+              />
             </svg>
           </div>
 
