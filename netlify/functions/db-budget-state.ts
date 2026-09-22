@@ -181,8 +181,8 @@ export const handler: Handler = async (event) => {
                 if (frequency) txn.recurringFrequency = frequency;
                 if (dayOfMonth !== undefined) txn.recurringDayOfMonth = dayOfMonth;
                 if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
-                // Use the same upsert that the PUT handler uses (line 256)
-                const saved = await budgetStateService.upsert(user.id, state);
+                // Use the same upsert that the PUT handler uses — deep copy to avoid merge issues
+                const saved = await budgetStateService.upsert(user.id, JSON.parse(JSON.stringify(state)));
                 return json(200, { ok: true, transaction: txn });
               } catch (e: any) {
                 return json(500, { error: e.message || String(e), name: e.name });
