@@ -10,7 +10,13 @@ import {
 } from '../../server/db/cascadeService'
 import { reconcileBalances } from '../../server/db/reconcileService'
 
-const sqlClient = neon(process.env.DATABASE_URL || process.env.PGHOST || '')
+let sqlClient: any = null;
+try {
+  const dbUrl = process.env.DATABASE_URL || process.env.PGHOST || '';
+  if (dbUrl) sqlClient = neon(dbUrl);
+} catch (e) {
+  console.error('Failed to init neon client for set-recurring:', e);
+}
 
 /**
  * db-budget-state — the Budget tab's state, plus the budget cascade actions.
@@ -165,7 +171,7 @@ export const handler: Handler = async (event) => {
               const { transactionId, recurring, frequency, dayOfMonth } = input;
               if (!transactionId) return json(400, { error: 'transactionId required' });
               try {
-                // Read state via raw SQL to avoid any ORM serialization issues
+                if (!sqlClient) throw new Error('sqlClient not initialized — DATABASE_URL may be missing');
                 const rows = await sqlClient`SELECT state FROM budget_state WHERE user_id = ${user.id} LIMIT 1`;
                 if (!rows.length) return json(404, { error: 'No budget state' });
                 const state = typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state;
@@ -176,7 +182,6 @@ export const handler: Handler = async (event) => {
                 if (frequency) txn.recurringFrequency = frequency;
                 if (dayOfMonth !== undefined) txn.recurringDayOfMonth = dayOfMonth;
                 if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
-                // Write back via raw SQL
                 await sqlClient`UPDATE budget_state SET state = ${JSON.stringify(state)}::jsonb, updated_at = NOW() WHERE user_id = ${user.id}`;
                 return json(200, { ok: true, transaction: txn });
               } catch (e: any) {
