@@ -424,6 +424,18 @@ This creates:
 
 All in one call, one atomic transaction. The `feeName` is optional — defaults to "Fee — [from] → [to]".
 
+### 5.7i-b Delete a transaction -> `POST db-budget-state`
+
+When Daniel says "delete that transaction" or "remove the last one I logged" or "that was wrong, get rid of it":
+
+```json
+{ "action": "delete-transaction", "transactionId": "abc12345" }
+```
+
+This reverses the balance effect on the account (income subtracts, expense adds back) and removes the transaction entirely. Use the transaction's `id` field.
+
+If Daniel says "delete the last transaction I logged" but does not give an id, look up the most recent transaction from GET budget state and use its id.
+
 ### 5.7j Budget categorization — Needs vs Wants → `POST db-budget-state`
 
 When logging expenses, tag them with the correct categoryId:

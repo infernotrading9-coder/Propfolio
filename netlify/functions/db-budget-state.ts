@@ -83,7 +83,10 @@ export const handler: Handler = async (event) => {
       // set-recurring — handled BEFORE the cascade switch to avoid the outer
       // catch block that swallows non-CascadeError exceptions as generic 500s
       if (body.action === 'set-recurring') {
-        const { transactionId, recurring, frequency, dayOfMonth } = body;
+        const transactionId = body.transactionId;
+        const recurring = body.recurring;
+        const frequency = body.frequency;
+        const dayOfMonth = body.dayOfMonth;
         if (!transactionId) return json(400, { error: 'transactionId required' });
         try {
           const bs = await budgetStateService.getByUserId(user.id);
@@ -98,6 +101,42 @@ export const handler: Handler = async (event) => {
           if (!recurring) { delete txn.recurringFrequency; delete txn.recurringDayOfMonth; }
           const saved = await budgetStateService.upsert(user.id, JSON.parse(JSON.stringify(state)));
           return json(200, { ok: true, transaction: txn });
+        } catch (e: any) {
+          return json(500, { error: e.message || String(e), name: e.name });
+        }
+      }
+
+      // delete-transaction — remove a transaction by id
+      if (body.action === 'delete-transaction') {
+        const { transactionId } = body;
+        if (!transactionId) return json(400, { error: 'transactionId required' });
+        const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+        try {
+          const bs = await budgetStateService.getByUserId(user.id);
+          if (!bs) return json(404, { error: 'No budget state' });
+          const state = typeof bs === 'string' ? JSON.parse(bs) : bs;
+          const txns = Array.isArray(state.transactions) ? state.transactions : [];
+          const txn = txns.find((t: any) => String(t.id) === String(transactionId));
+          if (!txn) return json(404, { error: 'Transaction not found: ' + transactionId });
+          // Reverse the transaction effect on the account balance
+          const amt = Number(txn.amount || 0);
+          const isLiab = (a: any) => ['credit', 'debt', 'borrow'].includes(String(a?.loanKind || ''));
+          if (txn.type === 'expense') {
+            const acc = (state.accounts || []).find((a: any) => a.id === txn.accountId);
+            if (acc) acc.balance = r2(Number(acc.balance) + (isLiab(acc) ? -amt : amt));
+          } else if (txn.type === 'income') {
+            const acc = (state.accounts || []).find((a: any) => a.id === txn.accountId);
+            if (acc) acc.balance = r2(Number(acc.balance) - (isLiab(acc) ? -amt : amt));
+          } else if (txn.type === 'transfer' && txn.accountId && txn.toAccountId) {
+            const from = (state.accounts || []).find((a: any) => a.id === txn.accountId);
+            const to = (state.accounts || []).find((a: any) => a.id === txn.toAccountId);
+            if (from) from.balance = r2(Number(from.balance) + (isLiab(from) ? -amt : -amt));
+            if (to) to.balance = r2(Number(to.balance) + (isLiab(to) ? amt : amt));
+          }
+          // Remove the transaction
+          state.transactions = txns.filter((t: any) => String(t.id) !== String(transactionId));
+          const saved = await budgetStateService.upsert(user.id, JSON.parse(JSON.stringify(state)));
+          return json(200, { ok: true, deleted: transactionId });
         } catch (e: any) {
           return json(500, { error: e.message || String(e), name: e.name });
         }

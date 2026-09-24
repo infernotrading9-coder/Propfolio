@@ -626,7 +626,7 @@
     gap: 4px;
   }
   .budget-accounts-grid { grid-template-columns: 1fr; gap: 10px; }
-  .budget-account-card { min-height: 140px; padding: 14px; border-radius: 14px; }
+  .budget-account-card { min-height: auto; padding: 12px; border-radius: 14px; }
   .budget-account-card .balance { font-size: 22px; }
   .budget-account-card .name { font-size: 14px; }
   .budget-icon-wrap { width: 40px; height: 40px; border-radius: 10px; }
@@ -660,8 +660,10 @@
   .budget-stat { padding: 8px; }
   .budget-stat .value { font-size: 14px; }
   .budget-accounts-grid { gap: 8px; }
-  .budget-account-card { min-height: 120px; padding: 12px; }
+  .budget-account-card { min-height: auto; padding: 10px; }
   .budget-account-card .balance { font-size: 20px; }
+  .budget-account-card .name { font-size: 14px; }
+  .budget-card-bottom { margin-top: 8px; }
   .budget-chart-big canvas { max-width: 280px; }
   .budget-planning-stat .label { font-size: 12px; }
   .budget-planning-stat .value { font-size: 14px; }
