@@ -867,10 +867,15 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
   const totalBalance = useMemo(() => round2(state.accounts.reduce((a, acc) => isLoanAccount(acc) ? a : a + displayBalance(acc), 0)), [state.accounts]);
   const totalDebt = useMemo(() => round2(state.accounts.reduce((a, acc) => isBorrowLiabilityLoan(acc) ? a + getLoanRemainingPayoff(acc) : a, 0)), [state.accounts]);
 
-  // ─── Emergency fund ───────────────────────────────────────────────────────
+  // ─── Emergency fund — based on RECURRING cost of living only ──────────────
   const emergencyFund = useMemo(() => {
+    // Sum recurring monthly expenses (tagged via set-recurring)
+    const recurringExpenses = state.transactions.filter((t: any) => t.recurring && t.type === 'expense');
+    const monthlyCostOfLiving = round2(recurringExpenses.reduce((sum, t) => sum + Number(t.amount || 0), 0));
+    // Fallback: if no recurring tagged, use average monthly living expenses
     const avgExpenses = getAverageMonthlyLivingExpenses();
-    const recommended = round2(avgExpenses * 6);
+    const monthly = monthlyCostOfLiving > 0 ? monthlyCostOfLiving : avgExpenses;
+    const recommended = round2(monthly * 6);
     const investmentTypes = new Set(['bag', 'coin', 'gem']);
     const current = round2(state.accounts.reduce((a, acc) => {
       if (isLoanAccount(acc)) return a;
@@ -879,8 +884,8 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
       return a + displayBalance(acc);
     }, 0));
     const progress = recommended > 0 ? Math.min(100, round2((current / recommended) * 100)) : 100;
-    return { recommended, current, progress };
-  }, [state.accounts, getAverageMonthlyLivingExpenses]);
+    return { recommended, current, progress, monthlyCostOfLiving: monthly };
+  }, [state.accounts, state.transactions, getAverageMonthlyLivingExpenses]);
 
   // ─── Balance projection ────────────────────────────────────────────────────
   const projection = useMemo(() => {
@@ -1711,6 +1716,10 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
             {/* Emergency Fund */}
             <div className="budget-planning-card">
               <h3>Emergency Fund</h3>
+              <div className="budget-planning-stat">
+                <span className="label">Monthly cost of living</span>
+                <span className="value">{fmt.format(emergencyFund.monthlyCostOfLiving)}</span>
+              </div>
               <div className="budget-planning-stat">
                 <span className="label">Recommended (6 months)</span>
                 <span className="value">{fmt.format(emergencyFund.recommended)}</span>

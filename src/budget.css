@@ -602,3 +602,69 @@
   transform: translateY(-2px);
   box-shadow: 0 10px 30px rgba(168,85,247,0.15);
 }
+
+/* ─── Mobile responsiveness ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .budget-container { width: 100%; padding: 0 8px; }
+  .budget-grid { grid-template-columns: 1fr; gap: 12px; padding: 8px 0 20px; }
+  .budget-card { padding: 12px 12px 10px; border-radius: 12px; }
+  .budget-card-header h2 { font-size: 14px; }
+  .budget-card-header .hint { font-size: 11px; }
+  .budget-stats { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .budget-stat { padding: 10px; border-radius: 12px; }
+  .budget-stat .value { font-size: 15px; }
+  .budget-stat .label { font-size: 11px; }
+  .budget-row.two { grid-template-columns: 1fr; gap: 8px; }
+  .budget-table .thead, .budget-table .tbody .rowline {
+    grid-template-columns: 1fr 0.5fr 0.6fr;
+    gap: 4px;
+  }
+  .budget-table .thead .col-date,
+  .budget-table .tbody .rowline .col-date { display: none; }
+  .budget-table-compact .thead, .budget-table-compact .tbody .rowline {
+    grid-template-columns: 1fr 0.6fr 0.5fr;
+    gap: 4px;
+  }
+  .budget-accounts-grid { grid-template-columns: 1fr; gap: 10px; }
+  .budget-account-card { min-height: 140px; padding: 14px; border-radius: 14px; }
+  .budget-account-card .balance { font-size: 22px; }
+  .budget-account-card .name { font-size: 14px; }
+  .budget-icon-wrap { width: 40px; height: 40px; border-radius: 10px; }
+  .budget-icon-wrap .icon-svg { width: 22px; height: 22px; }
+  .budget-total-balance { font-size: 32px; }
+  .budget-total-balance-sm { font-size: 28px; }
+  .budget-planning-grid { grid-template-columns: 1fr; gap: 10px; }
+  .budget-planning-card { padding: 12px; border-radius: 12px; }
+  .budget-chart-big canvas { max-width: 320px; }
+  .budget-progress { padding: 10px; }
+  .budget-progress .meta .name { font-size: 13px; }
+  .budget-progress .meta .pct { font-size: 11px; }
+  .budget-modal-content { width: 94%; padding: 14px; max-height: 85vh; }
+  .budget-modal-content.modal-large, .budget-modal-content.modal-modern { width: 94%; }
+  .budget-btn { padding: 8px 12px; font-size: 13px; }
+  .budget-input, .budget-select { padding: 10px; font-size: 15px; border-radius: 10px; }
+  .budget-breakdown-item { padding: 10px; }
+  .budget-breakdown-item .name { font-size: 13px; }
+  .budget-breakdown-item .amount { font-size: 14px; }
+  .budget-breakdown-meta { font-size: 10px; gap: 8px; }
+  .budget-heatmap-day { font-size: 9px; padding: 2px; }
+  .budget-heatmap-grid { gap: 3px; }
+  .budget-heatmap-weekday-row { gap: 3px; }
+  .budget-heatmap-weekday-label { font-size: 10px; }
+}
+
+@media (max-width: 480px) {
+  .budget-container { padding: 0 4px; }
+  .budget-card { padding: 10px; }
+  .budget-stats { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .budget-stat { padding: 8px; }
+  .budget-stat .value { font-size: 14px; }
+  .budget-accounts-grid { gap: 8px; }
+  .budget-account-card { min-height: 120px; padding: 12px; }
+  .budget-account-card .balance { font-size: 20px; }
+  .budget-chart-big canvas { max-width: 280px; }
+  .budget-planning-stat .label { font-size: 12px; }
+  .budget-planning-stat .value { font-size: 14px; }
+  .budget-total-balance { font-size: 28px; }
+  .budget-breakdown-meta { flex-direction: column; gap: 4px; }
+}

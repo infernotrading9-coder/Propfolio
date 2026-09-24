@@ -424,7 +424,27 @@ This creates:
 
 All in one call, one atomic transaction. The `feeName` is optional — defaults to "Fee — [from] → [to]".
 
-### 5.7j Recurring expenses / cost of living → `POST db-budget-state`
+### 5.7j Budget categorization — Needs vs Wants → `POST db-budget-state`
+
+When logging expenses, tag them with the correct categoryId:
+
+| categoryId | What goes here | Examples |
+|---|---|---|
+| `cat_needs` | Essential living expenses | Rent, utilities, water bill, insurance, food (groceries), car payment |
+| `cat_wants` | Non-essential spending | Gym, subscriptions, entertainment, dining out, snacks |
+| `8sxjlu9` | Savings | Savings contributions |
+| `cat_propfirm` | Prop firm eval purchases | Eval costs, activation fees |
+| `cat_other` | Uncategorized | Use sparingly — prefer needs or wants |
+
+**When Daniel says "log $45 for gym on Sofi":** use `categoryId: "cat_wants"` (gym is a want, not a need).
+
+**When Daniel says "log $1099 for rent on SplitPay":** use `categoryId: "cat_needs"` (rent is a need).
+
+**When Daniel says "log $90 for Lucid eval on Sofi":** use `categoryId: "cat_propfirm"` and `isPropFirm: true`.
+
+Do NOT use `cat_other` for everything. If you are unsure, ask: "Is this a need (essential) or a want (non-essential)?"
+
+### 5.7k Recurring expenses / cost of living → `POST db-budget-state`
 
 The bot can tag transactions as recurring (monthly cost-of-living) so the gauge can factor in fixed monthly obligations.
 
