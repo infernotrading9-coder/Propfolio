@@ -1014,9 +1014,6 @@ const Dashboard: React.FC = () => {
           {view === 'budget' && (
             <BudgetTab state={budgetState} onChange={handleBudgetChange} />
           )}
-          {view === 'budget' && (
-            <BudgetTab state={budgetState} onChange={handleBudgetChange} />
-          )}
           {view === 'accounts' && (
             <>
             <TradingModeWidget
