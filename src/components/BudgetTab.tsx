@@ -618,6 +618,7 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
 
   // ─── Filters ──────────────────────────────────────────────────────────────
   const [currentTimeFrame, setCurrentTimeFrame] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
+    const [netWorthMode, setNetWorthMode] = useState<'balance' | 'networth'>('balance');
   const [txnFilter, setTxnFilter] = useState<'month' | 'year' | 'all'>('month');
   const [txnDayFilter, setTxnDayFilter] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -903,43 +904,56 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
   }, [state.accounts, state.transactions, getAverageMonthlyIncome, getAverageMonthlyExpenses]);
 
   // ─── Balance history ────────────────────────────────────────────────────────
-  const balanceHistory = useMemo(() => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    let days = 7;
-    if (currentTimeFrame === 'month') days = 30;
-    else if (currentTimeFrame === 'quarter') days = 90;
-    else if (currentTimeFrame === 'year') days = 365;
-    const accountStartBalances: Record<string, number> = {};
-    state.accounts.forEach((acc) => {
-      if (isLoanAccount(acc)) return;
-      accountStartBalances[acc.id] = Number(acc.balance || 0);
-    });
-    const dataPoints: { date: string; balance: number }[] = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      date.setHours(0, 0, 0, 0);
-      const dateStr = formatLocalDate(date);
-      const accountBalances = { ...accountStartBalances };
-      state.transactions.forEach((t) => {
-        if (t.date > dateStr) {
-          if (t.type === 'income') {
-            if (accountBalances[t.accountId!] != null) accountBalances[t.accountId!] -= Number(t.amount || 0);
-          } else if (t.type === 'expense') {
-            if (accountBalances[t.accountId!] != null) accountBalances[t.accountId!] += Number(t.amount || 0);
-          } else if (t.type === 'adjustment') {
-            if (accountBalances[t.accountId!] != null) accountBalances[t.accountId!] -= Number(t.delta || 0);
-          } else if (t.type === 'trade') {
-            if (accountBalances[t.accountId!] != null) accountBalances[t.accountId!] -= Number(t.pnl || 0);
-          }
-        }
+    // Returns two series per day: `cash` (liquid cash/bank accounts) and
+    // `netWorth` (cash minus all liabilities). The chart toggles between them.
+    const balanceHistory = useMemo(() => {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      let days = 7;
+      if (currentTimeFrame === 'month') days = 30;
+      else if (currentTimeFrame === 'quarter') days = 90;
+      else if (currentTimeFrame === 'year') days = 365;
+      const isLiab = (acc: any) => ['credit', 'debt', 'borrow'].includes(String(acc?.loanKind || ''));
+      const accountStartBalances: Record<string, number> = {};
+      const isLiabMap: Record<string, boolean> = {};
+      state.accounts.forEach((acc) => {
+        accountStartBalances[acc.id] = Number(acc.balance || 0);
+        isLiabMap[acc.id] = isLiab(acc);
       });
-      const total = Object.values(accountBalances).reduce((sum, bal) => sum + bal, 0);
-      dataPoints.push({ date: dateStr, balance: round2(total) });
-    }
-    return dataPoints;
-  }, [state.accounts, state.transactions, currentTimeFrame]);
+      const dataPoints: { date: string; cash: number; netWorth: number }[] = [];
+      for (let i = days - 1; i >= 0; i--) {
+        const date = new Date(now);
+        date.setDate(date.getDate() - i);
+        date.setHours(0, 0, 0, 0);
+        const dateStr = formatLocalDate(date);
+        const accountBalances = { ...accountStartBalances };
+        state.transactions.forEach((t) => {
+          if (t.date > dateStr) {
+            if (t.type === 'transfer') {
+              // Going back in time, the money was in the source account, not the
+              // destination. Reverse it so transfers don't drag history negative.
+              if (accountBalances[t.accountId!] != null) accountBalances[t.accountId!] += Number(t.amount || 0);
+              if (accountBalances[t.toAccountId!] != null) accountBalances[t.toAccountId!] -= Number(t.amount || 0);
+            } else {
+              const liab = isLiabMap[t.accountId!];
+              let delta = 0;
+              if (t.type === 'income') delta = liab ? Number(t.amount || 0) : -Number(t.amount || 0);
+              else if (t.type === 'expense') delta = liab ? -Number(t.amount || 0) : Number(t.amount || 0);
+              else if (t.type === 'adjustment') delta = -Number(t.delta || 0);
+              else if (t.type === 'trade') delta = -Number(t.pnl || 0);
+              if (accountBalances[t.accountId!] != null) accountBalances[t.accountId!] += delta;
+            }
+          }
+        });
+        let cash = 0, debt = 0;
+        for (const [id, bal] of Object.entries(accountBalances)) {
+          if (isLiabMap[id]) debt += bal;
+          else cash += bal;
+        }
+        dataPoints.push({ date: dateStr, cash: round2(cash), netWorth: round2(cash - debt) });
+      }
+      return dataPoints;
+    }, [state.accounts, state.transactions, currentTimeFrame]);
 
   // ─── Filtered transactions ─────────────────────────────────────────────────
   const filteredTransactions = useMemo(() => {
@@ -1509,7 +1523,8 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
       if (currentTimeFrame === 'year') return d.toLocaleDateString('en-US', { month: 'short' });
       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     });
-    const data = history.map((h) => h.balance);
+    const data = history.map((h) => netWorthMode === 'networth' ? h.netWorth : h.cash);
+    const chartLabel = netWorthMode === 'networth' ? 'Net Worth' : 'Liquid Balance';
     const canvas = balanceChartRef.current;
     const ctx2d = canvas.getContext('2d');
     let gradient: CanvasGradient | string = 'transparent';
@@ -1531,7 +1546,7 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
         data: {
           labels,
           datasets: [{
-            label: 'Net Worth', data, borderColor: '#a855f7', backgroundColor: gradient,
+            label: chartLabel, data, borderColor: '#a855f7', backgroundColor: gradient,
             borderWidth: 2, fill: true, tension: 0, spanGaps: true,
             pointRadius: 2, pointHoverRadius: 4, pointBackgroundColor: '#a855f7',
           }],
@@ -1555,7 +1570,7 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
         plugins: [crosshairFocusPlugin as any],
       } as any);
     }
-  }, [balanceHistory, currentTimeFrame]);
+  }, [balanceHistory, currentTimeFrame, netWorthMode]);
 
   // ─── Auto income ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1646,6 +1661,10 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
                   {tf.charAt(0).toUpperCase() + tf.slice(1)}
                 </button>
               ))}
+            </div>
+            <div className="budget-time-frame-selector" style={{ marginLeft: 8 }}>
+              <button className={`budget-time-btn ${netWorthMode === 'balance' ? 'active' : ''}`} onClick={() => setNetWorthMode('balance')}>Balance</button>
+              <button className={`budget-time-btn ${netWorthMode === 'networth' ? 'active' : ''}`} onClick={() => setNetWorthMode('networth')}>Net Worth</button>
             </div>
           </div>
           <div className="budget-chart-card" style={{ height: 220 }}>
