@@ -717,6 +717,21 @@ export async function failAccount(input: {
 
     await tx.query(
       `UPDATE trading_accounts SET status='lost', updated_at=NOW() WHERE id=$1`, [acct.id]);
+
+    // Sticky phase-flag hygiene: `phase1_completed` is a boolean that stays true
+    // once set. A single-phase eval that fails can NOT have completed its only
+    // phase — that contradiction inflated Phase-1 pass rate for months (53 ghost
+    // rows were counting as "passed" without ever reaching funded). Clearing it
+    // here keeps pass-rate stats honest. Multi-phase evals are left untouched:
+    // an eval can legitimately clear phase 1 then fail phase 2.
+    if (lifecycle === 'eval_failed') {
+      await tx.query(
+        `UPDATE challenges SET
+            phase1_completed    = CASE WHEN total_phases <= 1 THEN false   ELSE phase1_completed    END,
+            phase1_completed_at = CASE WHEN total_phases <= 1 THEN NULL    ELSE phase1_completed_at END
+          WHERE id=$1`, [acct.challenge_id]);
+    }
+
     await tx.query(
       `UPDATE calendar_accounts SET is_active=false WHERE challenge_id=$1`, [acct.challenge_id]);
 

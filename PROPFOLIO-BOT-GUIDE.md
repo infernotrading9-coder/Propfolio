@@ -197,6 +197,8 @@ Only call this when Daniel explicitly says the firm moved him. Reaching 5 payout
 
 Works identically for evals, funded and live accounts — the old flow only handled evals, which is why failing a funded account did nothing on the Dashboard. Sets challenge → failed, card → lost, calendar → retired. **Trades are kept** as history.
 
+**Stats stay honest.** `fail-account` is the ONLY way to mark something failed — never write `lifecycle='eval_failed'` yourself via SQL. The service clears the sticky `phase1_completed` flag on a single-phase eval when it fails (a single-phase eval can't have passed its only phase and then failed — that combination inflated Phase-1 pass rate for months). Multi-phase evals keep their completed earlier phases. This keeps **Phase-1 Pass Rate ≡ Funded Pass Rate** for Daniel's (mostly single-phase futures) book. Lifecycle → stats directly; the phase flags are derived, not the source of truth.
+
 Reasons: `rule_break`, `max_drawdown`, `daily_loss`, `tilt_revenge`, `overtrading`, `account_expired`, `strategic_reset`, `firm_platform_issue`, `unknown`.
 
 ### 5.4b Account nickname → `POST db-accounts`
