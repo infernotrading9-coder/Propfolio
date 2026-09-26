@@ -64,12 +64,12 @@ A **mismatched** pair like `ZERO-0001` returns `not_found` — it will never be 
 
 ---
 
-## 4. Current live state (Sep 3 2026, 21:40 UTC)
+## 4. Current live state (Sep 26 2026, 01:40 UTC)
 
 | Label | Firm | Plan | Stage | Size | Balance | Notes |
 |---|---|---|---|---|---|---|
-| `LDE0-0001` | Lucid Trading | Lucid Daily | funded_active | $25K | $25,463.00 | cost $75.00 |
-| `ZERO-0857` | Alpha Futures | Zero | funded_active | $50K | $51,639.40 | cost $71.40, 0 payouts |
+| `LFF0-0002` | Lucid Trading | Lucid Flex | funded_active | $25K | $25,425.00 | 1 payout ($535.05) |
+| `MFFU-9065` | MFF | Builder | funded_active | $50K | $50,000.00 | |
 
 **2 funded, 0 live, 0 active evals.**
 
