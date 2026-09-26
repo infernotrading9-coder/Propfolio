@@ -494,10 +494,12 @@ The Trading Mode gauge widget on the Accounts tab is fully bot-driven. The bot c
 
 1. Read state: `GET db-state-full` → get active accounts, payouts, budget
 2. Compute score (see formula below)
-3. Push state: `POST db-accounts { action: "update-trading-mode", score, mode, evalCount, fundedCount, liveCount, cashOnHand, totalDebt, maxEvalLoss, maxFundedLoss, maxLiveLoss, notes }`
+3. Push state: `POST db-accounts { action: "update-trading-mode", score, mode, maxEvalLoss, maxFundedLoss, maxLiveLoss, notes }`
 4. Ask Daniel for session limits if needed: "How many evals, funded, and live accounts can you risk losing this session?"
 5. Set limits: `POST db-accounts { action: "set-session-limits", maxEvalLoss, maxFundedLoss, maxLiveLoss }`
 6. Send summary to Daniel on Telegram
+
+**You do NOT need to compute or push `evalCount`, `fundedCount`, `liveCount`, `cashOnHand`, or `totalDebt`.** Those counters are now derived automatically from the budget and accounts tabs on every read — the widget ignores whatever you send for them. You only control the mode, score, session limits, notes, and rules. (If you still send the counters, they're stored but overridden on read.)
 
 **Score formula:**
 
