@@ -171,6 +171,9 @@
   aspect-ratio: 1; display: block; margin: 0 auto;
   filter: drop-shadow(0 0 24px rgba(168,85,247,0.3)) drop-shadow(0 0 18px rgba(34,211,238,0.22));
 }
+/* Balance-history chart lives in .budget-chart-card (not .budget-chart-big) and
+   has no width cap — force it to fill its card so it can't blow out the layout. */
+.budget-chart-card canvas { width: 100% !important; }
 
 .budget-progress-list { display: grid; gap: 12px; margin-top: 12px; }
 .budget-progress {
@@ -660,7 +663,22 @@
     .budget-card-header { flex-wrap: wrap; gap: 4px 8px; }
     .budget-card-header .hint { min-width: 0; overflow-wrap: break-word; }
     .budget-planning-stat { flex-wrap: wrap; gap: 4px 8px; }
-    .budget-planning-stat .value { min-width: 0; overflow-wrap: break-word; }
+        .budget-planning-stat .value { min-width: 0; overflow-wrap: break-word; }
+        /* General: every space-between row wraps + shrinks so nothing clips off the right */
+        .budget-breakdown-header, .budget-goal-header, .budget-goal-meta,
+        .budget-timeline-item, .budget-card-bottom, .budget-total-pair,
+        .budget-pagination, .budget-card-header, .budget-planning-stat {
+          flex-wrap: wrap; gap: 4px 8px;
+        }
+        .budget-card-header .hint, .budget-planning-stat .value,
+        .budget-breakdown-item .amount, .budget-goal-meta span,
+        .budget-timeline-value, .budget-total-balance, .budget-total-balance-sm {
+          min-width: 0; overflow-wrap: break-word;
+        }
+        .budget-card, .budget-rowline, .budget-stat, .budget-progress,
+        .budget-planning-card, .budget-breakdown-item, .budget-goal-item {
+          min-width: 0;
+        }
   .budget-modal-content { width: 94%; padding: 14px; max-height: 85vh; }
   .budget-modal-content.modal-large, .budget-modal-content.modal-modern { width: 94%; }
   .budget-btn { padding: 8px 12px; font-size: 13px; }
