@@ -1,9 +1,34 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
-import { tradingAccountService, accountDailyOrderService, sessionLimitsService, tradingModeStateService, tradingModeRulesService } from '../../server/db/service'
+import { tradingAccountService, accountDailyOrderService, sessionLimitsService, tradingModeStateService, tradingModeRulesService, challengeService, budgetStateService } from '../../server/db/service'
 import { settleAccount } from '../../server/db/drawdownModel'
 import { correctPlan } from '../../server/db/correctPlanService'
 import { buyEval, CascadeError } from '../../server/db/cascadeService'
+
+/**
+ * Compute the widget's counters from REAL data — cash/debt from the budget tab,
+ * eval/funded/live counts from the accounts tab. The bot only controls the
+ * mode/score/rules/limits; these counters are always derived so the widget
+ * stays honest even if the bot pushes a stale or wrong number.
+ */
+async function computeTradingModeCounters(userId: string) {
+  const [budget, challenges] = await Promise.all([
+    budgetStateService.getByUserId(userId),
+    challengeService.getByUserId(userId),
+  ]);
+  const accounts = budget?.accounts || [];
+  const isLiab = (a: any) => ['credit', 'debt', 'borrow'].includes(String(a?.loanKind || ''));
+  const cashOnHand = Math.round(
+    accounts.filter((a: any) => !isLiab(a))
+      .reduce((s: number, a: any) => s + (Number(a?.balance) || 0), 0) * 100) / 100;
+  const totalDebt = Math.round(
+    accounts.filter((a: any) => isLiab(a) && (Number(a?.balance) || 0) > 0)
+      .reduce((s: number, a: any) => s + (Number(a?.balance) || 0), 0) * 100) / 100;
+  const evalCount = challenges.filter((c: any) => c.status === 'active' && String(c.lifecycle || '').startsWith('eval')).length;
+  const fundedCount = challenges.filter((c: any) => c.lifecycle === 'funded_active').length;
+  const liveCount = challenges.filter((c: any) => c.lifecycle === 'live_active').length;
+  return { cashOnHand, totalDebt, evalCount, fundedCount, liveCount };
+}
 
 export const handler: Handler = async (event) => {
   try {
@@ -21,13 +46,18 @@ export const handler: Handler = async (event) => {
       }
 
       // Get trading mode state (widget reads this)
-      if (params.action === 'get-trading-mode') {
-        const [modeState, modeRules] = await Promise.all([
-          tradingModeStateService.get(user.id),
-          tradingModeRulesService.list(user.id),
-        ]);
-        return json(200, { ...modeState, rules: modeRules });
-      }
+            if (params.action === 'get-trading-mode') {
+                          const [modeState, modeRules, counters] = await Promise.all([
+                            tradingModeStateService.get(user.id),
+                            tradingModeRulesService.list(user.id),
+                            computeTradingModeCounters(user.id),
+                          ]);
+                          return json(200, {
+                            ...modeState,
+                            ...counters,
+                            rules: modeRules,
+                          });
+                        }
 
       // Get session limits
       if (params.action === 'get-session-limits') {
@@ -340,11 +370,12 @@ export const handler: Handler = async (event) => {
 
       // Trading Mode — bot writes full state, widget reads it
       if (input.action === 'get-trading-mode') {
-        const [state, modeRules] = await Promise.all([
+        const [state, modeRules, counters] = await Promise.all([
           tradingModeStateService.get(user.id),
           tradingModeRulesService.list(user.id),
+          computeTradingModeCounters(user.id),
         ]);
-        return json(200, { ...state, rules: modeRules });
+        return json(200, { ...state, ...counters, rules: modeRules });
       }
 
       if (input.action === 'update-trading-mode') {
