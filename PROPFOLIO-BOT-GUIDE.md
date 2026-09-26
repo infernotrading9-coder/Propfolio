@@ -486,6 +486,27 @@ Returns: `{ monthlyCostOfLiving, recurring: [{ id, name, amount }] }`
 
 **When Daniel says "my rent is $1099/month on the 1st" or "Hermes costs $10.60/month"** — find the transaction by name, then call `set-recurring` to tag it.
 
+### 5.7l Rent / bill money pool → `POST db-budget-state`
+
+Daniel shares rent and bills with roommates. He sometimes pulls from that pool money to buy evals or cover things, then pays the **whole pool back** when a payout lands. Because he's always paying the full amount, he doesn't track exactly what he owes per bill — the pool is one running balance.
+
+**The `Rent money held` account (`acc_rent_held`, kind `borrow`) is a LIABILITY** whose balance = how much Daniel currently owes back to the rent/bill pool. Positive = he owes that much.
+
+**When Daniel uses pool money for an eval or expense:**
+1. Log the eval/expense from the cash account it actually came from (e.g. `log-expense` on `acc_sofi` or `acc_one_pay`).
+2. **Also** record a borrow that *increases* `Rent money held` by the same amount — he now owes the pool that much more. Use `log-expense` on `acc_rent_held` (it's a liability, so the amount owed goes UP).
+
+**When Daniel repays the pool (from a payout or income):**
+- Log a `transfer` from the cash account → `acc_rent_held`. This *decreases* the liability (he owes less).
+
+**Cash → bank → eval flow (Daniel can't buy evals with cash):**
+When Daniel says he's depositing cash to buy an eval:
+1. `transfer` from `acc_cash` → `acc_sofi` (or `acc_one_pay`) for the deposit amount.
+2. Then `buy-eval` (or `log-expense` for the eval) from `acc_sofi`/`acc_one_pay`.
+3. If the cash came from the rent pool, also increase `acc_rent_held` as above.
+
+**ALWAYS use the API endpoints — never write to the database directly.** Every `log-expense`, `log-income`, `transfer`, `buy-eval`, `record-payout` call records undo data, so `undo` can revert the balance AND the budget stats together. Direct SQL writes bypass this and make stats drift.
+
 ### 5.7g Trading Mode widget — full bot control → `POST db-accounts`
 
 The Trading Mode gauge widget on the Accounts tab is fully bot-driven. The bot computes the score, sets the mode, manages the bullet points, and sets the session loss limits. The widget just reads from the API.
