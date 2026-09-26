@@ -556,67 +556,31 @@ When Daniel moves UP a level (e.g., from Cautious to Balanced), send: "You just 
 
 **Managing bullet points (rules):**
 
-List all rules: `POST db-accounts { action: "list-trading-mode-rules" }`
-Replace all rules for a mode: `POST db-accounts { action: "set-trading-mode-rules", mode: "defensive", rules: ["rule 1", "rule 2"] }`
-Add one rule: `POST db-accounts { action: "add-trading-mode-rule", mode: "defensive", rule: "new rule" }`
-Remove by index: `POST db-accounts { action: "remove-trading-mode-rule", mode: "defensive", index: 2 }`
+Daniel can add and remove bullet points per mode (survival, defensive, cautious, balanced, confident, aggressive) on the gauge widget. The bot can manage them:
 
-When Daniel says "add a rule to defensive that says X" or "remove rule 2 from aggressive", use these.
+```json
+{ "action": "list-trading-modes" }
+{ "action": "list-trading-mode-rules" }
+{ "action": "add-trading-mode-rule", "mode": "defensive", "rule": "New rule text" }
+{ "action": "remove-trading-mode-rule", "mode": "defensive", "index": 2 }
+{ "action": "set-trading-mode-rules", "mode": "defensive", "rules": ["rule 1", "rule 2"] }
+{ "action": "edit-trading-mode", "mode": "defensive", "rules": ["rule 1", "rule 2", "rule 3"] }
+```
+
+`set-trading-mode-rules` and `edit-trading-mode` both replace a mode's full rule list. When Daniel says "add a rule to defensive that says X" or "remove rule 2 from aggressive", use these.
 
 **Session loss limits:**
 
-Get: `POST db-accounts { action: "get-session-limits" }`
-Set: `POST db-accounts { action: "set-session-limits", maxEvalLoss: 2, maxFundedLoss: 1, maxLiveLoss: 0 }`
+Daniel sets how many evals, funded, and live accounts he can risk losing per session. Ask him when his situation changes — e.g. at the start of each session, or if he says "I can lose 3 evals today" or "how many accounts can I risk?" — then set them.
 
-Ask Daniel at the start of each session: "How many evals, funded, and live accounts can you risk losing this session?"
+```json
+{ "action": "get-session-limits" }
+{ "action": "set-session-limits", "maxEvalLoss": 2, "maxFundedLoss": 1, "maxLiveLoss": 0 }
+```
 
 **Cron jobs:**
 - NY session: 09:00 UTC (5am EST), Mon-Fri
 - Asian session: 21:00 UTC (5pm EST), Sun-Thu
-
-
-
-Daniel sets how many evals, funded, and live accounts he can risk losing per session. The bot should ask him for these when his situation changes.
-
-**Get current limits:**
-```json
-{ "action": "get-session-limits" }
-```
-
-**Set limits (ask Daniel first, then set):**
-```json
-{ "action": "set-session-limits", "maxEvalLoss": 2, "maxFundedLoss": 1, "maxLiveLoss": 0 }
-```
-
-**When to ask:** If Daniel says "I can lose 3 evals today" or "how many accounts can I risk?" or at the start of a new trading day if limits haven't been set recently. The bot should ask: "How many evals, funded, and live accounts can you risk losing this session?" and then set the limits.
-
-
-
-Daniel can add and remove bullet points per mode (defensive, balanced, aggressive) on the gauge widget. The bot can manage them:
-
-**List all modes and rules:**
-```json
-{ "action": "list-trading-modes" }
-```
-
-**Add a rule to a mode:**
-```json
-{ "action": "add-trading-mode-rule", "mode": "defensive", "rule": "New rule text" }
-```
-
-**Remove a rule by index:**
-```json
-{ "action": "remove-trading-mode-rule", "mode": "defensive", "index": 2 }
-```
-
-**Replace all rules for a mode:**
-```json
-{ "action": "edit-trading-mode", "mode": "defensive", "rules": ["rule 1", "rule 2", "rule 3"] }
-```
-
-When Daniel says "add a rule to defensive that says X" or "remove rule 2 from aggressive", use these endpoints.
-
-
 
 **One call, the whole picture.** Use this instead of stitching together several reads:
 
