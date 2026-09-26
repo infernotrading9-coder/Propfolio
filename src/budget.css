@@ -650,8 +650,17 @@
   .budget-planning-card { padding: 12px; border-radius: 12px; }
   .budget-chart-big canvas { max-width: 320px; }
   .budget-progress { padding: 10px; }
-  .budget-progress .meta .name { font-size: 13px; }
-  .budget-progress .meta .pct { font-size: 11px; }
+    .budget-progress .meta .name { font-size: 13px; }
+    .budget-progress .meta .pct { font-size: 11px; }
+    /* Stack the "X% used" pill under the label so it can't push off the right edge */
+    .budget-progress { grid-template-columns: 1fr; }
+    .budget-progress .meta { flex-wrap: wrap; min-width: 0; }
+    .budget-progress .sp { justify-self: start; }
+    /* Card headers + planning stats: let long labels/values wrap instead of clipping */
+    .budget-card-header { flex-wrap: wrap; gap: 4px 8px; }
+    .budget-card-header .hint { min-width: 0; overflow-wrap: break-word; }
+    .budget-planning-stat { flex-wrap: wrap; gap: 4px 8px; }
+    .budget-planning-stat .value { min-width: 0; overflow-wrap: break-word; }
   .budget-modal-content { width: 94%; padding: 14px; max-height: 85vh; }
   .budget-modal-content.modal-large, .budget-modal-content.modal-modern { width: 94%; }
   .budget-btn { padding: 8px 12px; font-size: 13px; }
