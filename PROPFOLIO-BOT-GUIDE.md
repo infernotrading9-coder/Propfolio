@@ -490,22 +490,13 @@ Returns: `{ monthlyCostOfLiving, recurring: [{ id, name, amount }] }`
 
 ### 5.7l Rent / bill money pool → `POST db-budget-state`
 
-Daniel shares rent and bills with roommates. He sometimes pulls from that pool money to buy evals or cover things, then pays the **whole pool back** when a payout lands. Because he's always paying the full amount, he doesn't track exactly what he owes per bill — the pool is one running balance.
+Daniel shares rent and bills with roommates and holds their money in one running pool (`Rent money held`, `acc_rent_held`). **It is treated as money Daniel has on hand (a cash-style holding account), NOT a debt.** The balance = how much pool money is currently left.
 
-**The `Rent money held` account (`acc_rent_held`, kind `borrow`) is a LIABILITY** whose balance = how much Daniel currently owes back to the rent/bill pool. Positive = he owes that much.
+- **Money INTO the pool** (roommates contribute, Daniel refills, or he repays money he pulled): `log-income` on `acc_rent_held` — balance goes **UP**.
+- **Spending/using pool money** (food, bills, or anything pulled out for personal use): `log-expense` on `acc_rent_held` — balance goes **DOWN**.
+- **When the money physically leaves the app** (e.g. he pulls pool cash to buy an eval or deposit to a bank): use a `transfer` so both accounts reflect it, and reduce `acc_rent_held` by that amount.
 
-**When Daniel uses pool money for an eval or expense:**
-1. Log the eval/expense from the cash account it actually came from (e.g. `log-expense` on `acc_sofi` or `acc_one_pay`).
-2. **Also** record a borrow that *increases* `Rent money held` by the same amount — he now owes the pool that much more. Use `log-expense` on `acc_rent_held` (it's a liability, so the amount owed goes UP).
-
-**When Daniel repays the pool (from a payout or income):**
-- Log a `transfer` from the cash account → `acc_rent_held`. This *decreases* the liability (he owes less).
-
-**Cash → bank → eval flow (Daniel can't buy evals with cash):**
-When Daniel says he's depositing cash to buy an eval:
-1. `transfer` from `acc_cash` → `acc_sofi` (or `acc_one_pay`) for the deposit amount.
-2. Then `buy-eval` (or `log-expense` for the eval) from `acc_sofi`/`acc_one_pay`.
-3. If the cash came from the rent pool, also increase `acc_rent_held` as above.
+**NEVER log pool spending as an increasing "borrow."** `acc_rent_held` is a cash-style holding account — spending from it **lowers** the balance (that's exactly what "money left" means). Logging it like a credit-card charge (balance up on spend) is what wrongly inflated it to $611 when it should have been $489. Treat it like any cash account: income up, expense down. Example: pool was $550, Daniel spent $32 + $29 on food → balance is **$489**.
 
 **ALWAYS use the API endpoints — never write to the database directly.** Every `log-expense`, `log-income`, `transfer`, `buy-eval`, `record-payout` call records undo data, so `undo` can revert the balance AND the budget stats together. Direct SQL writes bypass this and make stats drift.
 
