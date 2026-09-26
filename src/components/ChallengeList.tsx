@@ -108,7 +108,16 @@ export const ChallengeList: React.FC<{
   }, []);
 
   const validChallenges = React.useMemo(
-    () => (challenges || []).filter((challenge): challenge is Challenge => Boolean(challenge?.id)),
+      () => (challenges || [])
+        .filter((challenge): challenge is Challenge => Boolean(challenge?.id))
+        // A SUPERSEDED eval is excluded: once an eval is passed it spawns a
+        // separate funded challenge, and the original stops being something you
+        // trade. Leaving it in showed Daniel an extra FUNDED card next to the
+        // real one (both have phase1_completed=true, so isChallengeFunded()
+        // returned true for both). Its cost and trades stay in the database and
+        // still count toward spend and pass-rate stats — it just isn't a live
+        // card any more. Mirrors the filter in ChallengeCards.
+        .filter((c) => (c as any).lifecycle !== 'eval_passed'),
     [challenges]
   );
 
