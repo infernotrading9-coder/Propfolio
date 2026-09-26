@@ -13,6 +13,7 @@ import {
   registerables,
 } from 'chart.js';
 import '../budget.css';
+import { TransactionModal, AccountModal, GoalModal, SettingsModal, ResetModal } from './budgetModals';
 
 // ─── Register Chart.js ──────────────────────────────────────────────────────
 ChartJS.register(...registerables);
@@ -2025,376 +2026,78 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
         </section>
       </div>
 
-      {/* ─── Transaction Modal ─────────────────────────────────────────────────── */}
-      {showTxnModal && (
-        <div className="budget-modal" onClick={(e) => { if (e.target === e.currentTarget) setShowTxnModal(false); }}>
-          <div className="budget-modal-content">
-            <div className="budget-modal-header">
-              <h2>{editingTxn ? 'Edit Transaction' : 'Add Transaction'}</h2>
-              <button className="budget-btn budget-btn-ghost" onClick={() => { setShowTxnModal(false); setEditingTxn(null); }}>✕</button>
-            </div>
-            <form onSubmit={handleSubmitTxn}>
-              <div style={{ display: 'grid', gap: 14 }}>
-                {/* Type selector */}
-                <div>
-                  <label className="budget-label">Type</label>
-                  <select className="budget-select" value={txnType} onChange={(e) => setTxnType(e.target.value as TxnType)}>
-                    <option value="expense">Expense</option>
-                    <option value="income">Income</option>
-                    <option value="transfer">Transfer</option>
-                    <option value="adjustment">Adjustment</option>
-                  </select>
-                </div>
-
-                {/* Name with suggestions */}
-                {txnType !== 'transfer' && txnType !== 'adjustment' && (
-                  <div style={{ position: 'relative' }}>
-                    <label className="budget-label">Name</label>
-                    <input
-                      className="budget-input"
-                      type="text"
-                      value={txnName}
-                      onChange={(e) => handleTxnNameInput(e.target.value)}
-                      onBlur={() => setTimeout(() => setShowNameSuggestions(false), 160)}
-                      required={(txnType as string) !== 'transfer' && (txnType as string) !== 'adjustment' && (txnType as string) !== 'trade'}
-                    />
-                    {showNameSuggestions && txnNameSuggestionsList.length > 0 && (
-                      <div className="budget-name-suggestions">
-                        {txnNameSuggestionsList.map((n) => (
-                          <button
-                            key={n}
-                            type="button"
-                            className="budget-name-suggestion-item"
-                            onClick={() => { setTxnName(n); setShowNameSuggestions(false); }}
-                          >
-                            {n}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Amount */}
-                <div className="budget-input-with">
-                  <label className="budget-label">Amount</label>
-                  <span className="prefix">$</span>
-                  <input
-                    className="budget-input"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    value={txnAmount}
-                    onChange={(e) => setTxnAmount(e.target.value)}
-                    placeholder="0.00"
-                    required
-                  />
-                </div>
-
-                {/* Account selector */}
-                {txnType === 'transfer' ? (
-                  <>
-                    <div>
-                      <label className="budget-label">From Account</label>
-                      <select className="budget-select" value={txnAccountId} onChange={(e) => setTxnAccountId(e.target.value)}>
-                        {state.accounts.map((a) => <option key={a.id} value={a.id}>{stripEmoji(a.name)}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="budget-label">To Account</label>
-                      <select className="budget-select" value={txnToAccountId} onChange={(e) => setTxnToAccountId(e.target.value)}>
-                        {state.accounts.map((a) => <option key={a.id} value={a.id}>{stripEmoji(a.name)}</option>)}
-                      </select>
-                    </div>
-                    <div className="budget-input-with">
-                      <label className="budget-label">Transfer Fee (optional)</label>
-                      <span className="prefix">$</span>
-                      <input className="budget-input" type="number" step="0.01" value={txnTransferFee} onChange={(e) => setTxnTransferFee(e.target.value)} placeholder="0.00" />
-                    </div>
-                  </>
-                ) : (
-                  <div>
-                    <label className="budget-label">{txnType === 'income' ? 'Money going to' : 'Money from'}</label>
-                    <select className="budget-select" value={txnAccountId} onChange={(e) => setTxnAccountId(e.target.value)} required>
-                      <option value="">Select account</option>
-                      {state.accounts.map((a) => <option key={a.id} value={a.id}>{stripEmoji(a.name)}</option>)}
-                    </select>
-                  </div>
-                )}
-
-                {/* Category for expenses */}
-                {txnType === 'expense' && (
-                  <div>
-                    <label className="budget-label">Category</label>
-                    <select className="budget-select" value={txnCategoryId} onChange={(e) => setTxnCategoryId(e.target.value)} required>
-                      <option value="">Select category</option>
-                      {state.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </div>
-                )}
-
-                {/* Date */}
-                <div>
-                  <label className="budget-label">Date</label>
-                  <input className="budget-input" type="date" value={txnDate} onChange={(e) => setTxnDate(e.target.value)} required />
-                </div>
-
-                {/* Excluded toggle */}
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={txnExcluded} onChange={(e) => setTxnExcluded(e.target.checked)} />
-                  <span style={{ fontSize: 13, color: 'var(--muted)' }}>Exclude from calculations</span>
-                </label>
-
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button type="submit" className="budget-btn budget-btn-primary">{editingTxn ? 'Save Changes' : 'Add Transaction'}</button>
-                  {editingTxn && (
-                    <button type="button" className="budget-btn budget-btn-danger" onClick={() => { handleDeleteTxn(editingTxn); setShowTxnModal(false); setEditingTxn(null); }}>Delete</button>
-                  )}
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Account Modal ─────────────────────────────────────────────────────── */}
-      {showAccountModal && (
-        <div className="budget-modal" onClick={(e) => { if (e.target === e.currentTarget) setShowAccountModal(false); }}>
-          <div className="budget-modal-content">
-            <div className="budget-modal-header">
-              <h2>{editingAccountId ? 'Edit Account' : 'Create Account'}</h2>
-              <button className="budget-btn budget-btn-ghost" onClick={() => { setShowAccountModal(false); setEditingAccountId(null); }}>✕</button>
-            </div>
-            <form onSubmit={handleSubmitAccount}>
-              <div style={{ display: 'grid', gap: 14 }}>
-                <div>
-                  <label className="budget-label">Account Name</label>
-                  <input className="budget-input" type="text" value={accName} onChange={(e) => setAccName(e.target.value)} placeholder="e.g. Checking, Savings..." required />
-                </div>
-                <div className="budget-input-with">
-                  <label className="budget-label">Initial Balance</label>
-                  <span className="prefix">$</span>
-                  <input className="budget-input" type="number" step="0.01" value={accBalance} onChange={(e) => setAccBalance(e.target.value)} placeholder="0.00" />
-                </div>
-                {(!accLoanKind || (accLoanKind as string) === '') && (
-                  <div>
-                    <label className="budget-label">Account Type</label>
-                    <select className="budget-select" value={accType} onChange={(e) => setAccType(e.target.value as AccountIcon)}>
-                      <option value="cash">Cash / Wallet</option>
-                      <option value="card">Card</option>
-                      <option value="bank">Bank</option>
-                      <option value="savings">Savings</option>
-                      <option value="phone">Mobile</option>
-                      <option value="bag">Pouch</option>
-                      <option value="coin">Coin</option>
-                      <option value="gem">Investment</option>
-                      <option value="target">Goal</option>
-                    </select>
-                  </div>
-                )}
-                <div>
-                  <label className="budget-label">Loan Type (optional)</label>
-                  <select className="budget-select" value={accLoanKind} onChange={(e) => setAccLoanKind(e.target.value as LoanKind)}>
-                    <option value="">None (regular account)</option>
-                    <option value="borrow">Borrowed (I owe)</option>
-                    <option value="lend">Lent (they owe me)</option>
-                    <option value="debt">Debt</option>
-                    <option value="credit">Credit Card</option>
-                  </select>
-                </div>
-                {accLoanKind === 'borrow' && (
-                  <div>
-                    <label className="budget-label">Borrow to (deposit into)</label>
-                    <select className="budget-select" value={accBorrowTo} onChange={(e) => setAccBorrowTo(e.target.value)}>
-                      <option value="">Select account</option>
-                      {state.accounts.filter((a) => !isLoanAccount(a)).map((a) => <option key={a.id} value={a.id}>{stripEmoji(a.name)}</option>)}
-                    </select>
-                  </div>
-                )}
-                {accLoanKind === 'lend' && (
-                  <div>
-                    <label className="budget-label">Lend from (withdraw from)</label>
-                    <select className="budget-select" value={accLendFrom} onChange={(e) => setAccLendFrom(e.target.value)}>
-                      <option value="">Select account</option>
-                      {state.accounts.filter((a) => !isLoanAccount(a)).map((a) => <option key={a.id} value={a.id}>{stripEmoji(a.name)}</option>)}
-                    </select>
-                  </div>
-                )}
-                {accLoanKind && (
-                  <>
-                    <div className="budget-input-with">
-                      <label className="budget-label">Flat Fee (optional)</label>
-                      <span className="prefix">$</span>
-                      <input className="budget-input" type="number" step="0.01" value={accLoanFee} onChange={(e) => setAccLoanFee(e.target.value)} placeholder="0.00" />
-                    </div>
-                    <div>
-                      <label className="budget-label">APR % (optional)</label>
-                      <input className="budget-input" type="number" step="0.01" value={accLoanApr} onChange={(e) => setAccLoanApr(e.target.value)} placeholder="0.00" />
-                    </div>
-                    <div className="budget-input-with">
-                      <label className="budget-label">Document Total (optional)</label>
-                      <span className="prefix">$</span>
-                      <input className="budget-input" type="number" step="0.01" value={accLoanDocumentTotal} onChange={(e) => setAccLoanDocumentTotal(e.target.value)} placeholder="0.00" />
-                    </div>
-                    <div>
-                      <label className="budget-label">Term (months, optional)</label>
-                      <input className="budget-input" type="number" step="1" value={accLoanTermMonths} onChange={(e) => setAccLoanTermMonths(e.target.value)} placeholder="0" />
-                    </div>
-                  </>
-                )}
-                <button type="submit" className="budget-btn budget-btn-primary">{editingAccountId ? 'Save Changes' : 'Create Account'}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Goal Modal ────────────────────────────────────────────────────────── */}
-      {showGoalModal && (
-        <div className="budget-modal" onClick={(e) => { if (e.target === e.currentTarget) setShowGoalModal(false); }}>
-          <div className="budget-modal-content">
-            <div className="budget-modal-header">
-              <h2>Add Savings Goal</h2>
-              <button className="budget-btn budget-btn-ghost" onClick={() => setShowGoalModal(false)}>✕</button>
-            </div>
-            <form onSubmit={handleSubmitGoal}>
-              <div style={{ display: 'grid', gap: 14 }}>
-                <div>
-                  <label className="budget-label">Goal Name</label>
-                  <input className="budget-input" type="text" value={goalName} onChange={(e) => setGoalName(e.target.value)} required />
-                </div>
-                <div className="budget-input-with">
-                  <label className="budget-label">Target Amount</label>
-                  <span className="prefix">$</span>
-                  <input className="budget-input" type="number" step="0.01" value={goalTarget} onChange={(e) => setGoalTarget(e.target.value)} required />
-                </div>
-                <div className="budget-input-with">
-                  <label className="budget-label">Current Amount</label>
-                  <span className="prefix">$</span>
-                  <input className="budget-input" type="number" step="0.01" value={goalCurrent} onChange={(e) => setGoalCurrent(e.target.value)} placeholder="0.00" />
-                </div>
-                <button type="submit" className="budget-btn budget-btn-primary">Create Goal</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Settings Modal (no theme selector) ────────────────────────────────── */}
-      {showSettingsModal && (
-        <div className="budget-modal" onClick={(e) => { if (e.target === e.currentTarget) setShowSettingsModal(false); }}>
-          <div className="budget-modal-content">
-            <div className="budget-modal-header">
-              <h2>Settings</h2>
-              <button className="budget-btn budget-btn-ghost" onClick={() => setShowSettingsModal(false)}>✕</button>
-            </div>
-            <div className="budget-settings-sections">
-              {/* Income settings */}
-              <div className="budget-settings-section">
-                <h3>Income</h3>
-                <div style={{ display: 'grid', gap: 10 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={state.autoIncome} onChange={handleToggleAutoIncome} />
-                    <span style={{ fontSize: 13 }}>Auto-calculate from income transactions</span>
-                  </label>
-                  {!state.autoIncome && (
-                    <div className="budget-input-with">
-                      <label className="budget-label">Monthly Income</label>
-                      <span className="prefix">$</span>
-                      <input
-                        className="budget-input"
-                        type="number"
-                        value={state.income}
-                        onChange={(e) => handleSetIncome(Number(e.target.value || 0))}
-                        disabled={state.autoIncome}
-                      />
-                    </div>
-                  )}
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={state.excludePropFirm} onChange={handleToggleExcludePropFirm} />
-                    <span style={{ fontSize: 13 }}>Exclude "prop firm" / "challenge" from calculations</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* Categories management */}
-              <div className="budget-settings-section">
-                <h3>Categories</h3>
-                <div style={{ display: 'grid', gap: 8 }}>
-                  {state.categories.map((cat) => (
-                    <div key={cat.id} style={{ display: 'grid', gridTemplateColumns: '1fr 80px auto', gap: 8, alignItems: 'center' }}>
-                      <input
-                        className="budget-input"
-                        type="text"
-                        value={cat.name}
-                        onChange={(e) => handleUpdateCategory(cat.id, { name: e.target.value.trim() || 'Category' })}
-                      />
-                      <input
-                        className="budget-input"
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        max="100"
-                        value={cat.percent}
-                        onChange={(e) => handleUpdateCategory(cat.id, { percent: Math.min(100, Math.max(0, Number(e.target.value || 0))) })}
-                        style={{ textAlign: 'right' }}
-                      />
-                      <button className="budget-btn budget-btn-ghost budget-btn-sm" onClick={() => handleDeleteCategory(cat.id)}>✕</button>
-                    </div>
-                  ))}
-                  <CategoryAddForm onAdd={handleAddCategory} />
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                    {totalPercent}% allocated · {Math.max(0, unallocatedPct)}% unallocated
-                  </div>
-                </div>
-              </div>
-
-              {/* Reset / danger zone */}
-              <div className="budget-settings-section">
-                <h3>Data Management</h3>
-                <div className="budget-settings-actions">
-                  <button className="budget-btn budget-btn-outline" onClick={() => setShowResetModal(true)}>Reset Options</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Reset Modal ────────────────────────────────────────────────────────── */}
-      {showResetModal && (
-        <div className="budget-modal" onClick={(e) => { if (e.target === e.currentTarget) setShowResetModal(false); }}>
-          <div className="budget-modal-content">
-            <div className="budget-modal-header">
-              <h2>Reset Data</h2>
-              <button className="budget-btn budget-btn-ghost" onClick={() => setShowResetModal(false)}>✕</button>
-            </div>
-            <div style={{ display: 'grid', gap: 10 }}>
-              <button className="budget-btn budget-btn-outline" onClick={handleResetTransactions}>Reset All Transactions</button>
-              <button className="budget-btn budget-btn-outline" onClick={handleResetBalances}>Reset All Balances to $0</button>
-              <button className="budget-btn budget-btn-danger" onClick={handleResetAll}>Reset EVERYTHING</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <TransactionModal
+        open={showTxnModal}
+        editingTxn={editingTxn}
+        accounts={state.accounts}
+        categories={state.categories}
+        txnType={txnType} setTxnType={setTxnType}
+        txnName={txnName} setTxnName={setTxnName}
+        txnAmount={txnAmount} setTxnAmount={setTxnAmount}
+        txnAccountId={txnAccountId} setTxnAccountId={setTxnAccountId}
+        txnToAccountId={txnToAccountId} setTxnToAccountId={setTxnToAccountId}
+        txnTransferFee={txnTransferFee} setTxnTransferFee={setTxnTransferFee}
+        txnCategoryId={txnCategoryId} setTxnCategoryId={setTxnCategoryId}
+        txnDate={txnDate} setTxnDate={setTxnDate}
+        txnExcluded={txnExcluded} setTxnExcluded={setTxnExcluded}
+        showNameSuggestions={showNameSuggestions} setShowNameSuggestions={setShowNameSuggestions}
+        txnNameSuggestionsList={txnNameSuggestionsList}
+        onNameInput={handleTxnNameInput}
+        onSubmit={handleSubmitTxn}
+        onDelete={handleDeleteTxn}
+        onClose={() => { setShowTxnModal(false); setEditingTxn(null); }}
+      />
+      <AccountModal
+        open={showAccountModal}
+        editingAccountId={editingAccountId}
+        accounts={state.accounts}
+        accName={accName} setAccName={setAccName}
+        accBalance={accBalance} setAccBalance={setAccBalance}
+        accType={accType} setAccType={setAccType}
+        accLoanKind={accLoanKind} setAccLoanKind={setAccLoanKind}
+        accLoanFee={accLoanFee} setAccLoanFee={setAccLoanFee}
+        accLoanApr={accLoanApr} setAccLoanApr={setAccLoanApr}
+        accLoanDocumentTotal={accLoanDocumentTotal} setAccLoanDocumentTotal={setAccLoanDocumentTotal}
+        accLoanTermMonths={accLoanTermMonths} setAccLoanTermMonths={setAccLoanTermMonths}
+        accBorrowTo={accBorrowTo} setAccBorrowTo={setAccBorrowTo}
+        accLendFrom={accLendFrom} setAccLendFrom={setAccLendFrom}
+        onSubmit={handleSubmitAccount}
+        onClose={() => { setShowAccountModal(false); setEditingAccountId(null); }}
+      />
+      <GoalModal
+        open={showGoalModal}
+        goalName={goalName} setGoalName={setGoalName}
+        goalTarget={goalTarget} setGoalTarget={setGoalTarget}
+        goalCurrent={goalCurrent} setGoalCurrent={setGoalCurrent}
+        onSubmit={handleSubmitGoal}
+        onClose={() => setShowGoalModal(false)}
+      />
+      <SettingsModal
+        open={showSettingsModal}
+        autoIncome={state.autoIncome}
+        excludePropFirm={state.excludePropFirm}
+        income={state.income}
+        categories={state.categories}
+        totalPercent={totalPercent}
+        unallocatedPct={unallocatedPct}
+        onToggleAutoIncome={handleToggleAutoIncome}
+        onSetIncome={handleSetIncome}
+        onToggleExcludePropFirm={handleToggleExcludePropFirm}
+        onUpdateCategory={handleUpdateCategory}
+        onDeleteCategory={handleDeleteCategory}
+        onAddCategory={handleAddCategory}
+        onOpenReset={() => setShowResetModal(true)}
+        onClose={() => setShowSettingsModal(false)}
+      />
+      <ResetModal
+        open={showResetModal}
+        onResetTransactions={handleResetTransactions}
+        onResetBalances={handleResetBalances}
+        onResetAll={handleResetAll}
+        onClose={() => setShowResetModal(false)}
+      />
     </div>
   );
 };
-
-// ─── Category Add Form (mini component) ──────────────────────────────────────────
-function CategoryAddForm({ onAdd }: { onAdd: (name: string, percent: number) => void }) {
-  const [name, setName] = useState('');
-  const [percent, setPercent] = useState('');
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px auto', gap: 8, alignItems: 'center' }}>
-      <input className="budget-input" type="text" placeholder="New category name" value={name} onChange={(e) => setName(e.target.value)} />
-      <input className="budget-input" type="number" step="0.5" min="0" max="100" placeholder="%" value={percent} onChange={(e) => setPercent(e.target.value)} style={{ textAlign: 'right' }} />
-      <button
-        className="budget-btn budget-btn-primary budget-btn-sm"
-        onClick={() => { if (name.trim()) { onAdd(name.trim(), Number(percent || 0)); setName(''); setPercent(''); } }}
-      >Add</button>
-    </div>
-  );
-}
 
 export default BudgetTab;
