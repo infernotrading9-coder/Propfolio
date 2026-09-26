@@ -490,13 +490,13 @@ Returns: `{ monthlyCostOfLiving, recurring: [{ id, name, amount }] }`
 
 ### 5.7l Rent / bill money pool → `POST db-budget-state`
 
-Daniel shares rent and bills with roommates and holds their money in one running pool (`Rent money held`, `acc_rent_held`). **It is treated as money Daniel has on hand (a cash-style holding account), NOT a debt.** The balance = how much pool money is currently left.
+Daniel shares rent and bills with roommates and holds their money in one running pool (`Rent money held`, `acc_rent_held`). It is a **cash-style holding account** (no `loanKind` = not a liability) — the balance = how much pool money is left. It's a **virtual bucket, so it must NEVER produce `income` or `expense` ledger lines** — both would skew his income/spend stats.
 
-- **Money INTO the pool** (roommates contribute, Daniel refills, or he repays money he pulled): `log-income` on `acc_rent_held` — balance goes **UP**.
-- **Spending/using pool money** (food, bills, or anything pulled out for personal use): `log-expense` on `acc_rent_held` — balance goes **DOWN**.
-- **When the money physically leaves the app** (e.g. he pulls pool cash to buy an eval or deposit to a bank): use a `transfer` so both accounts reflect it, and reduce `acc_rent_held` by that amount.
+- **Money INTO the pool** (roommates contribute, Daniel refills): `transfer` from a cash account into `acc_rent_held`, or `reconcile-balances` to set the pool to the real total. **Never `log-income` on the pool.**
+- **Money OUT of the pool** (he pulls pool money to spend): `transfer` out of `acc_rent_held` to the real account, or `reconcile-balances`. **Never `log-expense` on the pool.**
+- **Real purchases** (food, rent, evals): `log-expense` ONCE on the actual account it was paid from (`acc_cash`, `acc_sofi`, `acc_one_pay`...), normally `cat_needs`. **Do NOT also log the same purchase on the pool** — that double-counts the spend.
 
-**NEVER log pool spending as an increasing "borrow."** `acc_rent_held` is a cash-style holding account — spending from it **lowers** the balance (that's exactly what "money left" means). Logging it like a credit-card charge (balance up on spend) is what wrongly inflated it to $611 when it should have been $489. Treat it like any cash account: income up, expense down. Example: pool was $550, Daniel spent $32 + $29 on food → balance is **$489**.
+**Why:** income/spend stats are built only from `income`/`expense` transactions. Transfers and reconciliation don't count. Logging pool activity as income/expense is what inflated spend — a real $61 food purchase showed as **$122** (once on Cash, once on the pool). Pool money movement must stay invisible to income/spend stats: `transfer` / `reconcile-balances` only.
 
 **ALWAYS use the API endpoints — never write to the database directly.** Every `log-expense`, `log-income`, `transfer`, `buy-eval`, `record-payout` call records undo data, so `undo` can revert the balance AND the budget stats together. Direct SQL writes bypass this and make stats drift.
 
