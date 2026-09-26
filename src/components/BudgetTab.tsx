@@ -1571,7 +1571,7 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
   return (
     <div className="budget-container">
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '28px 0 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px 14px', padding: '28px 0 12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ display: 'grid', placeItems: 'center', padding: 8, background: 'rgba(168,85,247,0.08)', borderRadius: 12, border: '1px solid var(--border)' }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
@@ -1581,7 +1581,7 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
           </div>
           <h1 style={{ fontSize: 22, margin: 0, letterSpacing: '0.3px', fontWeight: 700 }}>BudgetFlow</h1>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button
             className={`budget-btn ${state.excludePropFirm ? 'budget-btn-ghost' : 'budget-btn-primary'}`}
             onClick={handleToggleExcludePropFirm}
@@ -1940,12 +1940,12 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
 
           {/* Transaction table */}
           <div className="budget-table budget-table-compact">
-            <div className="budget-thead" style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr 1fr 0.8fr 0.2fr', gap: 8, alignItems: 'center' }}>
-              <div>When</div>
+            <div className="budget-thead budget-txn-row">
+              <div className="col-date">When</div>
               <div>Name</div>
               <div>Category</div>
               <div>Amount</div>
-              <div style={{ width: 80 }} />
+              <div className="col-actions" style={{ width: 80 }} />
             </div>
             <div className="budget-tbody">
               {paginatedTransactions.items.length === 0 ? (
@@ -1974,12 +1974,12 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
                     amtStr = `-${fmt.format(Number(t.amount || 0))}`; color = '#ef4444';
                   }
                   return (
-                    <div key={t.id} className="budget-rowline" style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr 1fr 0.8fr 0.2fr', gap: 8, alignItems: 'center' }}>
-                      <div>{t.date}</div>
+                    <div key={t.id} className="budget-rowline budget-txn-row">
+                      <div className="col-date">{t.date}</div>
                       <div>{t.name} {isExcluded && <span className="budget-chip budget-chip-excluded">Excluded</span>}</div>
                       <div>{catName}</div>
                       <div className="amount" style={{ color, textAlign: 'right', fontWeight: 700 }}>{amtStr}</div>
-                      <div style={{ display: 'flex', gap: 4 }}>
+                      <div className="col-actions" style={{ display: 'flex', gap: 4 }}>
                         <button className="budget-btn budget-btn-ghost budget-btn-sm" onClick={() => handleEditTxn(t)} title="Edit">✏️</button>
                         <button className="budget-btn budget-btn-ghost budget-btn-sm" onClick={() => handleDeleteTxn(t)} title="Delete">✕</button>
                       </div>

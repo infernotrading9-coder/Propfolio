@@ -135,6 +135,16 @@
   padding: 8px;
 }
 
+/* Transaction table row — class so the mobile media query can override the
+   5-column layout (inline styles would beat it). Date + actions hide on small
+   screens, leaving Name | Category | Amount. */
+.budget-txn-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr 0.8fr 0.2fr;
+  gap: 8px;
+  align-items: center;
+}
+
 .budget-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 8px 0 14px; }
 .budget-stat {
   background: rgba(255,255,255,0.04);
@@ -625,10 +635,9 @@
   }
   .budget-table .thead .col-date,
   .budget-table .tbody .rowline .col-date { display: none; }
-  .budget-table-compact .thead, .budget-table-compact .tbody .rowline {
-    grid-template-columns: 1fr 0.6fr 0.5fr;
-    gap: 4px;
-  }
+  .budget-table-compact .budget-txn-row { grid-template-columns: 1fr 1.4fr 1fr; gap: 4px; }
+  .budget-table-compact .budget-txn-row .col-date { display: none; }
+  .budget-table-compact .budget-txn-row .col-actions { display: none; }
   .budget-accounts-grid { grid-template-columns: 1fr; gap: 10px; }
   .budget-account-card { min-height: auto; padding: 12px; border-radius: 14px; }
   .budget-account-card .balance { font-size: 22px; }
