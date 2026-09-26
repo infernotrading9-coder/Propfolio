@@ -496,6 +496,11 @@ Daniel shares rent and bills with roommates and holds their money in one running
 - **Money OUT of the pool** (he pulls pool money to spend): `transfer` out of `acc_rent_held` to the real account, or `reconcile-balances`. **Never `log-expense` on the pool.**
 - **Real purchases** (food, rent, evals): `log-expense` ONCE on the actual account it was paid from (`acc_cash`, `acc_sofi`, `acc_one_pay`...), normally `cat_needs`. **Do NOT also log the same purchase on the pool** — that double-counts the spend.
 
+**When Daniel uses pool money to buy something, do the 2-step transfer → expense flow:** e.g. he buys $61 of food with Cash from the pool:
+1. `transfer` `acc_rent_held` → `acc_cash` for **$61** (pool −61, cash +61).
+2. `log-expense` "Food" on `acc_cash` for **$61** (cash back down, food logged once).
+Net: pool drops $61, the purchase is an expense exactly once, and the pool line never touches income/spend.
+
 **Why:** income/spend stats are built only from `income`/`expense` transactions. Transfers and reconciliation don't count. Logging pool activity as income/expense is what inflated spend — a real $61 food purchase showed as **$122** (once on Cash, once on the pool). Pool money movement must stay invisible to income/spend stats: `transfer` / `reconcile-balances` only.
 
 **ALWAYS use the API endpoints — never write to the database directly.** Every `log-expense`, `log-income`, `transfer`, `buy-eval`, `record-payout` call records undo data, so `undo` can revert the balance AND the budget stats together. Direct SQL writes bypass this and make stats drift.
