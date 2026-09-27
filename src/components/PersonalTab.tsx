@@ -10,16 +10,18 @@ interface PersonalTrade {
   broker: string | null;
   instrument: string | null;
   direction: string | null;
-  entry_price: string | number | null;
-  exit_price: string | number | null;
+  entryPrice: string | number | null;
+  exitPrice: string | number | null;
   quantity: string | number | null;
   amount: string | number;
   result: string;
   fees: string | number | null;
+  riskReward: string | number | null;
+  marginCall: boolean | null;
   notes: string | null;
-  trade_date: string;
-  external_id: string | null;
-  created_at: string;
+  tradeDate: string;
+  externalId: string | null;
+  createdAt: string;
 }
 
 interface PersonalStats {
@@ -313,6 +315,7 @@ export const PersonalTab: React.FC = () => {
                   border: '1px solid rgba(255,255,255,0.15)',
                   borderRadius: '8px',
                 }}
+                formatter={(value: number, name: string) => [`${value} trades`, name]}
               />
               <Legend wrapperStyle={{ color: 'rgba(255,255,255,0.7)' }} />
             </PieChart>
@@ -412,7 +415,7 @@ export const PersonalTab: React.FC = () => {
                 const signedPnL = pnl < 0 ? pnl : (t.result === 'loss' ? -Math.abs(pnl) : Math.abs(pnl));
                 return (
                   <tr key={t.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                    <td className="py-2 px-3 text-white/70 whitespace-nowrap">{fmtDate(t.trade_date)}</td>
+                    <td className="py-2 px-3 text-white/70 whitespace-nowrap">{fmtDate(t.tradeDate)}</td>
                     <td className="py-2 px-3 font-mono text-white/90">{t.instrument || '—'}</td>
                     <td className="py-2 px-3">
                       <span className={`text-xs px-2 py-0.5 rounded ${
@@ -424,10 +427,10 @@ export const PersonalTab: React.FC = () => {
                       </span>
                     </td>
                     <td className="text-right py-2 px-3 text-white/60 font-mono hidden sm:table-cell">
-                      {t.entry_price ? parseFloat(String(t.entry_price)).toFixed(2) : '—'}
+                      {t.entryPrice ? parseFloat(String(t.entryPrice)).toFixed(2) : '—'}
                     </td>
                     <td className="text-right py-2 px-3 text-white/60 font-mono hidden sm:table-cell">
-                      {t.exit_price ? parseFloat(String(t.exit_price)).toFixed(2) : '—'}
+                      {t.exitPrice ? parseFloat(String(t.exitPrice)).toFixed(2) : '—'}
                     </td>
                     <td className={`text-right py-2 px-3 font-medium ${signedPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                       {fmtUSD(signedPnL)}
