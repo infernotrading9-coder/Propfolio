@@ -273,6 +273,8 @@ export const PersonalTab: React.FC = () => {
                   borderRadius: '8px',
                   color: '#fff',
                 }}
+                itemStyle={{ color: '#fff' }}
+                labelStyle={{ color: '#fff' }}
                 labelFormatter={(v) => fmtDate(v as string)}
                 formatter={(v: number) => fmtUSD(v)}
               />
@@ -314,7 +316,10 @@ export const PersonalTab: React.FC = () => {
                   background: 'rgba(2,4,8,0.95)',
                   border: '1px solid rgba(255,255,255,0.15)',
                   borderRadius: '8px',
+                  color: '#fff',
                 }}
+                itemStyle={{ color: '#fff' }}
+                labelStyle={{ color: '#fff' }}
                 formatter={(value: number, name: string) => [`${value} trades`, name]}
               />
               <Legend wrapperStyle={{ color: 'rgba(255,255,255,0.7)' }} />
@@ -344,7 +349,10 @@ export const PersonalTab: React.FC = () => {
                     background: 'rgba(2,4,8,0.95)',
                     border: '1px solid rgba(255,255,255,0.15)',
                     borderRadius: '8px',
+                    color: '#fff',
                   }}
+                  itemStyle={{ color: '#fff' }}
+                  labelStyle={{ color: '#fff' }}
                   formatter={(v: number) => fmtUSD(v)}
                 />
                 <Bar dataKey="pnl" name="P&L" radius={[4, 4, 0, 0]}>
