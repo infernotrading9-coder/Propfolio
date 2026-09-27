@@ -46,7 +46,7 @@ export const handler: Handler = async (event) => {
           result: input.result,
           fees: input.fees ? String(input.fees) : '0',
           riskReward: input.riskReward ? String(input.riskReward) : null,
-          marginCall: input.marginCall || false,
+          marginCallFees: input.marginCallFees ? String(input.marginCallFees) : '0',
           notes: input.notes || null,
           tradeDate: input.tradeDate ? new Date(input.tradeDate) : new Date(),
           externalId: input.externalId || null,

@@ -17,7 +17,7 @@ interface PersonalTrade {
   result: string;
   fees: string | number | null;
   riskReward: string | number | null;
-  marginCall: boolean | null;
+  marginCallFees: string | number | null;
   notes: string | null;
   tradeDate: string;
   externalId: string | null;
@@ -38,7 +38,7 @@ interface PersonalStats {
   totalFees: number;
   avgRR: number;
   marginCallCount: number;
-  marginCallLoss: number;
+  totalMarginCallFees: number;
   byInstrument: { instrument: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
   dailyPnL: { date: string; pnl: number; cumulative: number }[];
 }
@@ -232,10 +232,10 @@ export const PersonalTab: React.FC = () => {
         />
         <StatCard
           icon={<ShieldAlert className="w-5 h-5" />}
-          label="Margin Call Loss"
-          value={fmtUSD(stats.marginCallLoss)}
-          color={stats.marginCallLoss < 0 ? 'text-red-400' : 'text-emerald-400'}
-          subValue={stats.marginCallCount > 0 ? `${stats.marginCallCount} stop-out${stats.marginCallCount > 1 ? 's' : ''}` : 'None'}
+          label="Margin Call Fees"
+          value={fmtUSD(stats.totalMarginCallFees)}
+          color={stats.totalMarginCallFees > 0 ? 'text-red-400' : 'text-emerald-400'}
+          subValue={stats.marginCallCount > 0 ? `${stats.marginCallCount} liquidation${stats.marginCallCount > 1 ? 's' : ''}` : 'None'}
         />
       </div>
 
