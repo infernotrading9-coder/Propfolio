@@ -345,6 +345,28 @@ export const budgetState = pgTable('budget_state', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+// ─── Personal trades (NinjaTrader / non-prop-firm) ──────────────────────────
+export const personalTrades = pgTable('personal_trades', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  broker: text('broker').default('NinjaTrader'),
+  instrument: text('instrument'),        // e.g. "NQ", "ES", "CL"
+  direction: text('direction'),            // 'long' or 'short'
+  entryPrice: decimal('entry_price', { precision: 12, scale: 4 }),
+  exitPrice: decimal('exit_price', { precision: 12, scale: 4 }),
+  quantity: decimal('quantity', { precision: 12, scale: 4 }),
+  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(), // P&L in dollars (signed)
+  result: text('result').notNull(),        // 'win' or 'loss'
+  fees: decimal('fees', { precision: 10, scale: 2 }).default('0'),
+  notes: text('notes'),
+  tradeDate: timestamp('trade_date').defaultNow().notNull(),
+  externalId: text('external_id'),          // NinjaTrader order ID for dedup
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type PersonalTrade = typeof personalTrades.$inferSelect;
+export type NewPersonalTrade = typeof personalTrades.$inferInsert;
+
 // Export types
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

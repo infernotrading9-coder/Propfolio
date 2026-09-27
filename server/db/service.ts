@@ -1,6 +1,6 @@
-import { eq, and, desc, asc } from 'drizzle-orm';
+import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import { db } from './connection';
-import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, tradingSessionLimits, tradingModeState, tradingModeRules, trades, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState } from './schema';
+import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, tradingSessionLimits, tradingModeState, tradingModeRules, trades, personalTrades, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState } from './schema';
 
 // Type aliases for the original schema
 type User = typeof users.$inferSelect;
@@ -689,6 +689,105 @@ export const dashboardService = {
 
   async updateSelectedFirm(userId: string, firmId: string | null): Promise<void> {
     await userStateService.upsert(userId, { selectedFirmId: firmId });
+  },
+};
+
+// ─── Personal trades service (NinjaTrader / non-prop-firm) ──────────────────
+export const personalTradeService = {
+  async getByUserId(userId: string, limit?: number): Promise<typeof personalTrades.$inferSelect[]> {
+    if (limit) {
+      return db.select().from(personalTrades).where(eq(personalTrades.userId, userId)).orderBy(desc(personalTrades.tradeDate)).limit(limit);
+    }
+    return db.select().from(personalTrades).where(eq(personalTrades.userId, userId)).orderBy(desc(personalTrades.tradeDate));
+  },
+
+  async getByExternalId(userId: string, externalId: string): Promise<typeof personalTrades.$inferSelect | null> {
+    const result = await db.select().from(personalTrades)
+      .where(and(eq(personalTrades.userId, userId), eq(personalTrades.externalId, externalId)))
+      .limit(1);
+    return result[0] ?? null;
+  },
+
+  async create(userId: string, data: Omit<typeof personalTrades.$inferInsert, 'userId'>): Promise<typeof personalTrades.$inferSelect> {
+    const result = await db.insert(personalTrades).values({ ...data, userId }).returning();
+    return result[0];
+  },
+
+  async delete(id: string): Promise<void> {
+    await db.delete(personalTrades).where(eq(personalTrades.id, id));
+  },
+
+  async getStats(userId: string): Promise<{
+    totalTrades: number;
+    wins: number;
+    losses: number;
+    winRate: number;
+    totalPnL: number;
+    avgWin: number;
+    avgLoss: number;
+    bestTrade: number;
+    worstTrade: number;
+    avgFees: number;
+    totalFees: number;
+    byInstrument: { instrument: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
+    dailyPnL: { date: string; pnl: number; cumulative: number }[];
+  }> {
+    const allTrades = await db.select().from(personalTrades).where(eq(personalTrades.userId, userId));
+    const signed = (t: typeof personalTrades.$inferSelect) => {
+      const amount = parseFloat(String(t.amount)) || 0;
+      if (amount < 0) return amount;
+      return t.result === 'loss' ? -Math.abs(amount) : Math.abs(amount);
+    };
+    const wins = allTrades.filter(t => t.result === 'win');
+    const losses = allTrades.filter(t => t.result === 'loss');
+    const winAmounts = wins.map(t => Math.abs(signed(t)));
+    const lossAmounts = losses.map(t => Math.abs(signed(t)));
+    const totalPnL = allTrades.reduce((sum, t) => sum + signed(t), 0);
+    const totalFees = allTrades.reduce((sum, t) => sum + (parseFloat(String(t.fees)) || 0), 0);
+
+    // By instrument
+    const instrMap = new Map<string, { count: number; wins: number; losses: number; pnl: number }>();
+    for (const t of allTrades) {
+      const key = t.instrument || 'Unknown';
+      if (!instrMap.has(key)) instrMap.set(key, { count: 0, wins: 0, losses: 0, pnl: 0 });
+      const s = instrMap.get(key)!;
+      s.count++;
+      if (t.result === 'win') s.wins++; else s.losses++;
+      s.pnl += signed(t);
+    }
+    const byInstrument = Array.from(instrMap.entries()).map(([instrument, s]) => ({
+      instrument, count: s.count, wins: s.wins, losses: s.losses,
+      winRate: s.count > 0 ? (s.wins / s.count) * 100 : 0, pnl: s.pnl,
+    })).sort((a, b) => b.count - a.count);
+
+    // Daily P&L (cumulative equity curve)
+    const dayMap = new Map<string, number>();
+    const sorted = [...allTrades].sort((a, b) => new Date(a.tradeDate).getTime() - new Date(b.tradeDate).getTime());
+    for (const t of sorted) {
+      const day = new Date(t.tradeDate).toISOString().slice(0, 10);
+      dayMap.set(day, (dayMap.get(day) || 0) + signed(t));
+    }
+    let cumulative = 0;
+    const dailyPnL = Array.from(dayMap.entries()).map(([date, pnl]) => {
+      cumulative += pnl;
+      return { date, pnl, cumulative };
+    });
+
+    return {
+      totalTrades: allTrades.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRate: allTrades.length > 0 ? (wins.length / allTrades.length) * 100 : 0,
+      totalPnL,
+      avgWin: winAmounts.length > 0 ? winAmounts.reduce((a, b) => a + b, 0) / winAmounts.length : 0,
+      avgLoss: lossAmounts.length > 0 ? lossAmounts.reduce((a, b) => a + b, 0) / lossAmounts.length : 0,
+      bestTrade: winAmounts.length > 0 ? Math.max(...winAmounts) : 0,
+      worstTrade: lossAmounts.length > 0 ? -Math.max(...lossAmounts) : 0,
+      avgFees: allTrades.length > 0 ? totalFees / allTrades.length : 0,
+      totalFees,
+      byInstrument,
+      dailyPnL,
+    };
   },
 };
 

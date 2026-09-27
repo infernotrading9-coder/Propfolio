@@ -1,0 +1,77 @@
+import type { Handler } from '@netlify/functions';
+import { json, getUserFromSession } from './_utils';
+import { personalTradeService } from '../../server/db/service';
+
+export const handler: Handler = async (event) => {
+  try {
+    const user = await getUserFromSession(event);
+    if (!user) return json(401, { error: 'Unauthorized' });
+
+    if (event.httpMethod === 'GET') {
+      const params = event.queryStringParameters || {};
+
+      // Get stats
+      if (params.action === 'stats') {
+        const stats = await personalTradeService.getStats(user.id);
+        return json(200, { stats });
+      }
+
+      // Get trades (optionally limited)
+      const limit = params.limit ? parseInt(params.limit) : undefined;
+      const trades = await personalTradeService.getByUserId(user.id, limit);
+      return json(200, { trades });
+    }
+
+    if (event.httpMethod === 'POST') {
+      const input = JSON.parse(event.body || '{}');
+
+      // Log a trade
+      if (input.action === 'log-trade') {
+        // Dedup by externalId if provided
+        if (input.externalId) {
+          const existing = await personalTradeService.getByExternalId(user.id, input.externalId);
+          if (existing) {
+            return json(200, { trade: existing, deduplicated: true });
+          }
+        }
+
+        const trade = await personalTradeService.create(user.id, {
+          broker: input.broker || 'NinjaTrader',
+          instrument: input.instrument || null,
+          direction: input.direction || null,
+          entryPrice: input.entryPrice ? String(input.entryPrice) : null,
+          exitPrice: input.exitPrice ? String(input.exitPrice) : null,
+          quantity: input.quantity ? String(input.quantity) : null,
+          amount: String(input.amount),
+          result: input.result,
+          fees: input.fees ? String(input.fees) : '0',
+          notes: input.notes || null,
+          tradeDate: input.tradeDate ? new Date(input.tradeDate) : new Date(),
+          externalId: input.externalId || null,
+        } as any);
+        return json(200, { trade });
+      }
+
+      // Delete a trade
+      if (input.action === 'delete-trade') {
+        if (!input.id) return json(400, { error: 'id required' });
+        await personalTradeService.delete(input.id);
+        return json(200, { deleted: true });
+      }
+
+      return json(400, { error: 'Unknown action' });
+    }
+
+    if (event.httpMethod === 'DELETE') {
+      const { id } = JSON.parse(event.body || '{}');
+      if (!id) return json(400, { error: 'id required' });
+      await personalTradeService.delete(id);
+      return json(200, { deleted: true });
+    }
+
+    return json(405, { error: 'Method Not Allowed' });
+  } catch (e) {
+    console.error('db-personal-trades error', e);
+    return json(500, { error: 'Internal Server Error' });
+  }
+};
