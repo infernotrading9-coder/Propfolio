@@ -61,6 +61,16 @@ export const handler: Handler = async (event) => {
         return json(200, { deleted: true });
       }
 
+      // Update the live account balance (trade monitor bot pushes from Tradovate)
+      if (input.action === 'update-balance') {
+        const balance = input.balance;
+        if (balance === undefined || balance === null || balance === '') {
+          return json(400, { error: 'balance required' });
+        }
+        const rows = await personalTradeService.upsertBalance(user.id, String(balance));
+        return json(200, { balance: rows[0] ?? null });
+      }
+
       return json(400, { error: 'Unknown action' });
     }
 

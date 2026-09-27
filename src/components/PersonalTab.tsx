@@ -3,7 +3,7 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, Target, Award, Activity, Zap, ShieldAlert, Scale } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Target, Award, Activity, Zap, ShieldAlert, Scale, Wallet } from 'lucide-react';
 
 interface PersonalTrade {
   id: string;
@@ -25,6 +25,7 @@ interface PersonalTrade {
 }
 
 interface PersonalStats {
+  balance: number | null;
   totalTrades: number;
   wins: number;
   losses: number;
@@ -132,15 +133,12 @@ export const PersonalTab: React.FC = () => {
     );
   }
 
-  if (!stats || stats.totalTrades === 0) {
+  if (!stats) {
     return (
       <div className="text-center py-16">
         <Activity className="w-16 h-16 mx-auto mb-4 text-white/20" />
-        <h2 className="text-2xl font-bold text-white/80 mb-2">No Personal Trades Yet</h2>
-        <p className="text-white/50 max-w-md mx-auto">
-          Your NinjaTrader trades will appear here automatically once the bot starts logging them.
-          Connect the bot to the NinjaTrader MCP to begin.
-        </p>
+        <h2 className="text-2xl font-bold text-white/80 mb-2">No Personal Data</h2>
+        <p className="text-white/50 max-w-md mx-auto">Nothing to show yet.</p>
       </div>
     );
   }
@@ -148,6 +146,8 @@ export const PersonalTab: React.FC = () => {
   const grossPnL = stats.totalPnL;
   const netPnL = stats.totalPnL - stats.totalFees;
   const displayPnL = showNetPnL ? netPnL : grossPnL;
+  const hasTrades = stats.totalTrades > 0;
+  const balance = stats.balance ?? 0;
 
   return (
     <div className="space-y-6">
@@ -173,6 +173,13 @@ export const PersonalTab: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+        <StatCard
+          icon={<Wallet className="w-5 h-5" />}
+          label="Balance"
+          value={stats.balance != null ? fmtUSD(balance) : '—'}
+          color={balance >= 0 ? 'text-cyan-400' : 'text-red-400'}
+          subValue="NinjaTrader account"
+        />
         <StatCard
           icon={<DollarSign className="w-5 h-5" />}
           label={showNetPnL ? 'Net P&L' : 'Gross P&L'}
@@ -239,6 +246,16 @@ export const PersonalTab: React.FC = () => {
         />
       </div>
 
+      {!hasTrades && (
+        <div className="text-center py-12">
+          <Activity className="w-14 h-14 mx-auto mb-3 text-white/20" />
+          <h3 className="text-xl font-bold text-white/70 mb-1">No Personal Trades Yet</h3>
+          <p className="text-white/45 max-w-md mx-auto text-sm">
+            Your NinjaTrader trades will appear here automatically once the bot starts logging them.
+          </p>
+        </div>
+      )}
+
       {/* Equity Curve */}
       {stats.dailyPnL.length > 0 && (
         <div className="bg-white/5 rounded-xl border border-white/10 p-4 sm:p-6">
@@ -292,6 +309,7 @@ export const PersonalTab: React.FC = () => {
       )}
 
       {/* Win/Loss Pie + Instrument Breakdown */}
+      {hasTrades && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Win/Loss Pie */}
         <div className="bg-white/5 rounded-xl border border-white/10 p-4 sm:p-6">
@@ -365,6 +383,7 @@ export const PersonalTab: React.FC = () => {
           </div>
         )}
       </div>
+      )}
 
       {/* Instrument Stats Table */}
       {stats.byInstrument.length > 0 && (
@@ -402,6 +421,7 @@ export const PersonalTab: React.FC = () => {
       )}
 
       {/* Trades Table */}
+      {hasTrades && (
       <div className="bg-white/5 rounded-xl border border-white/10 p-4 sm:p-6">
         <h3 className="text-lg font-semibold text-white/90 mb-4">Trade History</h3>
         <div className="overflow-x-auto">
@@ -453,6 +473,7 @@ export const PersonalTab: React.FC = () => {
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 };

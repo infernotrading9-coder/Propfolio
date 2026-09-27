@@ -366,8 +366,19 @@ export const personalTrades = pgTable('personal_trades', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ─── Personal account balance (NinjaTrader live balance) ───────────────────
+// One row per user, updated by the trade monitor bot from Tradovate account data.
+export const personalAccountBalance = pgTable('personal_account_balance', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull().unique(),
+  balance: decimal('balance', { precision: 12, scale: 2 }).notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 export type PersonalTrade = typeof personalTrades.$inferSelect;
 export type NewPersonalTrade = typeof personalTrades.$inferInsert;
+export type PersonalAccountBalance = typeof personalAccountBalance.$inferSelect;
+export type NewPersonalAccountBalance = typeof personalAccountBalance.$inferInsert;
 
 // Export types
 export type User = typeof users.$inferSelect;

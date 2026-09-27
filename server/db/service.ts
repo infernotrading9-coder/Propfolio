@@ -1,6 +1,6 @@
 import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import { db } from './connection';
-import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, tradingSessionLimits, tradingModeState, tradingModeRules, trades, personalTrades, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState } from './schema';
+import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, tradingSessionLimits, tradingModeState, tradingModeRules, trades, personalTrades, personalAccountBalance, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState } from './schema';
 
 // Type aliases for the original schema
 type User = typeof users.$inferSelect;
@@ -717,7 +717,23 @@ export const personalTradeService = {
     await db.delete(personalTrades).where(eq(personalTrades.id, id));
   },
 
+  async getBalance(userId: string): Promise<number | null> {
+    const rows = await db.select().from(personalAccountBalance).where(eq(personalAccountBalance.userId, userId)).limit(1);
+    return rows[0] ? parseFloat(String(rows[0].balance)) : null;
+  },
+
+  async upsertBalance(userId: string, balance: string) {
+    return db.insert(personalAccountBalance)
+      .values({ userId, balance, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: personalAccountBalance.userId,
+        set: { balance, updatedAt: new Date() },
+      })
+      .returning();
+  },
+
   async getStats(userId: string): Promise<{
+    balance: number | null;
     totalTrades: number;
     wins: number;
     losses: number;
@@ -736,6 +752,8 @@ export const personalTradeService = {
     dailyPnL: { date: string; pnl: number; cumulative: number }[];
   }> {
     const allTrades = await db.select().from(personalTrades).where(eq(personalTrades.userId, userId));
+    const balanceRows = await db.select().from(personalAccountBalance).where(eq(personalAccountBalance.userId, userId)).limit(1);
+    const balance = balanceRows[0] ? parseFloat(String(balanceRows[0].balance)) : null;
     const signed = (t: typeof personalTrades.$inferSelect) => {
       const amount = parseFloat(String(t.amount)) || 0;
       if (amount < 0) return amount;
@@ -787,6 +805,7 @@ export const personalTradeService = {
     });
 
     return {
+      balance,
       totalTrades: allTrades.length,
       wins: wins.length,
       losses: losses.length,
