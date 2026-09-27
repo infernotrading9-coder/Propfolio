@@ -731,6 +731,7 @@ export const personalTradeService = {
     totalFees: number;
     avgRR: number;
     marginCallCount: number;
+    marginCallLoss: number;
     byInstrument: { instrument: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
     dailyPnL: { date: string; pnl: number; cumulative: number }[];
   }> {
@@ -747,6 +748,9 @@ export const personalTradeService = {
     const totalPnL = allTrades.reduce((sum, t) => sum + signed(t), 0);
     const totalFees = allTrades.reduce((sum, t) => sum + (parseFloat(String(t.fees)) || 0), 0);
     const marginCallCount = allTrades.filter(t => t.marginCall === true).length;
+    const marginCallLoss = allTrades
+      .filter(t => t.marginCall === true)
+      .reduce((sum, t) => sum + Math.min(0, signed(t)), 0);
     const rrValues = allTrades.filter(t => t.riskReward != null).map(t => parseFloat(String(t.riskReward)));
     const avgRR = rrValues.length > 0 ? rrValues.reduce((a, b) => a + b, 0) / rrValues.length : 0;
 
@@ -792,6 +796,7 @@ export const personalTradeService = {
       totalFees,
       avgRR,
       marginCallCount,
+      marginCallLoss,
       byInstrument,
       dailyPnL,
     };
