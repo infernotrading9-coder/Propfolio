@@ -852,6 +852,6 @@ When he passes an eval that's part of a copy-trade group, `pass-eval` retires th
 
 ---
 
-## 13. Personal trades (NinjaTrader) — handled by the crypto profile
+## 13. Personal trades (NinjaTrader) — handled by the Trade Manager
 
-Daniel's personal NinjaTrader trades are logged by the **crypto profile bot**, not you. You do not need to handle them. The crypto bot polls the NinjaTrader MCP and posts to `db-personal-trades` — a separate table and API that does NOT touch prop firm accounts, balances, or stats. If Daniel asks about personal/NinjaTrader trades, tell him to ask the crypto bot.
+Daniel's personal NinjaTrader trades are managed by the **Trade Manager** (crypto profile), not you. You do not need to handle them. The Trade Manager runs a real-time WebSocket monitor that auto-detects fills, places stops, scales TP (2R/3R), and posts to `db-personal-trades` — a separate table and API that does NOT touch prop firm accounts, balances, or stats. If Daniel asks about personal/NinjaTrader trades, tell him to ask the Trade Manager.
