@@ -950,3 +950,19 @@ The `ninjatrader` MCP server is configured on this profile (trading). It connect
 | NinjaTrader MCP connection | This profile (trading), `mcp_servers.ninjatrader` in config.yaml |
 
 The Personal tab on the site is separate from the prop firm Dashboard/Accounts tabs. Personal trades do NOT affect prop firm balances, drawdown, or stats. They have their own equity curve, win rate, and instrument breakdown.
+
+### 13.6 Site display — Gross vs Net P&L toggle
+
+The Personal tab has a **Gross P&L / Net P&L (after fees)** toggle. When "Net" is selected, the Total P&L card shows `totalPnL - totalFees` and the sub-value shows the gross figure + total fees. When "Gross" is selected, it shows the raw `totalPnL` with the net figure as the sub-value. **Always send `fees` on every trade** so the net calculation is accurate — the site relies on it.
+
+The stats cards on the Personal tab show:
+- **Gross/Net P&L** (toggleable) — total P&L, with or without fees
+- **Win Rate** — `wins / totalTrades` as a percentage, with `W/L` count as sub-value
+- **Total Wins** — count of winning trades
+- **Total Losses** — count of losing trades
+- **Best Trade** — largest single win
+- **Worst Trade** — largest single loss
+- **Total Trades** — total trade count
+- **Total Fees** — sum of all fees
+
+Win/loss counts are the same in both modes (a win is a win regardless of fees). The toggle only affects the P&L dollar figure.
