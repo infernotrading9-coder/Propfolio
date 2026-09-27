@@ -800,6 +800,8 @@ If Daniel asks about pre-September-2026 history, it's all on the dashboard now �
 | "scratch that / wrong account" | `undo` (confirm the summary first) |
 | "am I ok on consistency?" | `GET db-state-full` → `trueProfitTarget`, `consistencyOk` |
 | "what accounts do I have?" | `GET db-budget-state?action=accounts` |
+| "log my NinjaTrader trade" | `POST db-personal-trades` with `action: "log-trade"` (see §13) |
+| "show my personal stats" | `GET db-personal-trades?action=stats` |
 
 ---
 
@@ -847,3 +849,104 @@ Linking sets `copy_trade_group` on each account to the same label. Unlinking cle
 ### When Daniel passes an eval that's copy-traded
 
 When he passes an eval that's part of a copy-trade group, `pass-eval` retires that ONE eval and creates ONE funded account. The other copy-traded evals remain active. If he passes all of them, each gets its own `pass-eval` call — and he'll tell you the funded account numbers for each. Ask: "Same funded number for all, or different ones?"
+
+---
+
+## 13. Personal trades (NinjaTrader) — `POST db-personal-trades`
+
+Daniel has a personal NinjaTrader account connected via MCP (the `ninjatrader` MCP server). This is NOT a prop firm — there's no eval, no funded stage, no drawdown rules from a firm. It's his own broker account. Trades go to a separate **Personal** tab on the site with its own stats, equity curve, and trade journal.
+
+### 13.1 Logging a personal trade
+
+```
+POST db-personal-trades
+Content-Type: application/json
+X-User-Id: 293080f9-a395-4482-9ec2-ad31bf105848
+X-User-Email: infernotrading9@gmail.com
+```
+
+```json
+{
+  "action": "log-trade",
+  "broker": "NinjaTrader",
+  "instrument": "NQ",
+  "direction": "long",
+  "entryPrice": 18250.25,
+  "exitPrice": 18275.50,
+  "quantity": 1,
+  "amount": 250.00,
+  "result": "win",
+  "fees": 4.50,
+  "notes": "breakout long",
+  "tradeDate": "2026-09-27",
+  "externalId": "NT-ORD-12345"
+}
+```
+
+- `amount` is the **signed P&L** — positive for a win, negative for a loss.
+- `result` is `"win"` or `"loss"`.
+- `externalId` is the NinjaTrader order ID — **send it if you have it**. If a trade with the same `externalId` already exists, the API returns it without duplicating. This is your dedup safety net.
+- `fees` is optional (defaults to 0).
+- `tradeDate` is optional (defaults to now). Use America/New_York local date — never `toISOString().slice(0,10)`.
+
+### 13.2 Reading personal trades
+
+**Get all trades:**
+```
+GET db-personal-trades
+```
+
+**Get stats (equity curve, win rate, by-instrument breakdown):**
+```
+GET db-personal-trades?action=stats
+```
+
+Returns:
+```json
+{
+  "stats": {
+    "totalTrades": 42,
+    "wins": 25,
+    "losses": 17,
+    "winRate": 59.5,
+    "totalPnL": 3200.50,
+    "avgWin": 412.00,
+    "avgLoss": -285.50,
+    "bestTrade": 1500.00,
+    "worstTrade": -800.00,
+    "totalFees": 189.00,
+    "byInstrument": [
+      { "instrument": "NQ", "count": 30, "wins": 18, "losses": 12, "winRate": 60.0, "pnl": 2400.00 }
+    ],
+    "dailyPnL": [
+      { "date": "2026-09-27", "pnl": 250.00, "cumulative": 250.00 }
+    ]
+  }
+}
+```
+
+### 13.3 Deleting a personal trade
+
+```json
+{ "action": "delete-trade", "id": "<trade-uuid>" }
+```
+
+### 13.4 NinjaTrader MCP
+
+The `ninjatrader` MCP server is configured on this profile (trading). It connects to `https://mcp-live.tradovateapi.com/mcp` with OAuth. You can use it to:
+
+- **Read account state** — positions, balance, open orders
+- **Read trade history** — filled orders, execution prices, P&L
+- **Log completed trades to Propfolio** — when a trade fills on NinjaTrader, call `db-personal-trades` with `action: "log-trade"` and the order ID as `externalId`
+
+**The workflow:** poll the MCP for recently filled orders → for each fill not already logged (check `externalId`), POST it to `db-personal-trades`. The `externalId` dedup means you can poll the same fills repeatedly without double-logging.
+
+### 13.5 What lives where
+
+| Thing | Where |
+|---|---|
+| Prop firm trades (evals, funded, live) | `POST db-trades` with `accountRef` → prop firm accounts |
+| Personal NinjaTrader trades | `POST db-personal-trades` → Personal tab on the site |
+| NinjaTrader MCP connection | This profile (trading), `mcp_servers.ninjatrader` in config.yaml |
+
+The Personal tab on the site is separate from the prop firm Dashboard/Accounts tabs. Personal trades do NOT affect prop firm balances, drawdown, or stats. They have their own equity curve, win rate, and instrument breakdown.
