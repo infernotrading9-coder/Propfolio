@@ -55,6 +55,7 @@ export const PersonalTab: React.FC = () => {
   const [stats, setStats] = useState<PersonalStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showNetPnL, setShowNetPnL] = useState(false);
 
   const getAuthHeaders = useCallback(() => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -139,15 +140,40 @@ export const PersonalTab: React.FC = () => {
     );
   }
 
+  const grossPnL = stats.totalPnL;
+  const netPnL = stats.totalPnL - stats.totalFees;
+  const displayPnL = showNetPnL ? netPnL : grossPnL;
+
   return (
     <div className="space-y-6">
+      {/* P&L Toggle */}
+      <div className="flex items-center justify-center gap-3 mb-2">
+        <button
+          onClick={() => setShowNetPnL(false)}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            !showNetPnL ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
+          }`}
+        >
+          Gross P&L
+        </button>
+        <button
+          onClick={() => setShowNetPnL(true)}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            showNetPnL ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
+          }`}
+        >
+          Net P&L (after fees)
+        </button>
+      </div>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
         <StatCard
           icon={<DollarSign className="w-5 h-5" />}
-          label="Total P&L"
-          value={fmtUSD(stats.totalPnL)}
-          color={stats.totalPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}
+          label={showNetPnL ? 'Net P&L' : 'Gross P&L'}
+          value={fmtUSD(displayPnL)}
+          color={displayPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}
+          subValue={showNetPnL ? `Gross: ${fmtUSD(grossPnL)} · Fees: ${fmtUSD(stats.totalFees)}` : `After fees: ${fmtUSD(netPnL)}`}
         />
         <StatCard
           icon={<Target className="w-5 h-5" />}
@@ -155,6 +181,18 @@ export const PersonalTab: React.FC = () => {
           value={`${stats.winRate.toFixed(1)}%`}
           color={stats.winRate >= 50 ? 'text-emerald-400' : 'text-amber-400'}
           subValue={`${stats.wins}W / ${stats.losses}L`}
+        />
+        <StatCard
+          icon={<Award className="w-5 h-5" />}
+          label="Total Wins"
+          value={String(stats.wins)}
+          color="text-emerald-400"
+        />
+        <StatCard
+          icon={<Zap className="w-5 h-5" />}
+          label="Total Losses"
+          value={String(stats.losses)}
+          color="text-red-400"
         />
         <StatCard
           icon={<TrendingUp className="w-5 h-5" />}
@@ -166,18 +204,6 @@ export const PersonalTab: React.FC = () => {
           icon={<TrendingDown className="w-5 h-5" />}
           label="Worst Trade"
           value={fmtUSD(stats.worstTrade)}
-          color="text-red-400"
-        />
-        <StatCard
-          icon={<Award className="w-5 h-5" />}
-          label="Avg Win"
-          value={fmtUSD(stats.avgWin)}
-          color="text-emerald-400"
-        />
-        <StatCard
-          icon={<Zap className="w-5 h-5" />}
-          label="Avg Loss"
-          value={fmtUSD(stats.avgLoss)}
           color="text-red-400"
         />
         <StatCard
