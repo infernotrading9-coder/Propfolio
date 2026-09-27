@@ -358,6 +358,8 @@ export const personalTrades = pgTable('personal_trades', {
   amount: decimal('amount', { precision: 12, scale: 2 }).notNull(), // P&L in dollars (signed)
   result: text('result').notNull(),        // 'win' or 'loss'
   fees: decimal('fees', { precision: 10, scale: 2 }).default('0'),
+  riskReward: decimal('risk_reward', { precision: 6, scale: 2 }), // e.g. 2.5 = 2.5R
+  marginCall: boolean('margin_call').default(false),
   notes: text('notes'),
   tradeDate: timestamp('trade_date').defaultNow().notNull(),
   externalId: text('external_id'),          // NinjaTrader order ID for dedup

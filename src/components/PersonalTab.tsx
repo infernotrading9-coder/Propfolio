@@ -3,7 +3,7 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, Target, Award, Activity, Zap } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Target, Award, Activity, Zap, ShieldAlert, Scale } from 'lucide-react';
 
 interface PersonalTrade {
   id: string;
@@ -34,6 +34,8 @@ interface PersonalStats {
   worstTrade: number;
   avgFees: number;
   totalFees: number;
+  avgRR: number;
+  marginCallCount: number;
   byInstrument: { instrument: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
   dailyPnL: { date: string; pnl: number; cumulative: number }[];
 }
@@ -217,6 +219,20 @@ export const PersonalTab: React.FC = () => {
           label="Total Fees"
           value={fmtUSD(stats.totalFees)}
           color="text-amber-400"
+        />
+        <StatCard
+          icon={<Scale className="w-5 h-5" />}
+          label="Avg R:R"
+          value={stats.avgRR > 0 ? `${stats.avgRR.toFixed(2)}R` : '—'}
+          color={stats.avgRR >= 1 ? 'text-emerald-400' : 'text-amber-400'}
+          subValue={stats.avgRR > 0 ? `${stats.avgRR >= 1 ? 'Profitable' : 'Unprofitable'}` : undefined}
+        />
+        <StatCard
+          icon={<ShieldAlert className="w-5 h-5" />}
+          label="Margin Calls"
+          value={String(stats.marginCallCount)}
+          color={stats.marginCallCount > 0 ? 'text-red-400' : 'text-emerald-400'}
+          subValue={stats.marginCallCount > 0 ? `${stats.marginCallCount} stop-out${stats.marginCallCount > 1 ? 's' : ''}` : 'None'}
         />
       </div>
 
