@@ -1012,6 +1012,25 @@ const Dashboard: React.FC = () => {
           <p className="text-white/70 mt-2">{view==='accounts' ? 'Manage your trading accounts and daily order' : view==='budget' ? 'Track income, expenses, accounts, debts, and savings goals' : view==='personal' ? 'Your personal NinjaTrader trade journal' : 'Track Challenges, Trading Rules, and ROI'}</p>
         </header>
 
+        {view !== 'budget' && (
+          <TradingModeWidget
+            apiBase="/.netlify/functions"
+            getAuthHeaders={() => {
+              const headers: Record<string, string> = {};
+              try {
+                const raw = localStorage.getItem('user');
+                if (raw) {
+                  const u = JSON.parse(raw);
+                  if (u?.id) headers['X-User-Id'] = String(u.id);
+                  if (u?.email) headers['X-User-Email'] = String(u.email);
+                  if (u?.name) headers['X-User-Name'] = String(u.name);
+                }
+              } catch {}
+              return headers;
+            }}
+          />
+        )}
+
         <div className="space-y-6">
           {view === 'budget' && (
             <BudgetTab state={budgetState} onChange={handleBudgetChange} />
@@ -1021,22 +1040,6 @@ const Dashboard: React.FC = () => {
           )}
           {view === 'accounts' && (
             <>
-            <TradingModeWidget
-              apiBase="/.netlify/functions"
-              getAuthHeaders={() => {
-                const headers: Record<string, string> = {};
-                try {
-                  const raw = localStorage.getItem('user');
-                  if (raw) {
-                    const u = JSON.parse(raw);
-                    if (u?.id) headers['X-User-Id'] = String(u.id);
-                    if (u?.email) headers['X-User-Email'] = String(u.email);
-                    if (u?.name) headers['X-User-Name'] = String(u.name);
-                  }
-                } catch {}
-                return headers;
-              }}
-            />
             <AccountsView
               apiBase="/.netlify/functions"
               getAuthHeaders={() => {
