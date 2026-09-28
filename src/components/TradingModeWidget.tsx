@@ -150,11 +150,10 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
   }, [state.score]);
 
   // Fallback for Tailwind not generating dynamic classes — use inline styles
-  const borderColor = colorHex + '80'; // 50% opacity
-  const bgColor = colorHex + '0D'; // 5% opacity
+  const bgColor = colorHex + '14'; // ~8% tint — more pronounced than before
 
   return (
-    <div className="sticky top-0 z-40 w-full" style={{ backgroundColor: bgColor, borderBottom: `1px solid ${borderColor}`, backdropFilter: 'blur(12px)' }}>
+    <div className="sticky top-0 z-40 w-full relative" style={{ backgroundColor: bgColor, boxShadow: `0 0 30px ${colorHex}40, 0 0 60px ${colorHex}22`, backdropFilter: 'blur(16px)' }}>
       <style>{`
         @keyframes gaugePulse { 0%,100%{opacity:0.3;filter:blur(8px)} 50%{opacity:0.6;filter:blur(14px)} }
         @keyframes slideUpFade { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
@@ -167,75 +166,82 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
         }
       `}</style>
 
-      <div className="max-w-6xl mx-auto px-3 sm:px-4 py-1.5 flex items-center gap-3">
-        {/* Compact gauge + mode */}
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="relative" style={{ width: 96, height: 50, overflow: 'hidden' }}>
-            <svg viewBox="0 0 200 105" className="relative w-full h-full" preserveAspectRatio="xMidYMid meet" style={{ overflow: 'hidden' }}>
-              <defs>
-                <radialGradient id="needleGlow">
-                  <stop offset="0%" stopColor={colorHex} stopOpacity="0.8" />
-                  <stop offset="40%" stopColor={colorHex} stopOpacity="0.4" />
-                  <stop offset="100%" stopColor={colorHex} stopOpacity="0" />
-                </radialGradient>
-              </defs>
+      {/* Holographic top + bottom border lines */}
+      <div className="absolute inset-x-0 top-0 h-[2px] pointer-events-none" style={{ background: `linear-gradient(90deg, transparent 0%, ${colorHex}80 20%, ${colorHex}cc 50%, ${colorHex}80 80%, transparent 100%)` }} />
+      <div className="absolute inset-x-0 bottom-0 h-[2px] pointer-events-none" style={{ background: `linear-gradient(90deg, transparent 0%, ${colorHex}80 20%, ${colorHex}cc 50%, ${colorHex}80 80%, transparent 100%)` }} />
 
-              {TICK_ANGLES.map((deg) => {
-                const rad = (deg + 180) * Math.PI / 180;
-                const isMajor = deg % 30 === 0;
-                const inner = isMajor ? 70 : 74;
-                const outer = isMajor ? 88 : 82;
-                const x1 = 100 + Math.cos(rad) * inner;
-                const y1 = 95 + Math.sin(rad) * inner;
-                const x2 = 100 + Math.cos(rad) * outer;
-                const y2 = 95 + Math.sin(rad) * outer;
-                const tc = tickColor(deg);
-                const distFromNeedle = Math.abs(deg - needleAngle);
-                const isNearNeedle = distFromNeedle < 30;
-                return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} stroke={tc} strokeWidth={isMajor ? 4 : 2} strokeLinecap="round" style={{ filter: `drop-shadow(0 0 ${isNearNeedle ? 10 : isMajor ? 8 : 4}px ${tc})`, animation: `tickGlow ${isNearNeedle ? 0.8 : 1.5 + (deg / 180) * 2}s ease-in-out infinite ${deg * 0.01}s`, opacity: isNearNeedle ? 1 : 0.5 }} />;
-              })}
+      {/* Holographic shimmer */}
+      <div className="absolute inset-0 opacity-30 pointer-events-none" style={{ background: `conic-gradient(from 0deg at 50% 50%, transparent 0deg, ${colorHex}40 60deg, ${colorHex}22 120deg, ${colorHex}40 180deg, ${colorHex}22 240deg, ${colorHex}40 300deg, transparent 360deg)`, filter: 'blur(4px)' }} />
 
-              {rippleKey > 0 && (
-                <g key={rippleKey} style={{ transformOrigin: '100px 95px' }}>
-                  <circle cx={needleTipX} cy={needleTipY} r="4" fill="none" stroke={colorHex} strokeWidth="2" style={{ animation: 'rippleExpand 1.5s ease-out forwards' }} />
-                  <circle cx={needleTipX} cy={needleTipY} r="4" fill="none" stroke={colorHex} strokeWidth="1" opacity="0.5" style={{ animation: 'rippleExpand 1.5s ease-out 0.2s forwards' }} />
+      <div className="relative max-w-6xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {/* Gauge + mode + expand toggle */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="relative" style={{ width: 104, height: 55, overflow: 'hidden' }}>
+              <svg viewBox="0 0 200 105" className="relative w-full h-full" preserveAspectRatio="xMidYMid meet" style={{ overflow: 'hidden' }}>
+                <defs>
+                  <radialGradient id="needleGlow">
+                    <stop offset="0%" stopColor={colorHex} stopOpacity="0.8" />
+                    <stop offset="40%" stopColor={colorHex} stopOpacity="0.4" />
+                    <stop offset="100%" stopColor={colorHex} stopOpacity="0" />
+                  </radialGradient>
+                </defs>
+
+                {TICK_ANGLES.map((deg) => {
+                  const rad = (deg + 180) * Math.PI / 180;
+                  const isMajor = deg % 30 === 0;
+                  const inner = isMajor ? 70 : 74;
+                  const outer = isMajor ? 88 : 82;
+                  const x1 = 100 + Math.cos(rad) * inner;
+                  const y1 = 95 + Math.sin(rad) * inner;
+                  const x2 = 100 + Math.cos(rad) * outer;
+                  const y2 = 95 + Math.sin(rad) * outer;
+                  const tc = tickColor(deg);
+                  const distFromNeedle = Math.abs(deg - needleAngle);
+                  const isNearNeedle = distFromNeedle < 30;
+                  return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} stroke={tc} strokeWidth={isMajor ? 4 : 2} strokeLinecap="round" style={{ filter: `drop-shadow(0 0 ${isNearNeedle ? 10 : isMajor ? 8 : 4}px ${tc})`, animation: `tickGlow ${isNearNeedle ? 0.8 : 1.5 + (deg / 180) * 2}s ease-in-out infinite ${deg * 0.01}s`, opacity: isNearNeedle ? 1 : 0.5 }} />;
+                })}
+
+                {rippleKey > 0 && (
+                  <g key={rippleKey} style={{ transformOrigin: '100px 95px' }}>
+                    <circle cx={needleTipX} cy={needleTipY} r="4" fill="none" stroke={colorHex} strokeWidth="2" style={{ animation: 'rippleExpand 1.5s ease-out forwards' }} />
+                    <circle cx={needleTipX} cy={needleTipY} r="4" fill="none" stroke={colorHex} strokeWidth="1" opacity="0.5" style={{ animation: 'rippleExpand 1.5s ease-out 0.2s forwards' }} />
+                  </g>
+                )}
+
+                <g style={{ transform: `rotate(${needleAngle - 90}deg)`, transformOrigin: '100px 95px', transition: 'transform 1.2s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
+                  <line x1="100" y1="95" x2="100" y2="18" stroke={colorHex} strokeWidth="3" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 6px ${colorHex})` }} />
+                  <circle cx="100" cy="95" r="6" fill={colorHex} style={{ filter: `drop-shadow(0 0 8px ${colorHex})` }} />
+                  <circle cx="100" cy="95" r="3" fill="white" opacity="0.6" />
                 </g>
-              )}
 
-              <g style={{ transform: `rotate(${needleAngle - 90}deg)`, transformOrigin: '100px 95px', transition: 'transform 1.2s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
-                <line x1="100" y1="95" x2="100" y2="18" stroke={colorHex} strokeWidth="3" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 6px ${colorHex})` }} />
-                <circle cx="100" cy="95" r="6" fill={colorHex} style={{ filter: `drop-shadow(0 0 8px ${colorHex})` }} />
-                <circle cx="100" cy="95" r="3" fill="white" opacity="0.6" />
-              </g>
-
-              <circle cx={needleTipX} cy={needleTipY} r="14" fill="url(#needleGlow)" style={{ animation: `tipPulse ${state.mode === 'survival' ? '1s' : state.mode === 'defensive' ? '1.3s' : state.mode === 'cautious' ? '1.8s' : state.mode === 'balanced' ? '2.5s' : state.mode === 'confident' ? '3s' : '3.5s'} ease-in-out infinite` }} />
-              <circle cx={needleTipX} cy={needleTipY} r="5" fill={colorHex} opacity="0.8" style={{ filter: `drop-shadow(0 0 12px ${colorHex})`, animation: `tipPulse ${state.mode === 'survival' ? '1s' : state.mode === 'defensive' ? '1.3s' : state.mode === 'cautious' ? '1.8s' : state.mode === 'balanced' ? '2.5s' : state.mode === 'confident' ? '3s' : '3.5s'} ease-in-out infinite` }} />
-            </svg>
+                <circle cx={needleTipX} cy={needleTipY} r="14" fill="url(#needleGlow)" style={{ animation: `tipPulse ${state.mode === 'survival' ? '1s' : state.mode === 'defensive' ? '1.3s' : state.mode === 'cautious' ? '1.8s' : state.mode === 'balanced' ? '2.5s' : state.mode === 'confident' ? '3s' : '3.5s'} ease-in-out infinite` }} />
+                <circle cx={needleTipX} cy={needleTipY} r="5" fill={colorHex} opacity="0.8" style={{ filter: `drop-shadow(0 0 12px ${colorHex})`, animation: `tipPulse ${state.mode === 'survival' ? '1s' : state.mode === 'defensive' ? '1.3s' : state.mode === 'cautious' ? '1.8s' : state.mode === 'balanced' ? '2.5s' : state.mode === 'confident' ? '3s' : '3.5s'} ease-in-out infinite` }} />
+              </svg>
+            </div>
+            <div className="flex flex-col leading-tight">
+              <span className="text-base font-bold tracking-wide whitespace-nowrap" style={{ color: colorHex, textShadow: `0 0 14px ${colorHex}` }}>{meta.label}</span>
+              <span className="text-[11px] text-white/50">{state.score}/100</span>
+            </div>
+            <button onClick={() => setExpanded(!expanded)} className="shrink-0 text-white/40 hover:text-white/80 transition-colors">
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
           </div>
-          <div className="flex flex-col leading-tight">
-            <span className="text-sm font-bold tracking-wide whitespace-nowrap" style={{ color: colorHex }}>{meta.label}</span>
-            <span className="text-[10px] text-white/40">{state.score}/100</span>
+
+          {/* Stats — wrap on mobile so numbers never get cut off */}
+          <div className="flex items-center gap-x-4 sm:gap-x-5 gap-y-1.5 flex-wrap ml-auto justify-end text-center">
+            <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Eval</div><div className="text-sm sm:text-base font-bold whitespace-nowrap" style={{ color: colorHex }}>{state.evalCount}</div></div>
+            <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Fund</div><div className="text-sm sm:text-base font-bold whitespace-nowrap text-cyan-400">{state.fundedCount}</div></div>
+            <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Live</div><div className="text-sm sm:text-base font-bold whitespace-nowrap text-lime-400">{state.liveCount}</div></div>
+            <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Cash</div><div className={`text-sm sm:text-base font-bold whitespace-nowrap ${state.cashOnHand >= 0 ? 'text-lime-400' : 'text-red-400'}`}>${state.cashOnHand.toFixed(0)}</div></div>
+            <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Debt</div><div className="text-sm sm:text-base font-bold whitespace-nowrap text-red-400">${state.totalDebt.toFixed(0)}</div></div>
           </div>
         </div>
-
-        {/* Stats */}
-        <div className="flex items-center gap-3 sm:gap-5 ml-auto text-center">
-          <div><div className="text-[9px] text-white/40 uppercase tracking-wider">Eval</div><div className="text-sm font-bold" style={{ color: colorHex }}>{state.evalCount}</div></div>
-          <div><div className="text-[9px] text-white/40 uppercase tracking-wider">Fund</div><div className="text-sm font-bold text-cyan-400">{state.fundedCount}</div></div>
-          <div><div className="text-[9px] text-white/40 uppercase tracking-wider">Live</div><div className="text-sm font-bold text-lime-400">{state.liveCount}</div></div>
-          <div><div className="text-[9px] text-white/40 uppercase tracking-wider">Cash</div><div className={`text-sm font-bold ${state.cashOnHand >= 0 ? 'text-lime-400' : 'text-red-400'}`}>${state.cashOnHand.toFixed(0)}</div></div>
-          <div><div className="text-[9px] text-white/40 uppercase tracking-wider">Debt</div><div className="text-sm font-bold text-red-400">${state.totalDebt.toFixed(0)}</div></div>
-        </div>
-
-        {/* Expand toggle */}
-        <button onClick={() => setExpanded(!expanded)} className="shrink-0 text-white/40 hover:text-white/80 transition-colors">
-          {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </button>
       </div>
 
       {/* Expanded content */}
       {expanded && (
-        <div className="max-w-6xl mx-auto px-3 sm:px-4 pb-3 space-y-2" style={{ animation: 'slideUpFade 0.4s ease-out' }}>
+        <div className="relative max-w-6xl mx-auto px-3 sm:px-4 pb-3 space-y-2" style={{ animation: 'slideUpFade 0.4s ease-out' }}>
           <div className="text-[11px] text-white/50">
             Max loss/session: Evals <span style={{ color: colorHex }}>{state.maxEvalLoss}</span> · Funded <span className="text-cyan-400">{state.maxFundedLoss}</span> · Live <span className="text-lime-400">{state.maxLiveLoss}</span>
           </div>
