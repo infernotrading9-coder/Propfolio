@@ -9,6 +9,8 @@ interface TradingModeState {
   liveCount: number;
   cashOnHand: number;
   totalDebt: number;
+  personalBalance: number | null;
+  riskPerTrade: number | null;
   maxEvalLoss: number;
   maxFundedLoss: number;
   maxLiveLoss: number;
@@ -41,7 +43,8 @@ function tickColor(deg: number): string {
 
 const DEFAULT_STATE: TradingModeState = {
   score: 5, mode: 'survival', evalCount: 0, fundedCount: 0, liveCount: 0,
-  cashOnHand: 0, totalDebt: 0, maxEvalLoss: 2, maxFundedLoss: 1, maxLiveLoss: 0,
+  cashOnHand: 0, totalDebt: 0, personalBalance: null, riskPerTrade: null,
+  maxEvalLoss: 2, maxFundedLoss: 1, maxLiveLoss: 0,
   notes: null, rules: {
     survival: [
       'One account at a time — no exceptions',
@@ -107,6 +110,8 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
           liveCount: data.liveCount ?? 0,
           cashOnHand: parseFloat(data.cashOnHand ?? '0'),
           totalDebt: parseFloat(data.totalDebt ?? '0'),
+          personalBalance: data.personalBalance != null ? parseFloat(data.personalBalance) : null,
+          riskPerTrade: data.riskPerTrade != null ? parseFloat(data.riskPerTrade) : null,
           maxEvalLoss: data.maxEvalLoss ?? 2,
           maxFundedLoss: data.maxFundedLoss ?? 1,
           maxLiveLoss: data.maxLiveLoss ?? 0,
@@ -235,6 +240,8 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
             <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Live</div><div className="text-sm sm:text-base font-bold whitespace-nowrap text-lime-400">{state.liveCount}</div></div>
             <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Cash</div><div className={`text-sm sm:text-base font-bold whitespace-nowrap ${state.cashOnHand >= 0 ? 'text-lime-400' : 'text-red-400'}`}>${state.cashOnHand.toFixed(0)}</div></div>
             <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Debt</div><div className="text-sm sm:text-base font-bold whitespace-nowrap text-red-400">${state.totalDebt.toFixed(0)}</div></div>
+            <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Balance</div><div className="text-sm sm:text-base font-bold whitespace-nowrap text-cyan-400">{state.personalBalance != null ? `$${state.personalBalance.toFixed(0)}` : '—'}</div></div>
+            <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Risk</div><div className="text-sm sm:text-base font-bold whitespace-nowrap" style={{ color: colorHex }}>{state.riskPerTrade != null ? `$${state.riskPerTrade.toFixed(0)}` : '—'}</div></div>
           </div>
         </div>
       </div>

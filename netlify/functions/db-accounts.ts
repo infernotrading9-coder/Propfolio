@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
-import { tradingAccountService, accountDailyOrderService, sessionLimitsService, tradingModeStateService, tradingModeRulesService, challengeService, budgetStateService } from '../../server/db/service'
+import { tradingAccountService, accountDailyOrderService, sessionLimitsService, tradingModeStateService, tradingModeRulesService, challengeService, budgetStateService, personalTradeService } from '../../server/db/service'
 import { settleAccount } from '../../server/db/drawdownModel'
 import { correctPlan } from '../../server/db/correctPlanService'
 import { buyEval, CascadeError } from '../../server/db/cascadeService'
@@ -30,6 +30,26 @@ async function computeTradingModeCounters(userId: string) {
   return { cashOnHand, totalDebt, evalCount, fundedCount, liveCount };
 }
 
+/**
+ * Personal-account risk per trade. Fixed-dollar floor by mode, with 1% of the
+ * personal balance taking over once it exceeds the floor (crossover at $5,000
+ * when 1% = $50). Fixed $, never a % of balance for small accounts.
+ */
+const MODE_RISK_FLOOR: Record<string, number> = {
+  survival: 25,
+  defensive: 30,
+  cautious: 35,
+  balanced: 40,
+  confident: 45,
+  aggressive: 50,
+};
+
+function computeRiskPerTrade(mode: string | null | undefined, balance: number | null): number {
+  const floor = MODE_RISK_FLOOR[mode || ''] ?? 40;
+  const onePct = balance != null && balance > 0 ? balance * 0.01 : 0;
+  return Math.round(Math.max(floor, onePct) * 100) / 100;
+}
+
 export const handler: Handler = async (event) => {
   try {
     const user = await getUserFromSession(event)
@@ -47,14 +67,17 @@ export const handler: Handler = async (event) => {
 
       // Get trading mode state (widget reads this)
             if (params.action === 'get-trading-mode') {
-                          const [modeState, modeRules, counters] = await Promise.all([
+                          const [modeState, modeRules, counters, personalBalance] = await Promise.all([
                             tradingModeStateService.get(user.id),
                             tradingModeRulesService.list(user.id),
                             computeTradingModeCounters(user.id),
+                            personalTradeService.getBalance(user.id),
                           ]);
                           return json(200, {
                             ...modeState,
                             ...counters,
+                            personalBalance,
+                            riskPerTrade: computeRiskPerTrade(modeState?.mode, personalBalance),
                             rules: modeRules,
                           });
                         }
@@ -370,12 +393,13 @@ export const handler: Handler = async (event) => {
 
       // Trading Mode — bot writes full state, widget reads it
       if (input.action === 'get-trading-mode') {
-        const [state, modeRules, counters] = await Promise.all([
+        const [state, modeRules, counters, personalBalance] = await Promise.all([
           tradingModeStateService.get(user.id),
           tradingModeRulesService.list(user.id),
           computeTradingModeCounters(user.id),
+          personalTradeService.getBalance(user.id),
         ]);
-        return json(200, { ...state, ...counters, rules: modeRules });
+        return json(200, { ...state, ...counters, personalBalance, riskPerTrade: computeRiskPerTrade(state?.mode, personalBalance), rules: modeRules });
       }
 
       if (input.action === 'update-trading-mode') {
