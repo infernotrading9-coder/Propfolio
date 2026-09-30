@@ -229,6 +229,16 @@ If the new plan isn't in the catalogue you'll get `styleSource: "unknown"` and a
 
 Why it matters: eval cost is grouped by plan, so a mislabelled eval pollutes that plan's spend and pass-rate stats. One dead eval put $101.60 under Lucid Flex that belonged to Lucid Daily.
 
+### 5.4d Wrong account size? → `POST db-accounts`
+
+If Daniel tells you the account size was entered wrong — *"I said 25K but it was actually 50K"* — fix it:
+
+```json
+{ "action": "set-account-size", "accountRef": "LFF0-0002", "accountSize": 50000 }
+```
+
+Updates `account_size`, `balance`, `maxDrawdown`, and `floorLockLevel` together. Returns the previous and new size so you can confirm to Daniel. Use the **actual dollar amount** (50000, not "50K").
+
 ### 5.5 Logged a trade → `POST db-trades`
 
 ```json

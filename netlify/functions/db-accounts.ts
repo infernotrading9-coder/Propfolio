@@ -310,6 +310,53 @@ export const handler: Handler = async (event) => {
         })
       }
 
+      if (input.action === 'set-account-size') {
+        // Bot or Daniel correcting the account size (e.g. 25K was entered as 50K).
+        // Updates account_size AND balance AND maxDrawdown AND floorLockLevel to the
+        // new size, since those are all derived from it at creation time.
+        const { accountRef, accountSize } = input
+        if (!accountRef) return json(400, { error: 'accountRef required', code: 'no_ref' })
+        if (accountSize === undefined || accountSize === null) return json(400, { error: 'accountSize required', code: 'no_size' })
+
+        const sizeNum = Number(accountSize)
+        if (!Number.isFinite(sizeNum) || sizeNum <= 0) {
+          return json(400, { error: 'accountSize must be a positive number', code: 'bad_size' })
+        }
+
+        const all = await tradingAccountService.getByUserId(user.id)
+        const matches = all.filter((a: any) => a.status === 'active' && (
+          String(a.nickname || '').toLowerCase() === accountRef.toLowerCase() ||
+          a.displayLabel === accountRef ||
+          a.accountNumberLast4 === accountRef ||
+          String(a.accountFirst4 || '').toUpperCase() === accountRef.toUpperCase() ||
+          `${String(a.accountFirst4 || '').toUpperCase()}-${a.accountNumberLast4}` === accountRef.toUpperCase()))
+        if (matches.length === 0) return json(404, { error: `No active account "${accountRef}"`, code: 'not_found' })
+        if (matches.length > 1) {
+          return json(400, {
+            error: `"${accountRef}" matches ${matches.length} accounts (${matches.map((m: any) => m.displayLabel).join(', ')}). Say which one.`,
+            code: 'ambiguous',
+          })
+        }
+
+        const target: any = matches[0]
+        const prevSize = Number(target.accountSize) || 0
+
+        // Update account_size + balance + maxDrawdown + floorLockLevel
+        const updated = await tradingAccountService.update(target.id, {
+          accountSize: String(sizeNum),
+          balance: String(sizeNum),
+          maxDrawdown: String(target.maxDrawdown || sizeNum * 0.04),
+          floorLockLevel: String(sizeNum + (sizeNum * 0.01)),
+        } as any)
+
+        return json(200, {
+          account: updated,
+          previousSize: prevSize,
+          newSize: sizeNum,
+          message: `${target.displayLabel} account size updated from $${prevSize.toLocaleString()} to $${sizeNum.toLocaleString()}.`,
+        })
+      }
+
       if (input.action === 'set-daily-order') {
         const { orderDate, orderedAccountIds, notes: orderNotes } = input
         if (!orderDate || !Array.isArray(orderedAccountIds)) {
@@ -498,7 +545,7 @@ export const handler: Handler = async (event) => {
         return json(200, { success: true })
       }
 
-      return json(400, { error: 'Invalid action. Use: create, set-daily-order, or reorder' })
+      return json(400, { error: 'Invalid action. Use: create, correct-plan, set-account-number, set-nickname, set-account-size, set-daily-order, done-for-day, uncollapse-all, link-copy-trade, unlink-copy-trade, get-trading-mode, update-trading-mode, reorder' })
     }
 
     if (event.httpMethod === 'PUT') {
