@@ -1,6 +1,6 @@
 import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import { db } from './connection';
-import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, tradingSessionLimits, tradingModeState, tradingModeRules, trades, personalTrades, personalAccountBalance, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState } from './schema';
+import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, tradingSessionLimits, tradingModeState, tradingModeRules, trades, personalTrades, personalAccountBalance, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState, planNotes } from './schema';
 
 // Type aliases for the original schema
 type User = typeof users.$inferSelect;
@@ -970,5 +970,122 @@ export const budgetStateService = {
       if (!(k in merged)) merged[k] = existing[k];
     }
     return this._stripMeta(merged);
+  },
+};
+
+// ─── Plan notes service (Diary tab) ─────────────────────────────────────────
+// 'daily' is the standing checklist; the rest are the planning horizons.
+export const PLAN_NOTE_HORIZONS = ['daily', 'short_term', 'mid_term', 'long_term'] as const;
+export type PlanNoteHorizon = typeof PLAN_NOTE_HORIZONS[number];
+
+export const planNoteService = {
+  async listByUser(userId: string): Promise<typeof planNotes.$inferSelect[]> {
+    // Ordered so the client can build the tree without re-sorting:
+    // roots and siblings in horizon/priority/sort order.
+    return db.select().from(planNotes)
+      .where(eq(planNotes.userId, userId))
+      .orderBy(asc(planNotes.sortOrder), desc(planNotes.priority), desc(planNotes.createdAt));
+  },
+
+  async getById(userId: string, id: string): Promise<typeof planNotes.$inferSelect | null> {
+    const rows = await db.select().from(planNotes)
+      .where(and(eq(planNotes.userId, userId), eq(planNotes.id, id)))
+      .limit(1);
+    return rows[0] ?? null;
+  },
+
+  /**
+   * True if making `candidateParentId` the parent of `noteId` would create a
+   * cycle — i.e. the candidate is the note itself, or already sits below it.
+   *
+   * Without this, linking a goal to its own step makes the tree unreachable:
+   * the recursion in the UI would never terminate and the card would vanish.
+   */
+  async wouldCreateCycle(userId: string, noteId: string, candidateParentId: string): Promise<boolean> {
+    if (noteId === candidateParentId) return true;
+    const { rows } = await db.execute(sql`
+      WITH RECURSIVE descendants AS (
+        SELECT id FROM plan_notes WHERE id = ${noteId}::uuid AND user_id = ${userId}::uuid
+        UNION ALL
+        SELECT p.id FROM plan_notes p JOIN descendants d ON p.parent_id = d.id
+      )
+      SELECT 1 AS hit FROM descendants WHERE id = ${candidateParentId}::uuid LIMIT 1`);
+    return (rows as any[]).length > 0;
+  },
+
+  async create(userId: string, data: {
+    horizon: PlanNoteHorizon;
+    title: string;
+    body?: string | null;
+    priority?: number | null;
+    parentId?: string | null;
+    sortOrder?: number | null;
+  }): Promise<typeof planNotes.$inferSelect> {
+    const rows = await db.insert(planNotes).values({
+      userId,
+      horizon: data.horizon,
+      title: data.title,
+      body: data.body ?? '',
+      priority: data.priority ?? 0,
+      parentId: data.parentId ?? null,
+      sortOrder: data.sortOrder ?? 0,
+      completed: false,
+    }).returning();
+    return rows[0];
+  },
+
+  /**
+   * Partial update. Only the keys present are touched, so toggling `completed`
+   * never clobbers the body. Always scoped by userId so one account cannot
+   * edit another's notes.
+   *
+   * `parentId` accepts null explicitly to detach a step back into a root goal.
+   */
+  async update(userId: string, id: string, data: {
+    horizon?: PlanNoteHorizon;
+    title?: string;
+    body?: string | null;
+    priority?: number | null;
+    parentId?: string | null;
+    sortOrder?: number | null;
+    completed?: boolean;
+  }): Promise<typeof planNotes.$inferSelect | null> {
+    const patch: Record<string, any> = { updatedAt: new Date() };
+
+    if (data.horizon !== undefined) patch.horizon = data.horizon;
+    if (data.title !== undefined) patch.title = data.title;
+    if (data.body !== undefined) patch.body = data.body ?? '';
+    if (data.priority !== undefined) patch.priority = data.priority ?? 0;
+    if (data.sortOrder !== undefined) patch.sortOrder = data.sortOrder ?? 0;
+    if (data.parentId !== undefined) patch.parentId = data.parentId;
+    if (data.completed !== undefined) {
+      patch.completed = data.completed;
+      // Stamp/clear the completion time alongside the flag so they cannot drift.
+      patch.completedAt = data.completed ? new Date() : null;
+    }
+
+    const rows = await db.update(planNotes)
+      .set(patch)
+      .where(and(eq(planNotes.userId, userId), eq(planNotes.id, id)))
+      .returning();
+    return rows[0] ?? null;
+  },
+
+  async delete(userId: string, id: string): Promise<boolean> {
+    // ON DELETE CASCADE removes descendants — returning the row count before
+    // the cascade would understate what was removed, so count the subtree.
+    const subtree = await db.execute(sql`
+      WITH RECURSIVE d AS (
+        SELECT id FROM plan_notes WHERE id = ${id}::uuid AND user_id = ${userId}::uuid
+        UNION ALL
+        SELECT p.id FROM plan_notes p JOIN d ON p.parent_id = d.id
+      )
+      SELECT count(*)::int AS n FROM d`);
+    const n = ((subtree.rows as any[])[0]?.n) ?? 0;
+    if (n === 0) return false;
+
+    await db.delete(planNotes)
+      .where(and(eq(planNotes.userId, userId), eq(planNotes.id, id)));
+    return true;
   },
 };

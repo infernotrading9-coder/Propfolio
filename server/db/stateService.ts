@@ -351,6 +351,15 @@ export interface AccountState {
   consistencyOk: boolean | null;
   totalProfit: number;
   winningDays: number;
+  /**
+   * Payout journey, from the plan_rule matched to this account's
+   * firm / plan / size / stage. Null = nobody has told us yet.
+   */
+  winningDaysReq: number | null;
+  winningDayMin: number | null;
+  payoutTarget: number | null;
+  payoutInterval: 'daily' | 'green_days' | 'consistency' | null;
+  payoutBuffer: number | null;
 }
 
 export interface FullState {
@@ -404,7 +413,8 @@ export async function getFullState(userId: string): Promise<FullState> {
       SELECT a.*,
              r.consistency_pct, r.profit_split_pct, r.payout_min,
              r.daily_loss_limit AS plan_dll, r.has_daily_loss,
-             r.winning_day_min, r.winning_days_req
+             r.winning_day_min, r.winning_days_req,
+             r.payout_target, r.payout_interval, r.payout_buffer
         FROM acct a
         LEFT JOIN LATERAL (
           SELECT
@@ -414,7 +424,10 @@ export async function getFullState(userId: string): Promise<FullState> {
             (array_agg(pr.daily_loss_limit ORDER BY ord DESC) FILTER (WHERE pr.daily_loss_limit IS NOT NULL))[1] AS daily_loss_limit,
             (array_agg(pr.has_daily_loss   ORDER BY ord DESC) FILTER (WHERE pr.has_daily_loss   IS NOT NULL))[1] AS has_daily_loss,
             (array_agg(pr.winning_day_min  ORDER BY ord DESC) FILTER (WHERE pr.winning_day_min  IS NOT NULL))[1] AS winning_day_min,
-            (array_agg(pr.winning_days_req ORDER BY ord DESC) FILTER (WHERE pr.winning_days_req IS NOT NULL))[1] AS winning_days_req
+            (array_agg(pr.winning_days_req ORDER BY ord DESC) FILTER (WHERE pr.winning_days_req IS NOT NULL))[1] AS winning_days_req,
+            (array_agg(pr.payout_target    ORDER BY ord DESC) FILTER (WHERE pr.payout_target    IS NOT NULL))[1] AS payout_target,
+            (array_agg(pr.payout_interval  ORDER BY ord DESC) FILTER (WHERE pr.payout_interval  IS NOT NULL))[1] AS payout_interval,
+            (array_agg(pr.payout_buffer    ORDER BY ord DESC) FILTER (WHERE pr.payout_buffer    IS NOT NULL))[1] AS payout_buffer
           FROM (
             SELECT p.*,
                    -- Higher = more specific. Stage-specific beats size-specific
@@ -484,6 +497,11 @@ export async function getFullState(userId: string): Promise<FullState> {
         payoutMin: a.payout_min == null ? null : Number(a.payout_min),
         bestDay, trueProfitTarget: trueTarget, consistencyOk,
         totalProfit, winningDays,
+        winningDaysReq: a.winning_days_req == null ? null : Number(a.winning_days_req),
+        winningDayMin: a.winning_day_min == null ? null : Number(a.winning_day_min),
+        payoutTarget: a.payout_target == null ? null : Number(a.payout_target),
+        payoutInterval: (a.payout_interval ?? null) as AccountState['payoutInterval'],
+        payoutBuffer: a.payout_buffer == null ? null : Number(a.payout_buffer),
       });
     }
 
@@ -528,5 +546,110 @@ export async function getFullState(userId: string): Promise<FullState> {
         createdAt: new Date(r.created_at).toISOString(), undone: !!r.undone_at,
       })),
     };
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-account payout summary (Accounts tab cards)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AccountPayoutSummary {
+  payoutTarget: number | null;
+  payoutInterval: 'daily' | 'green_days' | 'consistency' | null;
+  payoutBuffer: number | null;
+  payoutMin: number | null;
+  profitSplitPct: number | null;
+  consistencyPct: number | null;
+  winningDaysReq: number | null;
+  winningDayMin: number | null;
+  /** Trade-derived progress toward the payout. */
+  totalProfit: number;
+  winningDays: number;
+  bestDay: number | null;
+}
+
+/**
+ * Resolve the payout journey for every active account, in ONE query.
+ *
+ * The Accounts tab cards are fed by `GET db-accounts` (raw trading_accounts
+ * rows), which carries no plan rules and no trade aggregates. This gives them
+ * what they need to render "3/5 green days · $1,200 / $4,000 toward payout"
+ * without pulling the whole of getFullState on every page load.
+ *
+ * Rule matching mirrors getFullState exactly: the most specific row wins —
+ * stage-specific beats size-specific beats generic — resolved field by field,
+ * never erasing a field a more general row alone knows.
+ */
+export async function getPayoutSummaryByAccount(
+  userId: string,
+): Promise<Record<string, AccountPayoutSummary>> {
+  return withTransaction(async (tx) => {
+    const { rows } = await tx.query(`
+      WITH acct AS (
+        SELECT ta.id, ta.user_id, ta.firm, ta.eval_type, ta.account_size,
+               CASE WHEN lower(COALESCE(ta.phase,'')) = 'funded'
+                    THEN 'funded' ELSE 'eval' END AS rule_stage
+          FROM trading_accounts ta
+         WHERE ta.user_id = $1 AND ta.status = 'active'
+      )
+      SELECT a.id,
+             r.payout_target, r.payout_interval, r.payout_buffer,
+             r.winning_days_req, r.winning_day_min,
+             r.payout_min, r.profit_split_pct, r.consistency_pct,
+             COALESCE(t.total_profit, 0) AS total_profit,
+             COALESCE(t.winning_days, 0) AS winning_days,
+             t.best_day
+        FROM acct a
+        LEFT JOIN LATERAL (
+          SELECT
+            (array_agg(pr.payout_target    ORDER BY ord DESC) FILTER (WHERE pr.payout_target    IS NOT NULL))[1] AS payout_target,
+            (array_agg(pr.payout_interval  ORDER BY ord DESC) FILTER (WHERE pr.payout_interval  IS NOT NULL))[1] AS payout_interval,
+            (array_agg(pr.payout_buffer    ORDER BY ord DESC) FILTER (WHERE pr.payout_buffer    IS NOT NULL))[1] AS payout_buffer,
+            (array_agg(pr.winning_days_req ORDER BY ord DESC) FILTER (WHERE pr.winning_days_req IS NOT NULL))[1] AS winning_days_req,
+            (array_agg(pr.winning_day_min  ORDER BY ord DESC) FILTER (WHERE pr.winning_day_min  IS NOT NULL))[1] AS winning_day_min,
+            (array_agg(pr.payout_min       ORDER BY ord DESC) FILTER (WHERE pr.payout_min       IS NOT NULL))[1] AS payout_min,
+            (array_agg(pr.profit_split_pct ORDER BY ord DESC) FILTER (WHERE pr.profit_split_pct IS NOT NULL))[1] AS profit_split_pct,
+            (array_agg(pr.consistency_pct  ORDER BY ord DESC) FILTER (WHERE pr.consistency_pct  IS NOT NULL))[1] AS consistency_pct
+          FROM (
+            SELECT p.*,
+                   (CASE WHEN p.stage <> 'any' THEN 2 ELSE 0 END
+                  + CASE WHEN p.account_size IS NOT NULL THEN 1 ELSE 0 END) AS ord
+              FROM plan_rules p
+             WHERE p.user_id = a.user_id
+               AND lower(p.firm_name) = lower(a.firm)
+               AND lower(p.eval_type) = lower(COALESCE(a.eval_type,''))
+               AND (p.account_size IS NULL OR p.account_size = a.account_size)
+               AND p.stage IN ('any', a.rule_stage)
+          ) pr
+        ) r ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT SUM(d.pnl) AS total_profit,
+                 COUNT(*) FILTER (WHERE d.pnl > 0)::int AS winning_days,
+                 MAX(d.pnl) AS best_day
+            FROM (
+              SELECT trade_date::date AS dt, SUM(amount)::numeric AS pnl
+                FROM trades WHERE user_id = $1 AND account_id = a.id
+               GROUP BY 1
+            ) d
+        ) t ON TRUE`, [userId]);
+
+    const num = (v: any) => (v == null ? null : Number(v));
+    const out: Record<string, AccountPayoutSummary> = {};
+    for (const r of rows) {
+      out[String(r.id)] = {
+        payoutTarget: num(r.payout_target),
+        payoutInterval: (r.payout_interval ?? null) as AccountPayoutSummary['payoutInterval'],
+        payoutBuffer: num(r.payout_buffer),
+        payoutMin: num(r.payout_min),
+        profitSplitPct: num(r.profit_split_pct),
+        consistencyPct: num(r.consistency_pct),
+        winningDaysReq: num(r.winning_days_req),
+        winningDayMin: num(r.winning_day_min),
+        totalProfit: round2(r.total_profit ?? 0),
+        winningDays: Number(r.winning_days ?? 0),
+        bestDay: num(r.best_day),
+      };
+    }
+    return out;
   });
 }

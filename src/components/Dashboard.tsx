@@ -29,9 +29,10 @@ import { AccountsView } from './AccountsView';
 import { TradingModeWidget } from './TradingModeWidget';
 import BudgetTab, { type BudgetState } from './BudgetTab';
 import { PersonalTab } from './PersonalTab';
+import { DiaryTab } from './DiaryTab';
 
 
-type ViewMode = 'prop' | 'accounts' | 'budget' | 'personal';
+type ViewMode = 'prop' | 'accounts' | 'budget' | 'personal' | 'diary';
 
 const Dashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -1005,11 +1006,12 @@ const Dashboard: React.FC = () => {
             <button onClick={() => setView('accounts')} className={`px-4 py-2 rounded-md border ${view==='accounts' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Accounts</button>
             <button onClick={() => setView('budget')} className={`px-4 py-2 rounded-md border ${view==='budget' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Budget</button>
             <button onClick={() => setView('personal')} className={`px-4 py-2 rounded-md border ${view==='personal' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Personal</button>
+            <button onClick={() => setView('diary')} className={`px-4 py-2 rounded-md border ${view==='diary' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Diary</button>
           </div>
           <a href="/" className="inline-block mb-2 hover:scale-105 transition-transform duration-200">
-            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='accounts' ? 'Trading Accounts' : view==='budget' ? 'Budget' : view==='personal' ? 'Personal Trades' : 'Propfolio'}</h1>
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='accounts' ? 'Trading Accounts' : view==='budget' ? 'Budget' : view==='personal' ? 'Personal Trades' : view==='diary' ? 'Diary' : 'Propfolio'}</h1>
           </a>
-          <p className="text-white/70 mt-2">{view==='accounts' ? 'Manage your trading accounts and daily order' : view==='budget' ? 'Track income, expenses, accounts, debts, and savings goals' : view==='personal' ? 'Your personal NinjaTrader trade journal' : 'Track Challenges, Trading Rules, and ROI'}</p>
+          <p className="text-white/70 mt-2">{view==='accounts' ? 'Manage your trading accounts and daily order' : view==='budget' ? 'Track income, expenses, accounts, debts, and savings goals' : view==='personal' ? 'Your personal NinjaTrader trade journal' : view==='diary' ? 'Short, mid and long-term planning notes' : 'Track Challenges, Trading Rules, and ROI'}</p>
         </header>
 
         {view !== 'budget' && (
@@ -1037,6 +1039,9 @@ const Dashboard: React.FC = () => {
           )}
           {view === 'personal' && (
             <PersonalTab />
+          )}
+          {view === 'diary' && (
+            <DiaryTab />
           )}
           {view === 'accounts' && (
             <>

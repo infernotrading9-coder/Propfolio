@@ -375,6 +375,32 @@ export const personalAccountBalance = pgTable('personal_account_balance', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ─── Diary / plan notes ────────────────────────────────────────────────────
+// Daniel's planning board: short / mid / long-term, plus a standing daily
+// checklist. A note with `parentId` set is a STEP toward the note it points at,
+// so a long-term goal holds mid-term steps which hold daily tasks — ticking a
+// step rolls progress up the chain.
+//
+// Deliberately NOT linked to accounts or challenges: a note survives an account
+// being archived or failed.
+export const planNotes = pgTable('plan_notes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  horizon: text('horizon').notNull(),        // 'daily' | 'short_term' | 'mid_term' | 'long_term'
+  title: text('title').notNull(),
+  body: text('body').default(''),
+  priority: integer('priority').default(0),
+  parentId: uuid('parent_id').references((): any => planNotes.id, { onDelete: 'cascade' }),
+  sortOrder: integer('sort_order').default(0),
+  completed: boolean('completed').default(false),
+  completedAt: timestamp('completed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type PlanNote = typeof planNotes.$inferSelect;
+export type NewPlanNote = typeof planNotes.$inferInsert;
+
 export type PersonalTrade = typeof personalTrades.$inferSelect;
 export type NewPersonalTrade = typeof personalTrades.$inferInsert;
 export type PersonalAccountBalance = typeof personalAccountBalance.$inferSelect;

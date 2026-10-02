@@ -4,6 +4,7 @@ import { tradingAccountService, accountDailyOrderService, sessionLimitsService, 
 import { settleAccount } from '../../server/db/drawdownModel'
 import { correctPlan } from '../../server/db/correctPlanService'
 import { buyEval, CascadeError } from '../../server/db/cascadeService'
+import { getPayoutSummaryByAccount } from '../../server/db/stateService'
 
 /**
  * Compute the widget's counters from REAL data — cash/debt from the budget tab,
@@ -117,7 +118,24 @@ export const handler: Handler = async (event) => {
 
       const showAll = params.all === 'true'
       const activeAccounts = showAll ? accounts : accounts.filter((a: any) => a.status === 'active')
-      return json(200, { accounts: activeAccounts })
+
+      // Attach the payout journey so the card can show "3/5 green days ·
+      // $1,200 / $4,000 toward payout" without a second round trip. Raw
+      // trading_accounts rows carry no plan rules and no trade aggregates.
+      let payoutByAccount: Record<string, any> = {}
+      try {
+        payoutByAccount = await getPayoutSummaryByAccount(user.id)
+      } catch (e) {
+        // Payout info is presentation, not correctness — never fail the whole
+        // accounts read because the enrichment query had a bad day.
+        console.error('payout summary enrichment failed', e)
+      }
+      const enriched = activeAccounts.map((a: any) => ({
+        ...a,
+        payout: payoutByAccount[String(a.id)] ?? null,
+      }))
+
+      return json(200, { accounts: enriched })
     }
 
     if (event.httpMethod === 'POST') {

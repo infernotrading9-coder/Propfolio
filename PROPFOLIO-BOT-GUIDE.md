@@ -239,6 +239,62 @@ If Daniel tells you the account size was entered wrong — *"I said 25K but it w
 
 Updates `account_size`, `balance`, `maxDrawdown`, and `floorLockLevel` together. Returns the previous and new size so you can confirm to Daniel. Use the **actual dollar amount** (50000, not "50K").
 
+### 5.4e Payout rules → `POST db-trades` (`set-plan-rule`)
+
+Plan rules are **per firm + plan + account size + stage**. The 25K and 50K of the same plan have different green-day minimums and payout minimums, so always send `accountSize` and `stage` when they matter.
+
+```json
+{ "action": "set-plan-rule",
+  "firmName": "Lucid Trading", "evalType": "Lucid Flex",
+  "accountSize": 25000, "stage": "funded",
+  "drawdownStyle": "eod",
+  "winningDayMin": 100, "winningDaysReq": 5,
+  "profitSplitPct": 90, "payoutMin": 1000, "payoutTarget": 2000,
+  "dailyLossLimit": 600, "maxDrawdown": 1000, "profitTarget": 2000,
+  "payoutInterval": "green_days", "payoutCapPct": 50,
+  "notes": "5 green days at $100+." }
+```
+
+`stage` is `eval` | `funded` | `any`. `drawdownStyle` is `eod` | `intraday_trailing` (required).
+
+**Payout fields:**
+
+| Field | Meaning |
+|---|---|
+| `payoutTarget` | the dollar amount the payout actually pays at — NOT the same as `profitTarget` |
+| `payoutInterval` | how it's earned: `daily` \| `green_days` \| `consistency` |
+| `payoutBuffer` | cushion the firm requires first (MFF Builder $2,100, MFF Rapid $1,100) |
+| `payoutCapPct` | share of profit the payout is calculated on, before the split (Lucid Flex 50) |
+| `payoutMin` | minimum withdraw |
+| `profitSplitPct` | what Daniel keeps — **there is no `firmTakePct`; derive it as `100 − profitSplitPct`** |
+
+Only the fields you send are written; everything else on the row is preserved. `plan-rules GET` returns all of them.
+
+### 5.4f Diary / plan notes → `POST db-notes`
+
+Daniel's planning board. Four horizons: `daily`, `short_term`, `mid_term`, `long_term`.
+
+**The domino:** a note with `parentId` is a STEP toward the note it points at. A long-term goal holds mid-term steps which hold daily tasks, and ticking every step completes the goal — progress rolls up automatically.
+
+```json
+{ "action": "create-note", "horizon": "mid_term",
+  "title": "Grow the personal account to $5k",
+  "parentId": "<id of the long-term goal>",
+  "body": "Why this matters…", "priority": 1 }
+```
+
+When Daniel gives you a goal:
+1. `create-note` the goal itself — usually `long_term`
+2. `create-note` each step, passing `parentId` = the goal's id. Put each step in the horizon it actually belongs to (`mid_term` → `short_term` → `daily`)
+3. Reply with the id `create-note` returned so you can link the next steps to it
+
+**Other actions:**
+- `update-note` — `{ id, ...fields }`. Partial; send only what changed. `completed: true/false` ticks it. `parentId: null` detaches a step back to a top-level goal.
+- `delete-note` — `{ id }`. **Deletes the step's whole subtree** — confirm with Daniel first if it has steps.
+- `GET db-notes?action=list-notes` — all notes.
+
+Linking a note to itself, or to one of its own steps, is rejected (`code: "cycle"`) — both would then render nowhere. `horizon` must be one of the four.
+
 ### 5.5 Logged a trade → `POST db-trades`
 
 ```json

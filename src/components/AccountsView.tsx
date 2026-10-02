@@ -33,6 +33,22 @@ interface TradingAccount {
   copyTradeGroup?: string | null;
   doneForDay?: boolean;
   sortOrder: number;
+  /** Resolved payout journey from the matched plan_rule + trade history. */
+  payout?: AccountPayout | null;
+}
+
+interface AccountPayout {
+  payoutTarget: number | null;
+  payoutInterval: 'daily' | 'green_days' | 'consistency' | null;
+  payoutBuffer: number | null;
+  payoutMin: number | null;
+  profitSplitPct: number | null;
+  consistencyPct: number | null;
+  winningDaysReq: number | null;
+  winningDayMin: number | null;
+  totalProfit: number;
+  winningDays: number;
+  bestDay: number | null;
 }
 
 // --- Calendar types (server-backed) ---
@@ -266,6 +282,9 @@ const HolographicAccountCard: React.FC<{
                 </div>
               )}
 
+              {/* Payout journey */}
+              {acct.payout && <PayoutPanel payout={acct.payout} />}
+
               {/* Footer */}
               <div className="flex items-center justify-between pt-2 border-t border-white/10">
                 <div className="flex gap-1">
@@ -278,6 +297,93 @@ const HolographicAccountCard: React.FC<{
           )}
         </div>
       </NeonCard>
+    </div>
+  );
+};
+
+// ─── Payout journey panel (shown on the account card) ───────────────────────
+const INTERVAL_LABEL: Record<string, string> = {
+  daily: 'paid daily',
+  green_days: 'green days',
+  consistency: 'consistency',
+};
+
+/**
+ * The payout journey for one account: how many green days are banked, how far
+ * toward the payout target, and the terms. Every field degrades to hidden when
+ * null — an unknown rule must not render as a zero.
+ */
+const PayoutPanel: React.FC<{ payout: AccountPayout }> = ({ payout }) => {
+  const {
+    payoutTarget, payoutInterval, payoutBuffer, payoutMin,
+    profitSplitPct, winningDaysReq, winningDayMin, totalProfit, winningDays,
+  } = payout;
+
+  const hasAnything =
+    payoutTarget != null || winningDaysReq != null || payoutMin != null ||
+    profitSplitPct != null || payoutBuffer != null || payoutInterval != null;
+  if (!hasAnything) return null;
+
+  const daysPct = winningDaysReq && winningDaysReq > 0
+    ? Math.max(0, Math.min(100, (winningDays / winningDaysReq) * 100)) : 0;
+  const targetPct = payoutTarget && payoutTarget > 0
+    ? Math.max(0, Math.min(100, (totalProfit / payoutTarget) * 100)) : 0;
+
+  const money = (n: number) =>
+    `$${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-white/70">Payout</span>
+        {payoutInterval && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-white/50">
+            {INTERVAL_LABEL[payoutInterval] ?? payoutInterval}
+          </span>
+        )}
+      </div>
+
+      {winningDaysReq != null && (
+        <div>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span className="text-white/40">
+              Green days{winningDayMin != null ? ` (≥${money(winningDayMin)})` : ''}
+            </span>
+            <span className={winningDays >= winningDaysReq ? 'text-emerald-400 font-semibold' : 'text-white/70'}>
+              {winningDays}/{winningDaysReq}
+            </span>
+          </div>
+          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${winningDays >= winningDaysReq ? 'bg-emerald-400' : 'bg-gradient-to-r from-cyan-400 to-emerald-400'}`}
+              style={{ width: `${daysPct}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {payoutTarget != null && (
+        <div>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span className="text-white/40">Toward payout</span>
+            <span className={totalProfit >= payoutTarget ? 'text-emerald-400 font-semibold' : 'text-white/70'}>
+              {money(Math.max(0, totalProfit))} / {money(payoutTarget)}
+            </span>
+          </div>
+          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${totalProfit >= payoutTarget ? 'bg-emerald-400' : 'bg-gradient-to-r from-purple-400 to-cyan-400'}`}
+              style={{ width: `${targetPct}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-white/40">
+        {payoutMin != null && <span>min withdraw {money(payoutMin)}</span>}
+        {profitSplitPct != null && <span>{profitSplitPct}% to you</span>}
+        {payoutBuffer != null && <span>buffer {money(payoutBuffer)}</span>}
+      </div>
     </div>
   );
 };
