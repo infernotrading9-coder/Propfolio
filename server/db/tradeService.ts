@@ -627,6 +627,16 @@ export async function recordPayout(input: {
  */
 export type PlanStage = 'any' | 'eval' | 'funded';
 
+/**
+ * How a payout is EARNED. Distinct from how it is SPLIT (profitSplitPct) and what
+ * share of profit it is calculated on (payoutCapPct):
+ *   'daily'       — a slice pays out every qualifying day (MFF Rapid)
+ *   'green_days'  — N qualifying days at >= winningDayMin, then a payout (Lucid Flex, Tradify)
+ *   'consistency' — a max-day / total-profit consistency rule gates the payout
+ * NULL means nobody has told us — ask, do not assume.
+ */
+export type PayoutInterval = 'daily' | 'green_days' | 'consistency';
+
 /** Map a lifecycle to the rule stage that governs it. */
 export function stageForLifecycle(lifecycle?: string | null): 'eval' | 'funded' {
   const lc = String(lifecycle || '');
@@ -660,6 +670,18 @@ export interface PlanRule {
   hasDailyLoss?: boolean | null;
   maxDrawdown?: number | null;
   profitTarget?: number | null;
+  /** The dollar amount a payout actually pays at — NOT the same as profitTarget. */
+  payoutTarget?: number | null;
+  payoutInterval?: PayoutInterval | null;
+  /** Cushion a firm requires before it will pay (MFF Builder $2,100, MFF Rapid $1,100). */
+  payoutBuffer?: number | null;
+  /**
+   * The share of profit a payout is calculated on, before the split.
+   * Lucid Flex pays 50% of profit, then applies the 90% split = ~45% effective.
+   * Distinct from profitSplitPct (90); storing both keeps the firm's take derivable
+   * instead of hidden in a skill file.
+   */
+  payoutCapPct?: number | null;
   notes?: string | null;
 }
 
@@ -682,7 +704,8 @@ export async function getPlanRule(
     const { rows } = await tx.query(`
       SELECT firm_name, eval_type, account_size, stage, drawdown_style, consistency_pct,
              profit_split_pct, payout_min, winning_day_min, winning_days_req,
-             daily_loss_limit, has_daily_loss, max_drawdown, profit_target, notes
+             daily_loss_limit, has_daily_loss, max_drawdown, profit_target,
+             payout_target, payout_interval, payout_buffer, payout_cap_pct, notes
         FROM plan_rules
        WHERE user_id = $1 AND lower(firm_name) = lower($2) AND lower(eval_type) = lower($3)
          AND (account_size IS NULL OR $4::numeric IS NULL OR account_size = $4::numeric)
@@ -721,6 +744,10 @@ function mapPlanRule(r: any): PlanRule {
     hasDailyLoss: r.has_daily_loss == null ? null : !!r.has_daily_loss,
     maxDrawdown: num(r.max_drawdown),
     profitTarget: num(r.profit_target),
+    payoutTarget: num(r.payout_target),
+    payoutInterval: (r.payout_interval as PayoutInterval) ?? null,
+    payoutBuffer: num(r.payout_buffer),
+    payoutCapPct: num(r.payout_cap_pct),
     notes: r.notes,
   };
 }
@@ -731,7 +758,8 @@ export async function listPlanRules(userId: string): Promise<PlanRule[]> {
     const { rows } = await tx.query(`
       SELECT firm_name, eval_type, account_size, stage, drawdown_style, consistency_pct,
              profit_split_pct, payout_min, winning_day_min, winning_days_req,
-             daily_loss_limit, has_daily_loss, max_drawdown, profit_target, notes
+             daily_loss_limit, has_daily_loss, max_drawdown, profit_target,
+             payout_target, payout_interval, payout_buffer, payout_cap_pct, notes
         FROM plan_rules WHERE user_id = $1
        ORDER BY firm_name, eval_type, account_size NULLS FIRST, stage`, [userId]);
     return rows.map(mapPlanRule);
@@ -756,6 +784,14 @@ export async function upsertPlanRule(
       `drawdownStyle must be "eod" or "intraday_trailing", got "${rule.drawdownStyle}"`,
       'bad_style');
   }
+  if (rule.payoutInterval != null
+      && rule.payoutInterval !== 'daily'
+      && rule.payoutInterval !== 'green_days'
+      && rule.payoutInterval !== 'consistency') {
+    throw new CascadeError(
+      `payoutInterval must be "daily", "green_days" or "consistency", got "${rule.payoutInterval}"`,
+      'bad_payout_interval');
+  }
 
   return withTransaction(async (tx) => {
     const stage: PlanStage = rule.stage ?? 'any';
@@ -763,8 +799,9 @@ export async function upsertPlanRule(
       INSERT INTO plan_rules (user_id, firm_name, eval_type, account_size, stage, drawdown_style,
                               consistency_pct, profit_split_pct, payout_min,
                               winning_day_min, winning_days_req, daily_loss_limit,
-                              has_daily_loss, max_drawdown, profit_target, notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+                              has_daily_loss, max_drawdown, profit_target, payout_target,
+                              payout_interval, payout_buffer, payout_cap_pct, notes)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
       ON CONFLICT (user_id, lower(firm_name), lower(eval_type), COALESCE(account_size, 0), stage)
       DO UPDATE SET drawdown_style   = EXCLUDED.drawdown_style,
                     consistency_pct  = COALESCE(EXCLUDED.consistency_pct,  plan_rules.consistency_pct),
@@ -776,13 +813,18 @@ export async function upsertPlanRule(
                     has_daily_loss   = COALESCE(EXCLUDED.has_daily_loss,   plan_rules.has_daily_loss),
                     max_drawdown     = COALESCE(EXCLUDED.max_drawdown,     plan_rules.max_drawdown),
                     profit_target    = COALESCE(EXCLUDED.profit_target,    plan_rules.profit_target),
+                    payout_target    = COALESCE(EXCLUDED.payout_target,    plan_rules.payout_target),
+                    payout_interval  = COALESCE(EXCLUDED.payout_interval,  plan_rules.payout_interval),
+                    payout_buffer    = COALESCE(EXCLUDED.payout_buffer,    plan_rules.payout_buffer),
+                    payout_cap_pct   = COALESCE(EXCLUDED.payout_cap_pct,   plan_rules.payout_cap_pct),
                     notes            = COALESCE(EXCLUDED.notes,            plan_rules.notes),
                     updated_at = NOW()`,
       [userId, rule.firmName, rule.evalType, rule.accountSize ?? null, stage, rule.drawdownStyle,
        rule.consistencyPct ?? null, rule.profitSplitPct ?? null, rule.payoutMin ?? null,
        rule.winningDayMin ?? null, rule.winningDaysReq ?? null, rule.dailyLossLimit ?? null,
        rule.hasDailyLoss ?? null, rule.maxDrawdown ?? null, rule.profitTarget ?? null,
-       rule.notes ?? null]);
+       rule.payoutTarget ?? null, rule.payoutInterval ?? null, rule.payoutBuffer ?? null,
+       rule.payoutCapPct ?? null, rule.notes ?? null]);
 
     // Only push to live cards when the rule governs the stage they are in —
     // an eval-stage rule must not overwrite a funded account's settings.

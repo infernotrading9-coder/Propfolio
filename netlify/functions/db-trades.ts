@@ -72,15 +72,30 @@ export const handler: Handler = async (event) => {
           if (input.action === 'set-plan-rule') {
             // Teach Propfolio a plan's rules, or correct them after a firm
             // changes them. Applies to active accounts on that plan too.
+            //
+            // NOTE: accountSize + stage are passed through deliberately — rules
+            // vary by size (a 25K and 50K of the same plan have different green-day
+            // minimums and payout minimums) and the catalogue is keyed on them.
+            // Dropping these made per-size rules impossible to create via the API.
             const r = await upsertPlanRule(user.id, {
               firmName: input.firmName,
               evalType: input.evalType,
+              accountSize: input.accountSize,
+              stage: input.stage,
               drawdownStyle: input.drawdownStyle,
               consistencyPct: input.consistencyPct,
               profitSplitPct: input.profitSplitPct,
               payoutMin: input.payoutMin,
               winningDayMin: input.winningDayMin,
               winningDaysReq: input.winningDaysReq,
+              dailyLossLimit: input.dailyLossLimit,
+              hasDailyLoss: input.hasDailyLoss,
+              maxDrawdown: input.maxDrawdown,
+              profitTarget: input.profitTarget,
+              payoutTarget: input.payoutTarget,
+              payoutInterval: input.payoutInterval,
+              payoutBuffer: input.payoutBuffer,
+              payoutCapPct: input.payoutCapPct,
               notes: input.notes,
               applyToActive: input.applyToActive,
             })
