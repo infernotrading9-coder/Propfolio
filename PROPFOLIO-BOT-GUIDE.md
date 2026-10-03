@@ -409,6 +409,31 @@ Use `correction: true` whenever the number was simply **wrong** (drift, a bad sy
 
 **Never fix a balance with `set-account-size`** — that one also resets `maxDrawdown` and `floorLockLevel` and would wipe more than you intend.
 
+### Asking for the drawdown figures — and when NOT to
+
+A balance change moves the drawdown, so the platform's real numbers go with it:
+
+```json
+{ "action": "set-balance", "accountRef": "LFF0-0002", "balance": 26400,
+  "drawdownUsed": 320.50, "maxDrawdown": 1500 }
+```
+
+- `drawdownUsed` / `maxDrawdown` are **optional but preferred**. They're the actual figures off the platform, and they **override** whatever the delta would have derived — the broker's number beats our arithmetic.
+- Omit them and the balance delta still drives `drawdown_used` (a fall grows it, a rise pays it back). That's the sensible default, not a wrong one.
+- Either can be sent alone; the other keeps its stored value.
+- Both are undoable — the undo puts the previous figures back.
+
+**When to ask:** check the account's **`floorLocked`** on `GET db-state-full`.
+
+| `floorLocked` | What to do |
+|---|---|
+| **false** | The floor is still trailing. **Ask Daniel for the drawdown used and max drawdown** alongside the balance — they're moving, and asking keeps Propfolio matched to the platform. |
+| **true** | The trailing floor has stopped (it reached `floorLockLevel`, or an explicit lock is set). The stop-out level is **fixed**, so the drawdown does not move and **there is nothing to ask.** Just push the balance. |
+
+Also on that account object: `stopOutLevel`, `roomToStopOut`, `bindingRule` (`max` or `daily`), `dailyLossLimit`, `floorLockLevel`. If `roomToStopOut` is small, say so — that's the number that matters.
+
+> Example: LFF0-0002 has `floorLocked: true` — trailing floor $25,282.50 has climbed to the $25,100 lock level. Don't ask him for drawdown figures on that one; **do** ask on any account where `floorLocked` is false.
+
 **Every live number reads the balance**, so this one action keeps green days, payout progress and best day current without any trade logging:
 
 | Reads the balance | |

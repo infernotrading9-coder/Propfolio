@@ -556,6 +556,18 @@ export const handler: Handler = async (event) => {
         if (!Number.isFinite(target)) {
           return json(400, { error: 'balance must be a number', code: 'bad_balance' })
         }
+        // Optional: the REAL drawdown figures off the platform. Passed straight
+        // through, they beat whatever the delta would have derived. Ask Daniel
+        // for these whenever floorLocked is false on the account.
+        const asNum = (v: any) => (v === undefined || v === null || v === '' ? null : Number(v))
+        const ddUsed = asNum(input.drawdownUsed)
+        const ddMax = asNum(input.maxDrawdown)
+        if (ddUsed != null && !Number.isFinite(ddUsed)) {
+          return json(400, { error: 'drawdownUsed must be a number', code: 'bad_drawdown' })
+        }
+        if (ddMax != null && !Number.isFinite(ddMax)) {
+          return json(400, { error: 'maxDrawdown must be a number', code: 'bad_max_drawdown' })
+        }
 
         const allBal = await tradingAccountService.getByUserId(user.id)
         const bMatches = allBal.filter((a: any) => a.status === 'active' && (
@@ -575,13 +587,18 @@ export const handler: Handler = async (event) => {
         const bTarget: any = bMatches[0]
         try {
           const isCorrection = correction === true
-          const res = await setAccountBalance(user.id, bTarget.id, target, note ?? null, isCorrection)
+          const res = await setAccountBalance(
+            user.id, bTarget.id, target, note ?? null, isCorrection, ddUsed, ddMax)
+          const extras: string[] = []
+          if (res.drawdownUsed != null) extras.push(`drawdown used $${res.drawdownUsed.toFixed(2)}`)
+          if (res.maxDrawdown != null) extras.push(`max drawdown $${res.maxDrawdown.toFixed(2)}`)
           return json(200, {
             ...res,
             accountRef: bTarget.displayLabel,
-            message: isCorrection
+            message: (isCorrection
               ? `${bTarget.displayLabel} balance corrected $${res.previousBalance.toFixed(2)} → $${res.balance.toFixed(2)} (drawdown and high-water mark untouched)`
-              : `${bTarget.displayLabel} balance $${res.previousBalance.toFixed(2)} → $${res.balance.toFixed(2)}`,
+              : `${bTarget.displayLabel} balance $${res.previousBalance.toFixed(2)} → $${res.balance.toFixed(2)}`)
+              + (extras.length ? `, ${extras.join(', ')}` : ''),
           })
         } catch (e: any) {
           return json(404, { error: e?.message || 'Could not set balance', code: 'not_found' })

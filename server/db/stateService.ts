@@ -171,6 +171,28 @@ async function writeBalanceOnly(
 }
 
 /**
+ * Overwrite the drawdown columns directly, when the caller supplies the REAL
+ * figures off the platform. COALESCE keeps whatever is already stored for any
+ * field that wasn't given, so a partial update never blanks the other one.
+ */
+async function writeDrawdownFields(
+  tx: TxClient, userId: string, accountId: string,
+  ddUsed: number | null, maxDD: number | null,
+): Promise<void> {
+  if (ddUsed == null && maxDD == null) return;
+  await tx.query(
+    `UPDATE trading_accounts
+        SET drawdown_used = COALESCE($2, drawdown_used),
+            max_drawdown  = COALESCE($3, max_drawdown),
+            updated_at = NOW()
+      WHERE id=$1 AND user_id=$4`,
+    [accountId,
+     ddUsed == null ? null : String(round2(ddUsed)),
+     maxDD == null ? null : String(round2(maxDD)),
+     userId]);
+}
+
+/**
  * Push an account's balance straight from the platform, with NO trade involved.
  *
  * This is the missing piece: for prop accounts every path that moved a balance
@@ -179,41 +201,76 @@ async function writeBalanceOnly(
  * balance, so the whole tracker would sit frozen. The personal NinjaTrader
  * account already had `update-balance`; this is the prop equivalent.
  *
- * Two intents, and they are NOT the same thing:
- *   correction = false (default) → a real P&L move. Drawdown absorbs it, the
- *                                  HWM can rise. "I made $400 today."
- *   correction = true            → fix a wrong number. Balance ONLY; drawdown
- *                                  and HWM are untouched. "The balance is off."
+ * Three things can be supplied, and they mean different things:
  *
- * Recorded in `action_log` so either can be undone.
+ *   balance                 required — the platform's balance
+ *   correction = false      the change is a real P&L MOVE: the delta feeds the
+ *                           drawdown and can raise the HWM. "I made $400 today."
+ *   correction = true       the number was WRONG: balance only, nothing else
+ *                           moves. "This is off by a couple dollars."
+ *   drawdownUsed/maxDrawdown  the ACTUAL figures off the platform. When given
+ *                           they overwrite whatever the delta would have
+ *                           derived — the broker's number beats our arithmetic.
+ *
+ * Ask Daniel for `drawdownUsed` and `maxDrawdown` alongside the balance whenever
+ * the account's floor is NOT locked (see `floorLocked` on db-state-full). Once
+ * the floor is locked the stop-out level is fixed, the floor stops trailing, and
+ * there is nothing to ask.
+ *
+ * Recorded in `action_log` so all of it can be undone.
  */
 export async function setAccountBalance(
   userId: string, accountId: string, balance: number,
   note?: string | null, correction: boolean = false,
-): Promise<{ previousBalance: number; balance: number; delta: number; correction: boolean; actedAt: string }> {
+  drawdownUsed?: number | null, maxDrawdown?: number | null,
+): Promise<{
+  previousBalance: number; balance: number; delta: number; correction: boolean;
+  drawdownUsed: number | null; maxDrawdown: number | null; actedAt: string;
+}> {
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(
-      `SELECT id, display_label, balance FROM trading_accounts
-        WHERE id=$1 AND user_id=$2 FOR UPDATE`, [accountId, userId]);
+      `SELECT id, display_label, balance, drawdown_used, max_drawdown
+         FROM trading_accounts WHERE id=$1 AND user_id=$2 FOR UPDATE`, [accountId, userId]);
     if (!rows.length) throw new Error('Account not found');
     const prev = round2(Number(rows[0].balance));
     const next = round2(balance);
     const delta = round2(next - prev);
 
+    const ddNext = drawdownUsed == null || !Number.isFinite(Number(drawdownUsed))
+      ? null : round2(Number(drawdownUsed));
+    const maxNext = maxDrawdown == null || !Number.isFinite(Number(maxDrawdown))
+      ? null : round2(Number(maxDrawdown));
+    const prevDd = rows[0].drawdown_used == null ? null : round2(Number(rows[0].drawdown_used));
+    const prevMax = rows[0].max_drawdown == null ? null : round2(Number(rows[0].max_drawdown));
+
     if (correction) {
+      // A correction is not a trade: balance only, no drawdown/HWM inference.
       await writeBalanceOnly(tx, userId, accountId, next);
     } else {
       await applyBalanceDelta(tx, userId, accountId, delta);
     }
+    // An explicit platform figure always wins over what we derived.
+    await writeDrawdownFields(tx, userId, accountId, ddNext, maxNext);
 
     const actedAt = new Date().toISOString();
+    const bits: string[] = [];
+    if (ddNext != null) bits.push(`drawdown used $${ddNext.toFixed(2)}`);
+    if (maxNext != null) bits.push(`max drawdown $${maxNext.toFixed(2)}`);
     await logAction(tx, userId, 'set-balance',
-      correction
-        ? `Corrected ${rows[0].display_label} balance to $${next.toFixed(2)} (was $${prev.toFixed(2)}) — no drawdown change`
-        : `Set ${rows[0].display_label} balance to $${next.toFixed(2)} (was $${prev.toFixed(2)})`,
-      { accountId, previousBalance: prev, balance: next, note: note ?? null, correction });
+      `${correction ? 'Corrected' : 'Set'} ${rows[0].display_label} balance to $${next.toFixed(2)} ` +
+      `(was $${prev.toFixed(2)})${correction ? ' — no drawdown change' : ''}` +
+      `${bits.length ? ', ' + bits.join(', ') : ''}`,
+      {
+        accountId, previousBalance: prev, balance: next, note: note ?? null, correction,
+        // Only recorded when actually written, so undo can put them back.
+        ...(ddNext != null ? { drawdownUsed: ddNext, priorDrawdownUsed: prevDd } : {}),
+        ...(maxNext != null ? { maxDrawdown: maxNext, priorMaxDrawdown: prevMax } : {}),
+      });
 
-    return { previousBalance: prev, balance: next, delta, correction, actedAt };
+    return {
+      previousBalance: prev, balance: next, delta, correction,
+      drawdownUsed: ddNext, maxDrawdown: maxNext, actedAt,
+    };
   });
 }
 
@@ -270,6 +327,17 @@ export async function undoAction(
           // clobber it.
           await applyBalanceDelta(tx, userId, d.accountId,
             Number(d.previousBalance ?? 0) - Number(d.balance ?? 0));
+        }
+        // Put back any drawdown figures this action overwrote.
+        if (d.priorDrawdownUsed !== undefined) {
+          await tx.query(
+            `UPDATE trading_accounts SET drawdown_used=$2, updated_at=NOW() WHERE id=$1 AND user_id=$3`,
+            [d.accountId, d.priorDrawdownUsed == null ? null : String(d.priorDrawdownUsed), userId]);
+        }
+        if (d.priorMaxDrawdown !== undefined) {
+          await tx.query(
+            `UPDATE trading_accounts SET max_drawdown=$2, updated_at=NOW() WHERE id=$1 AND user_id=$3`,
+            [d.accountId, d.priorMaxDrawdown == null ? null : String(d.priorMaxDrawdown), userId]);
         }
         break;
       }
@@ -396,6 +464,16 @@ export interface AccountState {
   bindingRule: 'max' | 'daily';
   dailyLossLimit: number | null;
   maxDrawdown: number;
+  /** How much of the drawdown allowance has been consumed. */
+  drawdownUsed: number;
+  /**
+   * TRUE when the trailing floor has stopped moving (explicit lock, or the
+   * trailing floor reached `floorLockLevel`). The stop-out level is FIXED, so a
+   * balance change cannot shift it — nothing to ask Daniel for. When FALSE, ask
+   * him for the drawdown figures alongside the balance.
+   */
+  floorLocked: boolean;
+  floorLockLevel: number | null;
   rules: string[];
   payoutCount: number;
   /**
@@ -632,6 +710,16 @@ export async function getFullState(userId: string): Promise<FullState> {
         roomToStopOut: round2(dd.room), bindingRule: dd.binding,
         dailyLossLimit: Number(a.daily_drawdown) > 0 ? Number(a.daily_drawdown) : null,
         maxDrawdown: Number(a.max_drawdown),
+        drawdownUsed: Number(a.drawdown_used ?? 0),
+        /**
+         * TRUE when the trailing floor has stopped moving — either an explicit
+         * `locked_floor` is set, or the trailing floor has climbed to
+         * `floor_lock_level`. Once locked the stop-out level is FIXED, so a
+         * balance change cannot move it and there is nothing to ask Daniel for.
+         * This is the flag that decides whether to ask for the drawdown figures.
+         */
+        floorLocked: dd.floorLocked,
+        floorLockLevel: a.floor_lock_level != null ? Number(a.floor_lock_level) : null,
         rules: Array.isArray(a.rules) ? a.rules : [],
         payoutCount: Number(a.payout_count ?? 0),
         ruleStage: a.rule_stage === 'funded' ? 'funded' : 'eval',
