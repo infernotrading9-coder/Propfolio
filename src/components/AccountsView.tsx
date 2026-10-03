@@ -849,7 +849,7 @@ const DrawdownTracker: React.FC<{ accounts: TradingAccount[] }> = ({ accounts })
     const sumGroup = (accts: TradingAccount[]) => {
       if (accts.length === 0) return null;
       let totalBalance = 0, totalSize = 0, totalMaxDD = 0, count = 0;
-      let roomLeft = 0, allowance = 0, breached = false, anyLocked = false;
+      let roomLeft = 0, allowance = 0, breached = false, anyLocked = false, dailyBinding = 0;
       for (const a of accts) {
         const bal = parseFloat(a.balance || '0');
         const size = parseFloat(a.accountSize || '0');
@@ -864,8 +864,7 @@ const DrawdownTracker: React.FC<{ accounts: TradingAccount[] }> = ({ accounts })
         // profit widens the room 1:1. That is wrong for a TRAILING floor: the
         // floor trails the settled high-water mark, so profit does NOT buy
         // extra room — and once the floor locks the room is simply
-        // balance − stopOutLevel. It reported $2,283 of room on an account with
-        // $883, which is the kind of optimism that gets an account blown.
+        // balance − maxDDLevel. It reported $2,283 on an account with $883.
         const dd = computeDrawdown({
           balance: bal,
           accountSize: size,
@@ -876,10 +875,16 @@ const DrawdownTracker: React.FC<{ accounts: TradingAccount[] }> = ({ accounts })
           lockedFloor: a.lockedFloor != null ? parseFloat(a.lockedFloor) : null,
           floorLockLevel: a.floorLockLevel != null ? parseFloat(a.floorLockLevel) : null,
         });
-        roomLeft += dd.room;
+        // maxDDRoom, NOT room. `room` is measured to whichever limit binds FIRST,
+        // so on a day when the daily loss limit is tighter ($600) it reports that
+        // instead of the max-DD room ($883) — and this tracker is specifically
+        // about MAX drawdown. The daily limit is transient; it resets at 5pm.
+        roomLeft += dd.maxDDRoom;
         allowance += maxDD;
         if (dd.breached) breached = true;
         if (dd.floorLocked) anyLocked = true;
+        // The daily limit can still be the thing that actually stops him today.
+        if (dd.binding === 'daily' && dd.dailyDDRoom < dd.maxDDRoom) dailyBinding++;
       }
       const profit = totalBalance - totalSize;
       // Room measured against the nominal max-DD allowance. A deep-profit account
@@ -888,7 +893,7 @@ const DrawdownTracker: React.FC<{ accounts: TradingAccount[] }> = ({ accounts })
 
       return {
         count, totalBalance, totalSize, totalMaxDD, profit,
-        roomLeft, allowance, roomPct, breached, anyLocked,
+        roomLeft, allowance, roomPct, breached, anyLocked, dailyBinding,
       };
     };
     
@@ -946,6 +951,14 @@ const DrawdownTracker: React.FC<{ accounts: TradingAccount[] }> = ({ accounts })
                 <div className="text-xs text-white/30 mt-0.5">
                   ${g.roomLeft.toFixed(0)} of ${g.allowance.toFixed(0)} max-DD allowance · {g.roomPct.toFixed(0)}% left
                 </div>
+                {/* The daily loss limit resets at 5pm and can be tighter than the
+                    max-DD room — say so, or the headline looks more comfortable
+                    than the day actually is. */}
+                {g.dailyBinding > 0 && (
+                  <div className="text-xs text-amber-400/70 mt-0.5" title="Daily loss limit is tighter than the max-DD room right now; it resets at the 5pm ET settle.">
+                    ⚠ daily limit binds today on {g.dailyBinding} account{g.dailyBinding > 1 ? 's' : ''}
+                  </div>
+                )}
               </div>
             </div>
           );
