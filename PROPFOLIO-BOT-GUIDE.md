@@ -351,6 +351,35 @@ If nobody can name the overpayment, fix the sign — don't call it an asset. Fix
 
 A 2-day eval and a 15-day eval can cost the same money and mean opposite things. Pace is the difference between "unlucky" and "tilt".
 
+### 5.10 Green days — automatic, from the balance
+
+**Do not derive green days from the trades table.** Trade logging has been off since Sep 27 2026, so `trades` stops there — the count read 2/5 while Daniel was actually on 4/5.
+
+Green days are counted automatically from **settled balance moves**. At every 5pm-ET rollover the daily P&L is recorded (`balance now − day_start_balance`), and the count is:
+
+```
+green day  ⇔  daily P&L >= the plan's winning_day_min
+```
+
+Inclusive, because the firms write "$100+". A day of exactly $100 counts; $99 does not. With no plan rule known, any positive day counts.
+
+`account.payout.winningDays` is therefore **authoritative** — `winningDaysSource: "stored"` means it came from the recorded history, not a guess. You do not need to track this yourself.
+
+**Setting it by hand** is only for correcting days whose history was never captured (the recording only started recently):
+
+```json
+{ "action": "set-green-days", "accountRef": "LFF0-0002", "greenDays": 4 }
+```
+
+- A manual count is **kept while it is ahead** of the automatic one, then handed over automatically once the recorded history catches up. It will not be stamped over with a lower number.
+- `cycleStartedAt` **resets the cycle** — the requirement resets after every approved payout on LucidFlex, Tradeify and MFFU alike. Pass it when a payout clears, or the count keeps belonging to a cycle that already paid:
+
+```json
+{ "action": "set-green-days", "accountRef": "LFF0-0002", "greenDays": 0, "cycleStartedAt": "2026-10-15" }
+```
+
+**Known gap:** the rollover is lazy — it fires on the first page read after the boundary. If the site isn't opened for several days, those days collapse into one row carrying the cumulative move. That **under-counts** rather than inventing green days, which is the safe direction, but if Daniel has been away and reports more green days than the card shows, believe him and use `set-green-days`.
+
 ### 5.5 Logged a trade → `POST db-trades`
 
 ```json

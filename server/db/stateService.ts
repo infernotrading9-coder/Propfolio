@@ -726,6 +726,139 @@ export async function getFullState(userId: string): Promise<FullState> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Green days — automatic, from settled balance deltas
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Record the trading day that just ENDED, at the moment settleAccount() rolls
+ * the 5pm-ET boundary.
+ *
+ * `pnl = balance_at_rollover − day_start_balance_that_was_in_force`, which is the
+ * only daily-P&L signal left now that trade logging is off.
+ *
+ * ON CONFLICT DO NOTHING: the settle is lazy, so two reads after one boundary
+ * would otherwise record the same day twice and double-count a green day.
+ */
+export async function recordDailyRollover(
+  userId: string,
+  accountId: string,
+  tradingDate: string,
+  startBalance: number,
+  endBalance: number,
+  threshold: number | null,
+): Promise<void> {
+  const pnl = round2(endBalance - startBalance);
+  // Inclusive, matching the firms' own "$100+" wording.
+  const isGreen = threshold == null ? pnl > 0 : pnl >= threshold;
+  await withTransaction(async (tx) => {
+    await tx.query(`
+      INSERT INTO account_daily_pnl
+        (user_id, account_id, trading_date, start_balance, end_balance, pnl, threshold, is_green)
+      VALUES ($1,$2,$3::date,$4,$5,$6,$7,$8)
+      ON CONFLICT (account_id, trading_date) DO NOTHING`,
+      [userId, accountId, tradingDate, round2(startBalance), round2(endBalance), pnl, threshold, isGreen]);
+  });
+}
+
+/**
+ * Recompute each active account's green-day count from the recorded daily P&L,
+ * scoped to the current payout cycle, and write it onto the account.
+ *
+ * A stored MANUAL count wins while it is ahead of the computed one: Daniel's
+ * confirmed "4/5" is a correction for days whose history was never captured
+ * (the settle only started recording now), and letting the auto count reset him
+ * to 0 would be worse than temporarily under-automating. Once the automatic
+ * count catches up or passes, the stored value is replaced and the source flips
+ * to 'auto' — handover, not a fight.
+ */
+export async function recomputeGreenDays(
+  userId: string,
+): Promise<Record<string, { count: number; source: string }>> {
+  return withTransaction(async (tx) => {
+    const { rows } = await tx.query(`
+      WITH acct AS (
+        SELECT ta.id, ta.green_days, ta.green_days_source, ta.green_days_cycle_started_at,
+               (SELECT (array_agg(pr.winning_day_min ORDER BY ord DESC)
+                        FILTER (WHERE pr.winning_day_min IS NOT NULL))[1]
+                  FROM (
+                    SELECT p.*,
+                           (CASE WHEN p.stage <> 'any' THEN 2 ELSE 0 END
+                          + CASE WHEN p.account_size IS NOT NULL THEN 1 ELSE 0 END) AS ord
+                      FROM plan_rules p
+                     WHERE p.user_id = ta.user_id
+                       AND lower(p.firm_name) = lower(ta.firm)
+                       AND lower(p.eval_type) = lower(COALESCE(ta.eval_type,''))
+                       AND (p.account_size IS NULL OR p.account_size = ta.account_size)
+                       AND p.stage IN ('any', CASE WHEN lower(COALESCE(ta.phase,'')) = 'funded'
+                                                   THEN 'funded' ELSE 'eval' END)
+                  ) pr
+               ) AS threshold
+          FROM trading_accounts ta
+         WHERE ta.user_id = $1 AND ta.status = 'active'
+      )
+      SELECT a.id, a.threshold, a.green_days AS manual, a.green_days_source AS source,
+             COUNT(d.*) FILTER (
+               WHERE CASE WHEN a.threshold IS NULL THEN d.pnl > 0
+                          ELSE d.pnl >= a.threshold END
+             )::int AS auto_count
+        FROM acct a
+        LEFT JOIN account_daily_pnl d
+          ON d.account_id = a.id
+         AND (a.green_days_cycle_started_at IS NULL
+              OR d.trading_date >= a.green_days_cycle_started_at::date)
+       GROUP BY a.id, a.threshold, a.green_days, a.green_days_source`, [userId]);
+
+    const out: Record<string, { count: number; source: string }> = {};
+    for (const r of rows) {
+      const autoCount = Number(r.auto_count ?? 0);
+      const manual = r.manual == null ? null : Number(r.manual);
+      const keepManual = r.source === 'daniel' && manual != null && manual > autoCount;
+      const count = keepManual ? manual! : autoCount;
+      const source = keepManual ? 'daniel' : 'auto';
+
+      if (r.manual == null || Number(r.manual) !== count || r.source !== source) {
+        await tx.query(
+          `UPDATE trading_accounts SET green_days=$2, green_days_source=$3, updated_at=NOW()
+            WHERE id=$1`, [r.id, count, source]);
+      }
+      out[String(r.id)] = { count, source };
+    }
+    return out;
+  });
+}
+
+/**
+ * Resolve the green-day threshold per active account without touching anything.
+ * Used by the settle loop so a recorded day is judged against the right bar.
+ */
+export async function getGreenDayThresholds(userId: string): Promise<Record<string, number | null>> {
+  return withTransaction(async (tx) => {
+    const { rows } = await tx.query(`
+      SELECT ta.id,
+             (SELECT (array_agg(pr.winning_day_min ORDER BY ord DESC)
+                      FILTER (WHERE pr.winning_day_min IS NOT NULL))[1]
+                FROM (
+                  SELECT p.*,
+                         (CASE WHEN p.stage <> 'any' THEN 2 ELSE 0 END
+                        + CASE WHEN p.account_size IS NOT NULL THEN 1 ELSE 0 END) AS ord
+                    FROM plan_rules p
+                   WHERE p.user_id = ta.user_id
+                     AND lower(p.firm_name) = lower(ta.firm)
+                     AND lower(p.eval_type) = lower(COALESCE(ta.eval_type,''))
+                     AND (p.account_size IS NULL OR p.account_size = ta.account_size)
+                     AND p.stage IN ('any', CASE WHEN lower(COALESCE(ta.phase,'')) = 'funded'
+                                                 THEN 'funded' ELSE 'eval' END)
+                ) pr
+             ) AS threshold
+        FROM trading_accounts ta
+       WHERE ta.user_id = $1 AND ta.status = 'active'`, [userId]);
+    const out: Record<string, number | null> = {};
+    for (const r of rows) out[String(r.id)] = r.threshold == null ? null : Number(r.threshold);
+    return out;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Per-account payout summary (Accounts tab cards)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -736,11 +869,23 @@ export interface AccountPayoutSummary {
   payoutMin: number | null;
   profitSplitPct: number | null;
   consistencyPct: number | null;
+  /**
+   * Share of profit a payout is computed on, before the split (Lucid Flex and
+   * Tradeify both pay 50% of profit). When set, the payout Daniel can actually
+   * take is DERIVED from his profit — it is not a target he grinds toward.
+   */
+  payoutCapPct: number | null;
   winningDaysReq: number | null;
   winningDayMin: number | null;
   /** Trade-derived progress toward the payout. */
   totalProfit: number;
   winningDays: number;
+  /**
+   * Where `winningDays` came from. 'stored' = a confirmed count on the account;
+   * 'trades' = derived from the trades table, which has been stale since trade
+   * logging was turned off — treat a 'trades' count as a floor, not the truth.
+   */
+  winningDaysSource: 'stored' | 'trades';
   bestDay: number | null;
 }
 
@@ -762,16 +907,16 @@ export async function getPayoutSummaryByAccount(
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(`
       WITH acct AS (
-        SELECT ta.id, ta.user_id, ta.firm, ta.eval_type, ta.account_size,
+        SELECT ta.id, ta.user_id, ta.firm, ta.eval_type, ta.account_size, ta.green_days,
                CASE WHEN lower(COALESCE(ta.phase,'')) = 'funded'
                     THEN 'funded' ELSE 'eval' END AS rule_stage
           FROM trading_accounts ta
          WHERE ta.user_id = $1 AND ta.status = 'active'
       )
-      SELECT a.id,
+      SELECT a.id, a.green_days,
              r.payout_target, r.payout_interval, r.payout_buffer,
              r.winning_days_req, r.winning_day_min,
-             r.payout_min, r.profit_split_pct, r.consistency_pct,
+             r.payout_min, r.profit_split_pct, r.consistency_pct, r.payout_cap_pct,
              COALESCE(t.total_profit, 0) AS total_profit,
              COALESCE(t.winning_days, 0) AS winning_days,
              t.best_day
@@ -785,7 +930,8 @@ export async function getPayoutSummaryByAccount(
             (array_agg(pr.winning_day_min  ORDER BY ord DESC) FILTER (WHERE pr.winning_day_min  IS NOT NULL))[1] AS winning_day_min,
             (array_agg(pr.payout_min       ORDER BY ord DESC) FILTER (WHERE pr.payout_min       IS NOT NULL))[1] AS payout_min,
             (array_agg(pr.profit_split_pct ORDER BY ord DESC) FILTER (WHERE pr.profit_split_pct IS NOT NULL))[1] AS profit_split_pct,
-            (array_agg(pr.consistency_pct  ORDER BY ord DESC) FILTER (WHERE pr.consistency_pct  IS NOT NULL))[1] AS consistency_pct
+            (array_agg(pr.consistency_pct  ORDER BY ord DESC) FILTER (WHERE pr.consistency_pct  IS NOT NULL))[1] AS consistency_pct,
+            (array_agg(pr.payout_cap_pct   ORDER BY ord DESC) FILTER (WHERE pr.payout_cap_pct   IS NOT NULL))[1] AS payout_cap_pct
           FROM (
             SELECT p.*,
                    (CASE WHEN p.stage <> 'any' THEN 2 ELSE 0 END
@@ -830,6 +976,11 @@ export async function getPayoutSummaryByAccount(
     const num = (v: any) => (v == null ? null : Number(v));
     const out: Record<string, AccountPayoutSummary> = {};
     for (const r of rows) {
+      // A STORED count beats a derived one. Green days were being derived from
+      // the `trades` table, which has received nothing since trade logging was
+      // switched off on Sep 27 — so the count was reading a history that simply
+      // stops. The stored number is the one somebody actually confirmed.
+      const storedGreenDays = r.green_days == null ? null : Number(r.green_days);
       out[String(r.id)] = {
         payoutTarget: num(r.payout_target),
         payoutInterval: (r.payout_interval ?? null) as AccountPayoutSummary['payoutInterval'],
@@ -837,10 +988,12 @@ export async function getPayoutSummaryByAccount(
         payoutMin: num(r.payout_min),
         profitSplitPct: num(r.profit_split_pct),
         consistencyPct: num(r.consistency_pct),
+        payoutCapPct: num(r.payout_cap_pct),
         winningDaysReq: num(r.winning_days_req),
         winningDayMin: num(r.winning_day_min),
         totalProfit: round2(r.total_profit ?? 0),
-        winningDays: Number(r.winning_days ?? 0),
+        winningDays: storedGreenDays != null ? storedGreenDays : Number(r.winning_days ?? 0),
+        winningDaysSource: storedGreenDays != null ? 'stored' : 'trades',
         bestDay: num(r.best_day),
       };
     }

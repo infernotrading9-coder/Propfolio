@@ -4,7 +4,7 @@ import { tradingAccountService, accountDailyOrderService, sessionLimitsService, 
 import { settleAccount } from '../../server/db/drawdownModel'
 import { correctPlan } from '../../server/db/correctPlanService'
 import { buyEval, CascadeError } from '../../server/db/cascadeService'
-import { getPayoutSummaryByAccount } from '../../server/db/stateService'
+import { getPayoutSummaryByAccount, getGreenDayThresholds, recordDailyRollover, recomputeGreenDays } from '../../server/db/stateService'
 
 /**
  * Compute the widget's counters from REAL data — cash/debt from the budget tab,
@@ -168,20 +168,59 @@ export const handler: Handler = async (event) => {
       // trade log can still resolve names/firms for lost/failed accounts.
       const accounts = await tradingAccountService.getByUserId(user.id)
 
+      // Green-day bars per account, resolved before the settle so a day that
+      // ends right now is judged against the right plan threshold.
+      let thresholds: Record<string, number | null> = {}
+      try {
+        thresholds = await getGreenDayThresholds(user.id)
+      } catch (e) {
+        console.error('green-day threshold lookup failed', e)
+      }
+
       // Lazy 5pm-EST settle: the trading day rolls at 17:00 America/New_York.
       // Any read after the boundary snapshots day-start balance and freezes the
       // settled HWM, so max DD stops trailing intraday. Doing it here (rather
       // than on a cron) means a missed tick can never skip a rollover.
+      //
+      // The rollover is ALSO where a green day is decided. Trade logging is off,
+      // so a day's P&L is the balance move: balance now, minus the day-start
+      // balance that was in force. Daniel: "if I make over 100 it should move
+      // the counter; less than 100 shouldn't count."
       for (const a of accounts) {
         if (a.status !== 'active') continue
         const s = settleAccount(a as any)
         if (!s) continue
+        try {
+          // Only book a completed day if a previous settle actually established
+          // a baseline — otherwise there is nothing to difference against.
+          const prevSettled = (a as any).lastSettledAt
+          const startBal = (a as any).dayStartBalance
+          if (prevSettled && startBal != null) {
+            await recordDailyRollover(
+              user.id, a.id,
+              new Date(prevSettled as any).toISOString().slice(0, 10),
+              Number(startBal), Number((a as any).balance),
+              thresholds[String(a.id)] ?? null,
+            )
+          }
+        } catch (e) {
+          // A failed green-day booking must never block the settle itself.
+          console.error('daily pnl record failed for account', a.id, e)
+        }
         try {
           await tradingAccountService.update(a.id, s as any)
           Object.assign(a, s)
         } catch (e) {
           console.error('settle failed for account', a.id, e)
         }
+      }
+
+      // Recompute counts from the recorded daily P&L now the day is booked.
+      let greenByAccount: Record<string, { count: number; source: string }> = {}
+      try {
+        greenByAccount = await recomputeGreenDays(user.id)
+      } catch (e) {
+        console.error('green-day recompute failed', e)
       }
 
       const showAll = params.all === 'true'
@@ -198,10 +237,17 @@ export const handler: Handler = async (event) => {
         // accounts read because the enrichment query had a bad day.
         console.error('payout summary enrichment failed', e)
       }
-      const enriched = activeAccounts.map((a: any) => ({
-        ...a,
-        payout: payoutByAccount[String(a.id)] ?? null,
-      }))
+      const enriched = activeAccounts.map((a: any) => {
+        const p = payoutByAccount[String(a.id)] ?? null
+        // Overlay the freshly recomputed count: the enrichment query ran against
+        // green_days as it was READ, and the settle may have just changed it.
+        const g = greenByAccount[String(a.id)]
+        if (p && g) {
+          p.winningDays = g.count
+          p.winningDaysSource = 'stored'
+        }
+        return { ...a, payout: p }
+      })
 
       return json(200, { accounts: enriched })
     }
@@ -443,6 +489,56 @@ export const handler: Handler = async (event) => {
         })
       }
 
+      if (input.action === 'set-green-days') {
+        // Green days are a STORED FACT. Deriving them from the trades table is
+        // broken by design now: trade logging was switched off Sep 27 2026, so
+        // the table stops there and the count reads 2/5 while Daniel is on 4/5.
+        // Daniel reports the number; the bot records it here.
+        //
+        // The requirement RESETS after every approved payout on LucidFlex,
+        // Tradeify and MFFU alike, so pass `cycleStartedAt` on a reset —
+        // otherwise the count keeps belonging to a cycle that already paid out.
+        const { accountRef, greenDays, cycleStartedAt } = input
+        if (!accountRef) return json(400, { error: 'accountRef required', code: 'no_ref' })
+        if (greenDays === undefined || greenDays === null) {
+          return json(400, { error: 'greenDays required', code: 'no_count' })
+        }
+        const n = Number(greenDays)
+        if (!Number.isInteger(n) || n < 0 || n > 500) {
+          return json(400, { error: 'greenDays must be a whole number between 0 and 500', code: 'bad_count' })
+        }
+
+        const allGreen = await tradingAccountService.getByUserId(user.id)
+        const gMatches = allGreen.filter((a: any) => a.status === 'active' && (
+          String(a.nickname || '').toLowerCase() === String(accountRef).toLowerCase() ||
+          a.displayLabel === accountRef ||
+          a.accountNumberLast4 === accountRef ||
+          String(a.accountFirst4 || '').toUpperCase() === String(accountRef).toUpperCase() ||
+          `${String(a.accountFirst4 || '').toUpperCase()}-${a.accountNumberLast4}` === String(accountRef).toUpperCase()))
+        if (gMatches.length === 0) return json(404, { error: `No active account "${accountRef}"`, code: 'not_found' })
+        if (gMatches.length > 1) {
+          return json(400, {
+            error: `"${accountRef}" matches ${gMatches.length} accounts (${gMatches.map((m: any) => m.displayLabel).join(', ')}). Say which one.`,
+            code: 'ambiguous',
+          })
+        }
+
+        const gTarget: any = gMatches[0]
+        const updatedGreen = await tradingAccountService.update(gTarget.id, {
+          greenDays: n,
+          greenDaysSource: 'daniel',
+          greenDaysCycleStartedAt: cycleStartedAt
+            ? new Date(String(cycleStartedAt))
+            : (gTarget.greenDaysCycleStartedAt ?? new Date()),
+        } as any)
+
+        return json(200, {
+          account: updatedGreen,
+          greenDays: n,
+          message: `${gTarget.displayLabel}: green days set to ${n}.`,
+        })
+      }
+
       if (input.action === 'set-daily-order') {
         const { orderDate, orderedAccountIds, notes: orderNotes } = input
         if (!orderDate || !Array.isArray(orderedAccountIds)) {
@@ -631,7 +727,7 @@ export const handler: Handler = async (event) => {
         return json(200, { success: true })
       }
 
-      return json(400, { error: 'Invalid action. Use: create, correct-plan, set-account-number, set-nickname, set-account-size, set-daily-order, done-for-day, uncollapse-all, link-copy-trade, unlink-copy-trade, get-trading-mode, update-trading-mode, reorder' })
+      return json(400, { error: 'Invalid action. Use: create, correct-plan, set-account-number, set-nickname, set-account-size, set-green-days, set-daily-order, done-for-day, uncollapse-all, link-copy-trade, unlink-copy-trade, get-trading-mode, update-trading-mode, reorder' })
     }
 
     if (event.httpMethod === 'PUT') {

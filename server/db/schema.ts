@@ -191,6 +191,18 @@ export const tradingAccounts = pgTable('trading_accounts', {
   settledHighWaterMark: decimal('settled_high_water_mark', { precision: 12, scale: 2 }),
   lastSettledAt: timestamp('last_settled_at'),
   floorLockLevel: decimal('floor_lock_level', { precision: 12, scale: 2 }), // trailing floor stops here (default size + 100)
+  // ─── Green days / payout cycle (Oct 2026) ─────────────────────────────────
+  // A STORED fact, not a derived one. Trade logging was switched off Sep 27
+  // 2026, so deriving green days from the `trades` table reads a history that
+  // simply stops — LFF0-0002 showed 2/5 while Daniel was at 4/5. The count is
+  // confirmed by Daniel and recorded here.
+  //
+  // The requirement RESETS after every approved payout, so the count is
+  // meaningless without the cycle anchor it belongs to.
+  greenDays: integer('green_days'),
+  greenDaysCycleStartedAt: timestamp('green_days_cycle_started_at', { withTimezone: true }),
+  /** Who last set it: 'daniel' (reported) or 'trades' (derived fallback). */
+  greenDaysSource: text('green_days_source'),
   evalType: text('eval_type'), // product variant: Builder, Flex, Daily, Rapid, Zero...
   // 'futures' | 'cfd'. Decides what a daily-DD breach MEANS: futures = session
   // lockout (account survives), CFD = account lost.

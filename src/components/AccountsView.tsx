@@ -44,10 +44,14 @@ interface AccountPayout {
   payoutMin: number | null;
   profitSplitPct: number | null;
   consistencyPct: number | null;
+  /** Share of profit a payout is computed on (Lucid Flex / Tradeify: 50). */
+  payoutCapPct: number | null;
   winningDaysReq: number | null;
   winningDayMin: number | null;
   totalProfit: number;
   winningDays: number;
+  /** 'stored' = confirmed count; 'trades' = derived from a stale table. */
+  winningDaysSource?: 'stored' | 'trades';
   bestDay: number | null;
 }
 
@@ -316,7 +320,8 @@ const INTERVAL_LABEL: Record<string, string> = {
 const PayoutPanel: React.FC<{ payout: AccountPayout }> = ({ payout }) => {
   const {
     payoutTarget, payoutInterval, payoutBuffer, payoutMin,
-    profitSplitPct, winningDaysReq, winningDayMin, totalProfit, winningDays,
+    profitSplitPct, payoutCapPct, winningDaysReq, winningDayMin, totalProfit, winningDays,
+    winningDaysSource,
   } = payout;
 
   const hasAnything =
@@ -326,8 +331,27 @@ const PayoutPanel: React.FC<{ payout: AccountPayout }> = ({ payout }) => {
 
   const daysPct = winningDaysReq && winningDaysReq > 0
     ? Math.max(0, Math.min(100, (winningDays / winningDaysReq) * 100)) : 0;
-  const targetPct = payoutTarget && payoutTarget > 0
-    ? Math.max(0, Math.min(100, (totalProfit / payoutTarget) * 100)) : 0;
+
+  // A plan that pays a PERCENTAGE of profit (Lucid Flex and Tradeify both pay
+  // 50%) does not have a target Daniel grinds toward — the payout he can take
+  // is DERIVED from his profit. Showing profit against the cap would read
+  // "60% toward payout" while he is in fact short of the minimum and cannot
+  // withdraw anything at all.
+  const capFraction = payoutCapPct != null && payoutCapPct > 0 ? payoutCapPct / 100 : 1;
+  const available = payoutTarget != null
+    ? Math.max(0, Math.min(totalProfit * capFraction, payoutTarget))
+    : null;
+
+  // Percentage plan → progress is the derived payout against its cap.
+  // Flat plan → progress is profit against the target.
+  const isPercentPlan = available != null && capFraction !== 1;
+  const shownPct = payoutTarget && payoutTarget > 0
+    ? Math.max(0, Math.min(100, ((isPercentPlan ? available! : totalProfit) / payoutTarget) * 100))
+    : 0;
+  const shownValue = isPercentPlan ? available! : Math.max(0, totalProfit);
+  const reached = shownValue >= (payoutTarget ?? Infinity);
+  // Payout is only actually takeable once it clears the firm's minimum request.
+  const meetsMin = payoutMin == null ? null : (isPercentPlan ? available! : totalProfit) >= payoutMin;
 
   const money = (n: number) =>
     `$${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
@@ -353,6 +377,14 @@ const PayoutPanel: React.FC<{ payout: AccountPayout }> = ({ payout }) => {
               {winningDays}/{winningDaysReq}
             </span>
           </div>
+          {/* Say when the number is guessed rather than known. Trade logging is
+              off, so a trade-derived count reads a history that stopped — it
+              under-reports, and silently showing it would look authoritative. */}
+          {winningDaysSource === 'trades' && (
+            <div className="text-[10px] text-white/30 mb-1">
+              from logged trades — may be behind
+            </div>
+          )}
           <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${winningDays >= winningDaysReq ? 'bg-emerald-400' : 'bg-gradient-to-r from-cyan-400 to-emerald-400'}`}
@@ -365,17 +397,29 @@ const PayoutPanel: React.FC<{ payout: AccountPayout }> = ({ payout }) => {
       {payoutTarget != null && (
         <div>
           <div className="flex justify-between text-[11px] mb-1">
-            <span className="text-white/40">Toward payout</span>
-            <span className={totalProfit >= payoutTarget ? 'text-emerald-400 font-semibold' : 'text-white/70'}>
-              {money(Math.max(0, totalProfit))} / {money(payoutTarget)}
+            <span className="text-white/40">
+              {isPercentPlan ? `Payout available (${payoutCapPct}% of profit)` : 'Toward payout'}
+            </span>
+            <span className={reached ? 'text-emerald-400 font-semibold' : 'text-white/70'}>
+              {money(shownValue)} / {money(payoutTarget)}
             </span>
           </div>
           <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${totalProfit >= payoutTarget ? 'bg-emerald-400' : 'bg-gradient-to-r from-purple-400 to-cyan-400'}`}
-              style={{ width: `${targetPct}%` }}
+              className={`h-full rounded-full transition-all ${reached ? 'bg-emerald-400' : 'bg-gradient-to-r from-purple-400 to-cyan-400'}`}
+              style={{ width: `${shownPct}%` }}
             />
           </div>
+          {isPercentPlan && meetsMin === false && (
+            <div className="text-[10px] text-amber-400/80 mt-1">
+              Under the {money(payoutMin!)} minimum — keep going
+            </div>
+          )}
+          {isPercentPlan && meetsMin === true && (
+            <div className="text-[10px] text-emerald-400/90 mt-1">
+              Clears the {money(payoutMin!)} minimum
+            </div>
+          )}
         </div>
       )}
 
