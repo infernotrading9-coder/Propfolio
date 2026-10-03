@@ -83,7 +83,7 @@ const HORIZON_LABEL: Record<Horizon, string> = {
 
 const API = '/.netlify/functions/db-notes';
 
-export const DiaryTab: React.FC = () => {
+export const GoalsTab: React.FC = () => {
   const [notes, setNotes] = useState<PlanNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -701,4 +701,4 @@ function nextHorizonBelow(h: Horizon): Horizon {
   }
 }
 
-export default DiaryTab;
+export default GoalsTab;

@@ -21,6 +21,7 @@ import { randomUUID } from 'crypto';
 import { withTransaction, type TxClient } from './txConnection';
 import { CascadeError } from './cascadeService';
 import { logAction } from './actionLog';
+import { botNoteService, type BotNote } from './botNoteService';
 import { computeDrawdown } from './drawdownModel';
 
 const round2 = (n: unknown) => Math.round((Number(n) || 0) * 100) / 100;
@@ -574,6 +575,12 @@ export interface FullState {
     spentThisMonth: number;
     payoutsThisMonth: number;
   };
+  /**
+   * Ticksensei's own scratchpad. Facts Daniel told it that are NOT derivable from
+   * the data above — minimum payments, due days, priority orderings, standing
+   * instructions. Written via `POST db-bot-notes`; never edited by hand.
+   */
+  botNotes: BotNote[];
   lastActions: UndoableAction[];
 }
 
@@ -857,6 +864,15 @@ export async function getFullState(userId: string): Promise<FullState> {
       SELECT id, action, summary, created_at, undone_at FROM action_log
        WHERE user_id=$1 ORDER BY created_at DESC LIMIT 3`, [userId]);
 
+    // Ticksensei's scratchpad. Wrapped so a notes failure can never take down
+    // the whole state read — the bot can still act, it just loses that context.
+    let botNotes: BotNote[] = [];
+    try {
+      botNotes = await botNoteService.listByUser(userId);
+    } catch (e) {
+      console.error('botNotes failed', e);
+    }
+
     return {
       accounts,
       // Pace, not just balance. Every average ships with its own sample size —
@@ -887,6 +903,16 @@ export async function getFullState(userId: string): Promise<FullState> {
         net: round2(cashOnHand + owedToMe - totalOwed),
         accounts: budgetAccounts, recurring,
       },
+      /**
+       * Ticksensei's own scratchpad — facts Daniel told it that are not derivable
+       * from the data above: minimum payments, due days, priority orderings,
+       * standing instructions. Read every time, written via `POST db-bot-notes`.
+       *
+       * Surfaced here on purpose: the bot reasons about overdue debt and goals
+       * from this same call, so the facts it needs must arrive with it rather
+       * than depending on a second request it might not make.
+       */
+      botNotes,
       totals: {
         activeEvals: accounts.filter(a => a.stage === 'eval_active').length,
         fundedAccounts: accounts.filter(a => a.stage === 'funded_active').length,

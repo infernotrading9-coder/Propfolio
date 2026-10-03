@@ -398,6 +398,33 @@ export const planNotes = pgTable('plan_notes', {
 export type PlanNote = typeof planNotes.$inferSelect;
 export type NewPlanNote = typeof planNotes.$inferInsert;
 
+// ─── Bot notes — Ticksensei's own scratchpad ────────────────────────────────
+//
+// Free-text facts the BOT owns and maintains, so it does not have to carry them
+// in memory or in its skill. Bill due-dates, minimum payments, standing
+// instructions — things that change and must be editable without a code change.
+//
+// `key` is the upsert handle (unique per user, case-insensitive) so re-stating a
+// fact UPDATES it rather than piling up duplicates.
+//
+// `accountRef` is a loose TEXT pointer to a budget account — deliberately not a
+// FK, because budget accounts live in a JSONB document and a fact about a bill
+// should outlive the account row.
+export const botNotes = pgTable('bot_notes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  key: text('key').notNull(),
+  value: text('value').notNull(),
+  category: text('category'),        // 'bill' | 'deadline' | 'rule' | 'general' …
+  accountRef: text('account_ref'),
+  sortOrder: integer('sort_order').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type BotNote = typeof botNotes.$inferSelect;
+export type NewBotNote = typeof botNotes.$inferInsert;
+
 export type PersonalTrade = typeof personalTrades.$inferSelect;
 export type NewPersonalTrade = typeof personalTrades.$inferInsert;
 export type PersonalAccountBalance = typeof personalAccountBalance.$inferSelect;

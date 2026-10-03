@@ -446,6 +446,34 @@ Push it **once per session or once a day** — the rollover converts the balance
 
 **Do not use `log-trade` for this.** A trade row is a per-trade record; Daniel has no use for those, and the trade journal is no longer a source for any live number.
 
+### 5.12 Your own notes → `db-bot-notes`
+
+Some things Daniel tells you are **not derivable from the data**: "the Capital One minimum is $35, due the 12th", "water is the one that's actually past due", "pay the car before anything else". Do not carry these in memory or bake them into a skill — a due date changes and a skill can't. **Write them down.**
+
+```
+GET  db-bot-notes                    → { notes, count, categories }
+GET  db-bot-notes?key=capital+one+min+payment   → { note, known }
+POST db-bot-notes { "action":"set-note", "key":"Capital One min payment",
+                    "value":"$35 due the 12th", "category":"bill",
+                    "accountRef":"acc_capone" }
+POST db-bot-notes { "action":"set-notes", "notes":[ {...}, {...} ] }   // bulk, max 50
+POST db-bot-notes { "action":"delete-note", "key":"..." }              // or "id"
+```
+
+- **`key` is the upsert handle.** Say the same key again and it **updates** — it never accumulates duplicates. Uniqueness is case-insensitive, so casing can't fork a fact either.
+- **Partial update:** omitting `category`/`accountRef` keeps what's there; passing `""` clears it. So "the minimum is now $40" doesn't wipe the rest of the note.
+- `category` is one of `bill · deadline · rule · account · general` (the GET returns the list — don't invent your own).
+- `accountRef` is a loose pointer to a budget account. Optional, but fill it when the fact is about one account.
+- Limits: key ≤ 200 chars, value ≤ 4000.
+- **Deliberately NOT undoable** — it's a scratchpad, not a ledger. Fix a wrong note by setting it again.
+
+**These arrive automatically on every `GET db-state-full` as `botNotes`.** You don't need to fetch them separately when you're already reading state — look at them *before* deciding what is overdue or what matters most.
+
+**Use it for:** minimum payments and due days · which accounts are genuinely high-priority · standing instructions ("never pay X before Y") · how Daniel wants something categorised.
+**Do NOT use it for:** anything already in the state read (balances, overdue flags, goals) — that would immediately go stale and contradict the data.
+
+**This is what makes goals honest.** Daniel wants overdue debt to take priority, so when you learn a due date or a minimum, write it down and let it inform what belongs at the top of the Goals tab — rather than a goals list built from guesswork.
+
 ### 5.5 ~~Logged a trade~~ → RETIRED. Use `set-balance`.
 
 **Do not log trades.** `POST db-trades { action: "log-trade" }` and `correct-trade` return **410 Gone**, and the `trades` table no longer exists. Any call to them will fail.

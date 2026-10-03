@@ -849,6 +849,7 @@ const DrawdownTracker: React.FC<{ accounts: TradingAccount[] }> = ({ accounts })
     const sumGroup = (accts: TradingAccount[]) => {
       if (accts.length === 0) return null;
       let totalBalance = 0, totalSize = 0, totalMaxDD = 0, count = 0;
+      let roomLeft = 0, allowance = 0, breached = false, anyLocked = false;
       for (const a of accts) {
         const bal = parseFloat(a.balance || '0');
         const size = parseFloat(a.accountSize || '0');
@@ -857,18 +858,37 @@ const DrawdownTracker: React.FC<{ accounts: TradingAccount[] }> = ({ accounts })
         totalSize += size;
         totalMaxDD += maxDD;
         count++;
+
+        // Use the SAME model the account cards use. This used to be
+        // `profit + maxDD`, which treats the floor as static at size − maxDD so
+        // profit widens the room 1:1. That is wrong for a TRAILING floor: the
+        // floor trails the settled high-water mark, so profit does NOT buy
+        // extra room — and once the floor locks the room is simply
+        // balance − stopOutLevel. It reported $2,283 of room on an account with
+        // $883, which is the kind of optimism that gets an account blown.
+        const dd = computeDrawdown({
+          balance: bal,
+          accountSize: size,
+          maxDrawdown: maxDD,
+          dailyDrawdown: parseFloat(a.dailyDrawdown || '0'),
+          dayStartBalance: a.dayStartBalance != null ? parseFloat(a.dayStartBalance) : null,
+          settledHighWaterMark: a.settledHighWaterMark != null ? parseFloat(a.settledHighWaterMark) : null,
+          lockedFloor: a.lockedFloor != null ? parseFloat(a.lockedFloor) : null,
+          floorLockLevel: a.floorLockLevel != null ? parseFloat(a.floorLockLevel) : null,
+        });
+        roomLeft += dd.room;
+        allowance += maxDD;
+        if (dd.breached) breached = true;
+        if (dd.floorLocked) anyLocked = true;
       }
-      // Profit = balance - size (positive means in profit)
       const profit = totalBalance - totalSize;
-      // Combined drawdown = profit + max DD (a profitable account adds headroom)
-      // e.g. $25K + $259 profit + $1000 max DD = $1,259 total drawdown room
-      const combinedDrawdownRoom = profit + totalMaxDD;
-      const drawdownUsed = Math.max(0, totalSize - totalBalance);
-      const drawdownPct = combinedDrawdownRoom > 0 ? (drawdownUsed / combinedDrawdownRoom) * 100 : 100;
-      
+      // Room measured against the nominal max-DD allowance. A deep-profit account
+      // with a locked floor can exceed it, so clamp the BAR — never the number.
+      const roomPct = allowance > 0 ? Math.max(0, Math.min(100, (roomLeft / allowance) * 100)) : 0;
+
       return {
-        count, totalBalance, totalSize, totalMaxDD,
-        profit, combinedDrawdownRoom, drawdownUsed, drawdownPct,
+        count, totalBalance, totalSize, totalMaxDD, profit,
+        roomLeft, allowance, roomPct, breached, anyLocked,
       };
     };
     
@@ -906,18 +926,25 @@ const DrawdownTracker: React.FC<{ accounts: TradingAccount[] }> = ({ accounts })
                   {g.profit >= 0 ? '+' : ''}${g.profit.toFixed(0)}
                 </span>
               </div>
-              {/* Max DD — combined with profit */}
+              {/* Room left before the stop-out — the number that actually matters.
+                  NOT "max DD incl. profit": that assumed a static floor and
+                  overstated the room on any trailing-drawdown account. */}
               <div className="mb-1">
                 <div className="flex justify-between text-xs text-white/50 mb-0.5">
-                  <span>Max DD (incl. profit)</span>
-                  <span>${g.combinedDrawdownRoom.toFixed(0)}</span>
+                  <span>
+                    Room left
+                    {g.anyLocked && <span className="text-amber-400/70 ml-1" title="Trailing floor has stopped">🔒</span>}
+                  </span>
+                  <span className={g.breached ? 'text-red-400 font-semibold' : ''}>
+                    ${g.roomLeft.toFixed(0)}{g.breached ? ' — BREACHED' : ''}
+                  </span>
                 </div>
                 <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${g.drawdownPct > 70 ? 'bg-red-500' : g.drawdownPct > 40 ? 'bg-amber-500' : c.bar}`} 
-                    style={{ width: `${Math.min(100, g.drawdownPct)}%` }} />
+                  <div className={`h-full rounded-full ${g.breached ? 'bg-red-500' : g.roomPct < 25 ? 'bg-red-500' : g.roomPct < 55 ? 'bg-amber-500' : c.bar}`}
+                    style={{ width: `${g.roomPct}%` }} />
                 </div>
                 <div className="text-xs text-white/30 mt-0.5">
-                  Used: ${g.drawdownUsed.toFixed(0)} / ${g.combinedDrawdownRoom.toFixed(0)} ({g.drawdownPct.toFixed(1)}%)
+                  ${g.roomLeft.toFixed(0)} of ${g.allowance.toFixed(0)} max-DD allowance · {g.roomPct.toFixed(0)}% left
                 </div>
               </div>
             </div>
