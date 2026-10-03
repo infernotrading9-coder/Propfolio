@@ -49,6 +49,8 @@ interface AccountPayout {
   winningDaysReq: number | null;
   winningDayMin: number | null;
   totalProfit: number;
+  /** 'balance' = live; 'trades' = stale table sum. */
+  profitSource?: 'balance' | 'trades';
   winningDays: number;
   /** 'stored' = confirmed count; 'trades' = derived from a stale table. */
   winningDaysSource?: 'stored' | 'trades';

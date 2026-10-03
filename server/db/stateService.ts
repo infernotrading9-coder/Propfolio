@@ -350,7 +350,11 @@ export interface AccountState {
   trueProfitTarget: number | null;
   consistencyOk: boolean | null;
   totalProfit: number;
+  /** 'balance' = live (balance − account size); 'trades' = stale table sum. */
+  profitSource: 'balance' | 'trades';
   winningDays: number;
+  /** 'stored' = confirmed/recorded count; 'trades' = derived from a stale table. */
+  winningDaysSource: 'stored' | 'trades';
   /**
    * Payout journey, from the plan_rule matched to this account's
    * firm / plan / size / stage. Null = nobody has told us yet.
@@ -513,17 +517,31 @@ export async function getFullState(userId: string): Promise<FullState> {
          GROUP BY 1 ORDER BY 2 DESC`, [userId, a.id]);
 
       const bestDay = days.length ? round2(days[0].pnl) : null;
-      const totalProfit = round2(days.reduce((s: number, r: any) => s + Number(r.pnl), 0));
+      // Total profit from the BALANCE — the same figure db-accounts uses, so the
+      // two endpoints cannot disagree. The firms define profit as "current
+      // balance minus starting balance", and the trade sum stops being
+      // trustworthy the moment logging is off.
+      const acctSizeNum = Number(a.account_size ?? 0);
+      const balNum = Number(a.balance ?? 0);
+      const profitFromBalance = acctSizeNum > 0 ? round2(balNum - acctSizeNum) : null;
+      const totalProfit = profitFromBalance != null
+        ? profitFromBalance
+        : round2(days.reduce((s: number, r: any) => s + Number(r.pnl), 0));
       // A green day must CLEAR the plan's minimum, not merely be positive —
       // a $29 day does not count against Lucid Flex's $100 bar. The bar is
       // inclusive ("$100+"): a day of exactly $100 IS a green day, so this
       // compares >=. With no known minimum the bar is "any positive day" and
       // the > 0 branch keeps a breakeven day out.
       const dayMin = a.winning_day_min == null ? null : Number(a.winning_day_min);
-      const winningDays = days.filter((r: any) => {
+      const derivedWinningDays = days.filter((r: any) => {
         const pnl = Number(r.pnl);
         return dayMin == null ? pnl > 0 : pnl >= dayMin;
       }).length;
+      // A STORED count beats a derived one. Deriving from `trades` reported 2
+      // while the account was on 4, and made db-state-full contradict
+      // db-accounts — the bot and the card must tell the same story.
+      const storedGreen = a.green_days == null ? null : Number(a.green_days);
+      const winningDays = storedGreen != null ? storedGreen : derivedWinningDays;
 
       const consistency = a.consistency_pct == null ? null : Number(a.consistency_pct);
       // A stored 0 means "confirmed: no consistency rule at this stage" and must
@@ -556,6 +574,8 @@ export async function getFullState(userId: string): Promise<FullState> {
         payoutMin: a.payout_min == null ? null : Number(a.payout_min),
         bestDay, trueProfitTarget: trueTarget, consistencyOk,
         totalProfit, winningDays,
+        profitSource: profitFromBalance != null ? 'balance' : 'trades',
+        winningDaysSource: storedGreen != null ? 'stored' : 'trades',
         winningDaysReq: a.winning_days_req == null ? null : Number(a.winning_days_req),
         winningDayMin: a.winning_day_min == null ? null : Number(a.winning_day_min),
         payoutTarget: a.payout_target == null ? null : Number(a.payout_target),
@@ -877,8 +897,10 @@ export interface AccountPayoutSummary {
   payoutCapPct: number | null;
   winningDaysReq: number | null;
   winningDayMin: number | null;
-  /** Trade-derived progress toward the payout. */
+  /** Progress toward the payout. From the BALANCE where possible — see below. */
   totalProfit: number;
+  /** 'balance' = live (balance − account size); 'trades' = stale table sum. */
+  profitSource: 'balance' | 'trades';
   winningDays: number;
   /**
    * Where `winningDays` came from. 'stored' = a confirmed count on the account;
@@ -907,13 +929,13 @@ export async function getPayoutSummaryByAccount(
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(`
       WITH acct AS (
-        SELECT ta.id, ta.user_id, ta.firm, ta.eval_type, ta.account_size, ta.green_days,
+        SELECT ta.id, ta.user_id, ta.firm, ta.eval_type, ta.account_size, ta.balance, ta.green_days,
                CASE WHEN lower(COALESCE(ta.phase,'')) = 'funded'
                     THEN 'funded' ELSE 'eval' END AS rule_stage
           FROM trading_accounts ta
          WHERE ta.user_id = $1 AND ta.status = 'active'
       )
-      SELECT a.id, a.green_days,
+      SELECT a.id, a.green_days, a.account_size, a.balance,
              r.payout_target, r.payout_interval, r.payout_buffer,
              r.winning_days_req, r.winning_day_min,
              r.payout_min, r.profit_split_pct, r.consistency_pct, r.payout_cap_pct,
@@ -981,6 +1003,14 @@ export async function getPayoutSummaryByAccount(
       // switched off on Sep 27 — so the count was reading a history that simply
       // stops. The stored number is the one somebody actually confirmed.
       const storedGreenDays = r.green_days == null ? null : Number(r.green_days);
+      // Profit from the BALANCE, not the trade sum. The firms define a payout as
+      // "50% of total profits (current balance minus starting balance)" — that
+      // is literally this subtraction. The trade sum stopped being trustworthy
+      // when logging was switched off, so it read $595 against a real $982.50
+      // and understated the payout available by ~$194.
+      const acctSize = Number(r.account_size ?? 0);
+      const bal = Number(r.balance ?? 0);
+      const profitFromBalance = acctSize > 0 ? round2(bal - acctSize) : null;
       out[String(r.id)] = {
         payoutTarget: num(r.payout_target),
         payoutInterval: (r.payout_interval ?? null) as AccountPayoutSummary['payoutInterval'],
@@ -991,7 +1021,8 @@ export async function getPayoutSummaryByAccount(
         payoutCapPct: num(r.payout_cap_pct),
         winningDaysReq: num(r.winning_days_req),
         winningDayMin: num(r.winning_day_min),
-        totalProfit: round2(r.total_profit ?? 0),
+        totalProfit: profitFromBalance != null ? profitFromBalance : round2(r.total_profit ?? 0),
+        profitSource: profitFromBalance != null ? 'balance' : 'trades',
         winningDays: storedGreenDays != null ? storedGreenDays : Number(r.winning_days ?? 0),
         winningDaysSource: storedGreenDays != null ? 'stored' : 'trades',
         bestDay: num(r.best_day),
