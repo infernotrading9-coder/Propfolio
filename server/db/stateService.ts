@@ -347,6 +347,14 @@ export interface AccountState {
   payoutMin: number | null;
   /** Consistency maths Daniel currently does by hand. */
   bestDay: number | null;
+  /**
+   * Where bestDay came from. 'daily_pnl' = recorded daily snapshots (live);
+   * 'trades' = the stale journal, the only record of days before snapshots began.
+   * Best day is the max across BOTH, so it never regresses as snapshots fill in.
+   */
+  bestDaySource: 'daily_pnl' | 'trades' | 'none';
+  /** Days the snapshot source actually has — 0 means no live history yet. */
+  bestDaySnapshotDays: number;
   trueProfitTarget: number | null;
   consistencyOk: boolean | null;
   totalProfit: number;
@@ -510,13 +518,31 @@ export async function getFullState(userId: string): Promise<FullState> {
         floorLockLevel: a.floor_lock_level != null ? Number(a.floor_lock_level) : null,
       });
 
-      // Per-day P&L, for best-day and winning-day counts.
+      // Per-day P&L from the trade journal, for winning-day counts and as a
+      // fallback for best day. Stale since logging was switched off — kept only
+      // because it is the sole record of days before the snapshot table existed.
       const { rows: days } = await tx.query(`
         SELECT trade_date::date AS d, SUM(amount)::numeric AS pnl
           FROM trades WHERE user_id=$1 AND account_id=$2
          GROUP BY 1 ORDER BY 2 DESC`, [userId, a.id]);
 
-      const bestDay = days.length ? round2(days[0].pnl) : null;
+      // Best day from the RECORDED daily P&L — the live source.
+      const { rows: snapBest } = await tx.query(`
+        SELECT MAX(pnl)::numeric AS best, COUNT(*)::int AS n
+          FROM account_daily_pnl WHERE account_id=$1`, [a.id]);
+      const snapshotBest = snapBest[0]?.best == null ? null : round2(snapBest[0].best);
+      const tradeBest = days.length ? round2(days[0].pnl) : null;
+      // Best day is the largest daily P&L seen from EITHER source. Taking the
+      // snapshot alone would LOSE the older trade-derived best day, because the
+      // snapshot table only started recording recently — so this takes the max
+      // and can never regress. Consistency is computed from this, which is why
+      // it must not silently shrink.
+      const bestDay = snapshotBest == null ? tradeBest
+        : tradeBest == null ? snapshotBest
+        : Math.max(snapshotBest, tradeBest);
+      const bestDaySource = snapshotBest != null && (tradeBest == null || snapshotBest >= tradeBest)
+        ? 'daily_pnl' : (tradeBest != null ? 'trades' : 'none');
+      const bestDaySnapshotDays = Number(snapBest[0]?.n ?? 0);
       // Total profit from the BALANCE — the same figure db-accounts uses, so the
       // two endpoints cannot disagree. The firms define profit as "current
       // balance minus starting balance", and the trade sum stops being
@@ -573,6 +599,7 @@ export async function getFullState(userId: string): Promise<FullState> {
         profitSplitPct: a.profit_split_pct == null ? null : Number(a.profit_split_pct),
         payoutMin: a.payout_min == null ? null : Number(a.payout_min),
         bestDay, trueProfitTarget: trueTarget, consistencyOk,
+        bestDaySource, bestDaySnapshotDays,
         totalProfit, winningDays,
         profitSource: profitFromBalance != null ? 'balance' : 'trades',
         winningDaysSource: storedGreen != null ? 'stored' : 'trades',
@@ -909,6 +936,10 @@ export interface AccountPayoutSummary {
    */
   winningDaysSource: 'stored' | 'trades';
   bestDay: number | null;
+  /** 'daily_pnl' = recorded snapshots (live); 'trades' = stale journal. */
+  bestDaySource: 'daily_pnl' | 'trades' | 'none';
+  /** Days the snapshot source has — 0 means no live history yet. */
+  bestDaySnapshotDays: number;
 }
 
 /**
@@ -941,7 +972,8 @@ export async function getPayoutSummaryByAccount(
              r.payout_min, r.profit_split_pct, r.consistency_pct, r.payout_cap_pct,
              COALESCE(t.total_profit, 0) AS total_profit,
              COALESCE(t.winning_days, 0) AS winning_days,
-             t.best_day
+             t.best_day,
+             sn.snapshot_best_pnl, sn.snapshot_days
         FROM acct a
         LEFT JOIN LATERAL (
           SELECT
@@ -993,7 +1025,14 @@ export async function getPayoutSummaryByAccount(
                 FROM trades WHERE user_id = $1 AND account_id = a.id
                GROUP BY 1
             ) d
-        ) t ON TRUE`, [userId]);
+        ) t ON TRUE
+        -- Best day from the RECORDED daily P&L — the live source. The trade
+        -- lateral above stops where logging stopped, so the two are combined by
+        -- taking the highest, never by preferring one.
+        LEFT JOIN LATERAL (
+          SELECT MAX(s.pnl) AS snapshot_best_pnl, COUNT(*)::int AS snapshot_days
+            FROM account_daily_pnl s WHERE s.account_id = a.id
+        ) sn ON TRUE`, [userId]);
 
     const num = (v: any) => (v == null ? null : Number(v));
     const out: Record<string, AccountPayoutSummary> = {};
@@ -1011,6 +1050,19 @@ export async function getPayoutSummaryByAccount(
       const acctSize = Number(r.account_size ?? 0);
       const bal = Number(r.balance ?? 0);
       const profitFromBalance = acctSize > 0 ? round2(bal - acctSize) : null;
+
+      // Best day = the highest daily P&L from EITHER source. The snapshot table
+      // only started recording recently, so using it alone would LOSE the older
+      // trade-derived best day; taking the max can never regress.
+      const tradeBest = num(r.best_day);
+      const snapBest = num(r.snapshot_best_pnl);
+      const bestDay = tradeBest == null ? snapBest
+        : snapBest == null ? tradeBest
+        : Math.max(tradeBest, snapBest);
+      const bestDaySource: 'daily_pnl' | 'trades' | 'none' =
+        snapBest != null && (tradeBest == null || snapBest >= tradeBest) ? 'daily_pnl'
+        : tradeBest != null ? 'trades' : 'none';
+
       out[String(r.id)] = {
         payoutTarget: num(r.payout_target),
         payoutInterval: (r.payout_interval ?? null) as AccountPayoutSummary['payoutInterval'],
@@ -1025,7 +1077,9 @@ export async function getPayoutSummaryByAccount(
         profitSource: profitFromBalance != null ? 'balance' : 'trades',
         winningDays: storedGreenDays != null ? storedGreenDays : Number(r.winning_days ?? 0),
         winningDaysSource: storedGreenDays != null ? 'stored' : 'trades',
-        bestDay: num(r.best_day),
+        bestDay,
+        bestDaySource,
+        bestDaySnapshotDays: Number(r.snapshot_days ?? 0),
       };
     }
     return out;

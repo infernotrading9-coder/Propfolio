@@ -55,6 +55,10 @@ interface AccountPayout {
   /** 'stored' = confirmed count; 'trades' = derived from a stale table. */
   winningDaysSource?: 'stored' | 'trades';
   bestDay: number | null;
+  /** 'daily_pnl' = recorded snapshots (live); 'trades' = stale journal. */
+  bestDaySource?: 'daily_pnl' | 'trades' | 'none';
+  /** Days the snapshot source has — 0 means no live history yet. */
+  bestDaySnapshotDays?: number;
 }
 
 // --- Calendar types (server-backed) ---
