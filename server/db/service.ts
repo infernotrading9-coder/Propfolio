@@ -948,6 +948,7 @@ export const budgetStateService = {
     const delAcct = new Set<string>(deleted.accounts || []);
     const delGoal = new Set<string>(deleted.goals || []);
     const delCat = new Set<string>(deleted.categories || []);
+    const delRec = new Set<string>(deleted.recurring || []);
     const clearAll = deleted.all === true;
 
     const keepOrClear = (arrKey: string, delSet: Set<string>) => {
@@ -964,6 +965,11 @@ export const budgetStateService = {
       accounts: keepOrClear('accounts', delAcct),
       savingsGoals: keepOrClear('savingsGoals', delGoal),
       completedGoals: keepOrClear('completedGoals', delGoal),
+      // Recurring charges are merge-by-id like the rest. Omitting this key is
+      // why add/update-recurring silently did nothing: the fallback loop below
+      // only copies keys that EXIST on the server row, so an incoming
+      // `recurring` was dropped and a stale server value was kept.
+      recurring: keepOrClear('recurring', delRec),
     };
     // Preserve any other top-level keys the server holds (future-proofing).
     for (const k of Object.keys(existing)) {

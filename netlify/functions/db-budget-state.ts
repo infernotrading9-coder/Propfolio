@@ -349,6 +349,10 @@ export const handler: Handler = async (event) => {
                 return json(404, { error: `Recurring charge "${body.id}" not found`, code: 'not_found' });
               }
               state.recurring = next;
+              // The store merges arrays by id, so simply omitting a row does NOT
+              // delete it — a row the server has and the client doesn't see is
+              // deliberately kept. Removal has to be declared.
+              state._deleted = { ...(state._deleted || {}), recurring: [String(body.id)] };
               await budgetStateService.upsert(user.id, state);
               return json(200, { ok: true, deleted: String(body.id) });
             }

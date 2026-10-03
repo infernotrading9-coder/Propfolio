@@ -812,7 +812,9 @@ export async function getPayoutSummaryByAccount(
                  -- With no known minimum the bar is "any positive day", so that
                  -- branch keeps > 0 and does not credit a breakeven day.
                  --
-                 -- `r` precedes this lateral, so its threshold is in scope.
+                 -- NOTE: never put backticks in this comment. This is inside a
+                 -- template literal, and a backtick terminates the SQL string.
+                 -- The rule lateral precedes this one, so its threshold is in scope.
                  COUNT(*) FILTER (
                    WHERE CASE WHEN r.winning_day_min IS NULL THEN d.pnl > 0
                               ELSE d.pnl >= r.winning_day_min END
