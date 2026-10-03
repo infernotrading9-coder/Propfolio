@@ -1,10 +1,30 @@
 import type { Handler } from '@netlify/functions'
 import { json, getUserFromSession } from './_utils'
-import { tradeService, tradingAccountService } from '../../server/db/service'
-import { logTrade, correctTrade, getPlanRule, listPlanRules, upsertPlanRule } from '../../server/db/tradeService'
+import { getPlanRule, listPlanRules, upsertPlanRule } from '../../server/db/tradeService'
 import { CascadeError } from '../../server/db/cascadeService'
 import { recordPayoutWithAllocation, proposeAllocation } from '../../server/db/payoutService'
 import { withIdempotency } from '../../server/db/stateService'
+
+/**
+ * TRADE LOGGING IS RETIRED (Oct 2026).
+ *
+ * Daniel does not log trades. The `trades` table has been dropped, so every
+ * endpoint that used to read or write a trade row now answers 410 Gone instead
+ * of throwing "relation trades does not exist" (which surfaced as an opaque 500).
+ *
+ * Balances move through `POST db-accounts { action: 'set-balance' }` — see the
+ * bot guide §5.11. Green days, payout progress and best day all read the balance
+ * and the recorded daily P&L, so nothing here is needed to keep them current.
+ *
+ * STILL LIVE on this endpoint: plan-rules (the plan catalogue), set-plan-rule,
+ * record-payout and propose-allocation. Payouts are a separate table and feed
+ * the dashboard stats — do not remove them.
+ */
+const RETIRED = {
+  error: 'Trade logging was retired — the trade journal no longer exists. ' +
+         'Push the account balance with POST db-accounts { action: "set-balance", accountRef, balance } instead.',
+  code: 'trade_logging_retired',
+}
 
 export const handler: Handler = async (event) => {
   try {
@@ -35,86 +55,56 @@ export const handler: Handler = async (event) => {
         const rules = await listPlanRules(user.id)
         return json(200, { rules })
       }
-      
-      // Get stats
-      if (params.action === 'stats') {
-        const stats = await tradeService.getStats(user.id)
-        return json(200, { stats })
-      }
 
-      // Get trades for a specific account
-      if (params.accountId) {
-        const accountTrades = await tradeService.getByAccountId(params.accountId)
-        return json(200, { trades: accountTrades })
-      }
-
-      // Get all trades with optional limit
-      const limit = params.limit ? parseInt(params.limit) : undefined
-      const allTrades = await tradeService.getByUserId(user.id, limit)
-      return json(200, { trades: allTrades })
+      // stats / account trades / all trades were all built from the trade
+      // journal. Gone with the table.
+      return json(410, RETIRED)
     }
 
     if (event.httpMethod === 'POST') {
       const input = JSON.parse(event.body || '{}')
 
-      // ── Cascade actions ─────────────────────────────────────────────────
-      // logTrade updates the trade row, balance, HWM, the rule-calendar entry
-      // and the drawdown verdict in one transaction — and auto-fails the
-      // account when the breach is terminal for that plan.
-      if (input.action === 'log-trade' || input.action === 'correct-trade' || input.action === 'record-payout'
-          || input.action === 'set-plan-rule' || input.action === 'propose-allocation') {
-        try {
-          if (input.action === 'propose-allocation') {
-            // Dry run: what would the split look like? Writes nothing.
-            const proposal = await proposeAllocation(user.id, Number(input.amount))
-            return json(200, { proposal })
-          }
-          if (input.action === 'set-plan-rule') {
-            // Teach Propfolio a plan's rules, or correct them after a firm
-            // changes them. Applies to active accounts on that plan too.
-            //
-            // NOTE: accountSize + stage are passed through deliberately — rules
-            // vary by size (a 25K and 50K of the same plan have different green-day
-            // minimums and payout minimums) and the catalogue is keyed on them.
-            // Dropping these made per-size rules impossible to create via the API.
-            const r = await upsertPlanRule(user.id, {
-              firmName: input.firmName,
-              evalType: input.evalType,
-              accountSize: input.accountSize,
-              stage: input.stage,
-              drawdownStyle: input.drawdownStyle,
-              consistencyPct: input.consistencyPct,
-              profitSplitPct: input.profitSplitPct,
-              payoutMin: input.payoutMin,
-              winningDayMin: input.winningDayMin,
-              winningDaysReq: input.winningDaysReq,
-              dailyLossLimit: input.dailyLossLimit,
-              hasDailyLoss: input.hasDailyLoss,
-              maxDrawdown: input.maxDrawdown,
-              profitTarget: input.profitTarget,
-              payoutTarget: input.payoutTarget,
-              payoutInterval: input.payoutInterval,
-              payoutBuffer: input.payoutBuffer,
-              payoutCapPct: input.payoutCapPct,
-              notes: input.notes,
-              applyToActive: input.applyToActive,
-            })
-            return json(200, r)
-          }
-          if (input.action === 'log-trade') {
-            // Idempotent when the bot supplies a key: a retry after a timeout
-            // returns the original result instead of logging the trade twice.
-            const r = await withIdempotency(user.id, input.idempotencyKey, 'log-trade',
-              () => logTrade({ userId: user.id, ...input }))
-            return json(200, r)
-          }
-          if (input.action === 'correct-trade') {
-            // Correct a mistaken win/loss/amount in-place and recompute the
-            // account from the trade ledger. This is reversible with undo.
-            const r = await withIdempotency(user.id, input.idempotencyKey, 'correct-trade',
-              () => correctTrade({ userId: user.id, ...input }))
-            return json(200, r)
-          }
+      try {
+        if (input.action === 'propose-allocation') {
+          // Dry run: what would the split look like? Writes nothing.
+          const proposal = await proposeAllocation(user.id, Number(input.amount))
+          return json(200, { proposal })
+        }
+
+        if (input.action === 'set-plan-rule') {
+          // Teach Propfolio a plan's rules, or correct them after a firm
+          // changes them. Applies to active accounts on that plan too.
+          //
+          // NOTE: accountSize + stage are passed through deliberately — rules
+          // vary by size (a 25K and 50K of the same plan have different green-day
+          // minimums and payout minimums) and the catalogue is keyed on them.
+          // Dropping these made per-size rules impossible to create via the API.
+          const r = await upsertPlanRule(user.id, {
+            firmName: input.firmName,
+            evalType: input.evalType,
+            accountSize: input.accountSize,
+            stage: input.stage,
+            drawdownStyle: input.drawdownStyle,
+            consistencyPct: input.consistencyPct,
+            profitSplitPct: input.profitSplitPct,
+            payoutMin: input.payoutMin,
+            winningDayMin: input.winningDayMin,
+            winningDaysReq: input.winningDaysReq,
+            dailyLossLimit: input.dailyLossLimit,
+            hasDailyLoss: input.hasDailyLoss,
+            maxDrawdown: input.maxDrawdown,
+            profitTarget: input.profitTarget,
+            payoutTarget: input.payoutTarget,
+            payoutInterval: input.payoutInterval,
+            payoutBuffer: input.payoutBuffer,
+            payoutCapPct: input.payoutCapPct,
+            notes: input.notes,
+            applyToActive: input.applyToActive,
+          })
+          return json(200, r)
+        }
+
+        if (input.action === 'record-payout') {
           // A payout is INCOME, not just a stat. Without `allocations` this
           // returns a suggested split and writes nothing; send the confirmed
           // allocations back to apply it.
@@ -128,103 +118,18 @@ export const handler: Handler = async (event) => {
               allocations: input.allocations,
             }))
           return json(200, r)
-        } catch (e) {
-          if (e instanceof CascadeError) return json(400, { error: e.message, code: e.code })
-          throw e
         }
+      } catch (e) {
+        if (e instanceof CascadeError) return json(400, { error: e.message, code: e.code })
+        throw e
       }
 
-      const {
-        accountId,
-        direction,
-        instrument,
-        entryPrice,
-        exitPrice,
-        amount,
-        result,
-        riskReward,
-        rulesFollowed,
-        rulesBroken,
-        behaviors,
-        notes,
-        tradeDate,
-      } = input
-
-      if (!accountId || amount === undefined || !result) {
-        return json(400, { error: 'accountId, amount, and result are required' })
-      }
-
-      // Verify the account belongs to the user
-      const account = await tradingAccountService.getById(accountId)
-      if (!account || account.userId !== user.id) {
-        return json(403, { error: 'Account not found or not owned by user' })
-      }
-
-      const trade = await tradeService.create(user.id, {
-        accountId,
-        direction: direction || null,
-        instrument: instrument || null,
-        entryPrice: entryPrice ? String(entryPrice) : null,
-        exitPrice: exitPrice ? String(exitPrice) : null,
-        amount: String(amount),
-        result,
-        riskReward: riskReward ? String(riskReward) : null,
-        rulesFollowed: rulesFollowed !== false,
-        rulesBroken: rulesBroken || [],
-        behaviors: behaviors || [],
-        notes: notes || null,
-        tradeDate: tradeDate ? new Date(tradeDate) : new Date(),
-      } as any)
-
-      // Update account balance
-      const signedAmount = result === 'loss' ? -Math.abs(parseFloat(String(amount))) : Math.abs(parseFloat(String(amount)))
-      const newBalance = parseFloat(String(account.balance)) + signedAmount
-      let newDrawdown = parseFloat(String(account.drawdownUsed))
-      let newHWM = parseFloat(String(account.highWaterMark))
-
-      if (result === 'loss') {
-        newDrawdown += Math.abs(parseFloat(String(amount)))
-      } else {
-        newDrawdown = Math.max(0, newDrawdown - Math.abs(parseFloat(String(amount))))
-        if (newBalance > newHWM) newHWM = newBalance
-      }
-
-      await tradingAccountService.updateBalance(accountId, newBalance, newDrawdown, newHWM)
-
-      return json(200, { trade, accountBalance: newBalance, drawdownUsed: newDrawdown, highWaterMark: newHWM })
+      // log-trade, correct-trade, and the legacy bare create-trade path.
+      return json(410, RETIRED)
     }
 
     if (event.httpMethod === 'DELETE') {
-      const { id, reverseBalance } = JSON.parse(event.body || '{}')
-      if (!id) return json(400, { error: 'id required' })
-
-      // Deleting a trade used to drop the row and leave the account balance
-      // holding its P&L forever. Reverse the effect unless the caller
-      // explicitly opts out.
-      if (reverseBalance !== false) {
-        const existing = await tradeService.getById(id)
-        if (existing && (existing as any).userId === user.id) {
-          const acct = await tradingAccountService.getById((existing as any).accountId)
-          if (acct) {
-            const amt = parseFloat(String((existing as any).amount)) || 0
-            const wasLoss = (existing as any).result === 'loss'
-            const signed = wasLoss ? -Math.abs(amt) : Math.abs(amt)
-            const newBalance = parseFloat(String(acct.balance)) - signed
-            let newDrawdown = parseFloat(String(acct.drawdownUsed))
-            newDrawdown = wasLoss
-              ? Math.max(0, newDrawdown - Math.abs(amt))
-              : newDrawdown + Math.abs(amt)
-            // HWM is a high-water mark: never lower it on a delete, or a later
-            // trailing-drawdown calculation silently gains headroom it never had.
-            const hwm = parseFloat(String(acct.highWaterMark))
-            await tradingAccountService.updateBalance(
-              (existing as any).accountId, newBalance, newDrawdown, hwm)
-          }
-        }
-      }
-
-      await tradeService.delete(id)
-      return json(204, {})
+      return json(410, RETIRED)
     }
 
     return json(405, { error: 'Method Not Allowed' })

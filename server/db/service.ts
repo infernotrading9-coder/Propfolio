@@ -1,6 +1,6 @@
 import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import { db } from './connection';
-import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, tradingSessionLimits, tradingModeState, tradingModeRules, trades, personalTrades, personalAccountBalance, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState, planNotes } from './schema';
+import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, tradingSessionLimits, tradingModeState, tradingModeRules, personalTrades, personalAccountBalance, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState, planNotes } from './schema';
 
 // Type aliases for the original schema
 type User = typeof users.$inferSelect;
@@ -19,8 +19,8 @@ type Session = typeof sessions.$inferSelect;
 type NewSession = typeof sessions.$inferInsert;
 type TradingAccount = typeof tradingAccounts.$inferSelect;
 type NewTradingAccount = typeof tradingAccounts.$inferInsert;
-type Trade = typeof trades.$inferSelect;
-type NewTrade = typeof trades.$inferInsert;
+// Trade logging retired Oct 2026 — the `trades` table is gone. Balances move
+// through `set-balance`; daily P&L lives in `account_daily_pnl`.
 type AccountDailyOrder = typeof accountDailyOrder.$inferSelect;
 type NewAccountDailyOrder = typeof accountDailyOrder.$inferInsert;
 type CalendarAccount = typeof calendarAccounts.$inferSelect;
@@ -399,123 +399,6 @@ export const tradingAccountService = {
   },
 };
 
-// Trade operations
-export const tradeService = {
-  async getByUserId(userId: string, limit?: number): Promise<Trade[]> {
-    if (limit) {
-      return db.select().from(trades).where(eq(trades.userId, userId)).orderBy(desc(trades.tradeDate)).limit(limit);
-    }
-    return db.select().from(trades).where(eq(trades.userId, userId)).orderBy(desc(trades.tradeDate));
-  },
-
-  async getByAccountId(accountId: string): Promise<Trade[]> {
-    return db.select().from(trades).where(eq(trades.accountId, accountId)).orderBy(desc(trades.tradeDate));
-  },
-
-  /** Single trade by id. Needed to reverse its balance effect on delete. */
-  async getById(id: string): Promise<Trade | null> {
-    const result = await db.select().from(trades).where(eq(trades.id, id)).limit(1);
-    return result[0] ?? null;
-  },
-
-  async create(userId: string, data: Omit<NewTrade, 'userId'>): Promise<Trade> {
-    const result = await db.insert(trades).values({ ...data, userId }).returning();
-    return result[0];
-  },
-
-  async delete(id: string): Promise<void> {
-    await db.delete(trades).where(eq(trades.id, id));
-  },
-
-  async getStats(userId: string): Promise<{
-    totalTrades: number;
-    wins: number;
-    losses: number;
-    winRate: number;
-    totalPnL: number;
-    avgRR: number;
-    avgWin: number;
-    avgLoss: number;
-    bestTrade: number;
-    worstTrade: number;
-    behaviorStats: { behavior: string; count: number; wins: number; losses: number; winRate: number; totalPnL: number }[];
-    ruleCompliance: { rule: string; total: number; broken: number; complianceRate: number }[];
-  }> {
-    const allTrades = await db.select().from(trades).where(eq(trades.userId, userId));
-    const wins = allTrades.filter(t => t.result === 'win');
-    const losses = allTrades.filter(t => t.result === 'loss');
-    // New cascade writes signed P&L (losses negative). Some old rows stored
-    // losses as positive with result='loss'. Read both correctly.
-    const signed = (t: Trade) => {
-      const amount = parseFloat(String(t.amount)) || 0;
-      if (amount < 0) return amount;
-      return t.result === 'loss' ? -Math.abs(amount) : Math.abs(amount);
-    };
-    const totalPnL = allTrades.reduce((sum, t) => sum + signed(t), 0);
-    const rrValues = allTrades.filter(t => t.riskReward).map(t => parseFloat(String(t.riskReward)));
-    const winAmounts = wins.map(t => Math.abs(signed(t)));
-    const lossAmounts = losses.map(t => Math.abs(signed(t)));
-
-    // Behavior stats
-    const behaviorMap = new Map<string, { count: number; wins: number; losses: number; pnl: number }>();
-    for (const t of allTrades) {
-      const behaviors = (t.behaviors as string[]) || [];
-      for (const b of behaviors) {
-        if (!behaviorMap.has(b)) behaviorMap.set(b, { count: 0, wins: 0, losses: 0, pnl: 0 });
-        const s = behaviorMap.get(b)!;
-        s.count++;
-        if (t.result === 'win') s.wins++; else s.losses++;
-        s.pnl += signed(t);
-      }
-    }
-    const behaviorStats = Array.from(behaviorMap.entries()).map(([behavior, s]) => ({
-      behavior,
-      count: s.count,
-      wins: s.wins,
-      losses: s.losses,
-      winRate: s.count > 0 ? (s.wins / s.count) * 100 : 0,
-      totalPnL: s.pnl,
-    })).sort((a, b) => b.count - a.count);
-
-    // Rule compliance stats
-    const ruleMap = new Map<string, { total: number; broken: number }>();
-    for (const t of allTrades) {
-      const broken = (t.rulesBroken as string[]) || [];
-      for (const r of broken) {
-        if (!ruleMap.has(r)) ruleMap.set(r, { total: 0, broken: 0 });
-        const s = ruleMap.get(r)!;
-        s.total++;
-        s.broken++;
-      }
-    }
-    const ruleCompliance = Array.from(ruleMap.entries()).map(([rule, s]) => ({
-      rule,
-      total: s.total,
-      broken: s.broken,
-      complianceRate: 0, // will be filled in below
-    }));
-    // Also count total trades where rules were checked
-    const totalRulesChecked = allTrades.length;
-    for (const rc of ruleCompliance) {
-      rc.complianceRate = totalRulesChecked > 0 ? ((totalRulesChecked - rc.broken) / totalRulesChecked) * 100 : 100;
-    }
-
-    return {
-      totalTrades: allTrades.length,
-      wins: wins.length,
-      losses: losses.length,
-      winRate: allTrades.length > 0 ? (wins.length / allTrades.length) * 100 : 0,
-      totalPnL,
-      avgRR: rrValues.length > 0 ? rrValues.reduce((a, b) => a + b, 0) / rrValues.length : 0,
-      avgWin: winAmounts.length > 0 ? winAmounts.reduce((a, b) => a + b, 0) / winAmounts.length : 0,
-      avgLoss: lossAmounts.length > 0 ? lossAmounts.reduce((a, b) => a + b, 0) / lossAmounts.length : 0,
-      bestTrade: winAmounts.length > 0 ? Math.max(...winAmounts) : 0,
-      worstTrade: lossAmounts.length > 0 ? -Math.max(...lossAmounts) : 0,
-      behaviorStats,
-      ruleCompliance,
-    };
-  },
-};
 
 // Daily account order operations
 export const accountDailyOrderService = {

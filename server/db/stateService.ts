@@ -212,32 +212,20 @@ export async function undoAction(
     const d = typeof entry.undo_data === 'string' ? JSON.parse(entry.undo_data) : entry.undo_data;
 
     switch (entry.action) {
-      case 'log-trade': {
-        // Reverse THIS trade's effect off the balance directly.
+      case 'log-trade':
+      case 'correct-trade': {
+        // RETIRED Oct 2026. Daniel does not log trades, the `trades` table is
+        // gone, and balances move via `set-balance` instead.
         //
-        // This used to replay the whole ledger. That is no longer valid: a
-        // replay only ever sees the trades that were logged, and logging stopped
-        // Sep 27 2026, so it rewrites the balance from a partial history —
-        // measured at $25,595 against a real $25,982.50 on LFF0-0002. See
-        // applyBalanceDelta.
-        const { rows: tr } = await tx.query(
-          `SELECT amount, result FROM trades WHERE id=$1`, [d.tradeId]);
-        if (d.netted) {
-          // The row survives and reverts to its pre-trade amount, so this
-          // trade's contribution was (merged - prior). Reverse exactly that.
-          const merged = tr.length ? Number(tr[0].amount) : 0;
-          await applyBalanceDelta(tx, userId, d.accountId, -(merged - Number(d.priorAmount || 0)));
-          await tx.query(`UPDATE trades SET amount=$2, result=$3 WHERE id=$1`,
-            [d.tradeId, String(d.priorAmount), resultForAmount(Number(d.priorAmount) || 0)]);
-        } else {
-          await applyBalanceDelta(tx, userId, d.accountId,
-            -(tr.length ? signedTradeAmount(tr[0]) : 0));
-          await tx.query(`DELETE FROM trades WHERE id=$1`, [d.tradeId]);
-        }
-        if (d.calendarEntryCreated && d.calendarEntryId) {
-          await tx.query(`DELETE FROM calendar_entries WHERE id=$1`, [d.calendarEntryId]);
-        }
-        break;
+        // These cases used to reverse a trade row. They now refuse LOUDLY: with
+        // the table dropped, the old SQL would fail with a raw "relation trades
+        // does not exist" error, which surfaces as an opaque 500 from
+        // db-state-full. The pre-existing entries were marked undone when the
+        // table was retired, so this is a guard rather than a normal path.
+        throw new CascadeError(
+          `Cannot undo "${entry.action}" — trade logging was retired and the trade journal is gone. ` +
+          `Use "set-balance" to correct a balance instead.`,
+          'trade_logging_retired');
       }
 
       case 'set-balance': {
@@ -246,38 +234,6 @@ export async function undoAction(
         // survive the undo; restoring an absolute number would clobber it.
         await applyBalanceDelta(tx, userId, d.accountId,
           Number(d.previousBalance ?? 0) - Number(d.balance ?? 0));
-        break;
-      }
-
-      case 'correct-trade': {
-        const p = d.prior || {};
-        // Read the amount in force BEFORE reverting, so the balance move is the
-        // difference between what the trade says now and what it said before.
-        const { rows: cr } = await tx.query(`SELECT amount FROM trades WHERE id=$1`, [d.tradeId]);
-        const currentAmount = cr.length ? Number(cr[0].amount) : 0;
-        const restoredAmount = Number(p.amount ?? 0);
-        await tx.query(`
-          UPDATE trades
-             SET direction=$2, instrument=$3, entry_price=$4, exit_price=$5,
-                 amount=$6, result=$7, risk_reward=$8, rules_followed=$9,
-                 notes=$10, behaviors=$11::text[], rules_broken=$12::text[], trade_date=$13
-           WHERE id=$1`, [
-          d.tradeId,
-          p.direction ?? null,
-          p.instrument ?? null,
-          p.entryPrice ?? null,
-          p.exitPrice ?? null,
-          String(p.amount ?? 0),
-          p.result ?? resultForAmount(Number(p.amount) || 0),
-          p.riskReward ?? null,
-          p.rulesFollowed ?? true,
-          p.notes ?? null,
-          toPgTextArray(p.behaviors || []),
-          toPgTextArray(p.rulesBroken || []),
-          p.tradeDate ?? new Date(),
-        ]);
-        // Delta, not a replay — see applyBalanceDelta.
-        await applyBalanceDelta(tx, userId, d.accountId, restoredAmount - currentAmount);
         break;
       }
 
@@ -593,56 +549,29 @@ export async function getFullState(userId: string): Promise<FullState> {
         floorLockLevel: a.floor_lock_level != null ? Number(a.floor_lock_level) : null,
       });
 
-      // Per-day P&L from the trade journal, for winning-day counts and as a
-      // fallback for best day. Stale since logging was switched off — kept only
-      // because it is the sole record of days before the snapshot table existed.
-      const { rows: days } = await tx.query(`
-        SELECT trade_date::date AS d, SUM(amount)::numeric AS pnl
-          FROM trades WHERE user_id=$1 AND account_id=$2
-         GROUP BY 1 ORDER BY 2 DESC`, [userId, a.id]);
-
-      // Best day from the RECORDED daily P&L — the live source.
+      // Best day from the RECORDED daily P&L — the only source. The trade journal
+      // was fully copied into account_daily_pnl (migration 56) before the table
+      // was retired, so nothing is lost by reading snapshots alone.
       const { rows: snapBest } = await tx.query(`
         SELECT MAX(pnl)::numeric AS best, COUNT(*)::int AS n
           FROM account_daily_pnl WHERE account_id=$1`, [a.id]);
-      const snapshotBest = snapBest[0]?.best == null ? null : round2(snapBest[0].best);
-      const tradeBest = days.length ? round2(days[0].pnl) : null;
-      // Best day is the largest daily P&L seen from EITHER source. Taking the
-      // snapshot alone would LOSE the older trade-derived best day, because the
-      // snapshot table only started recording recently — so this takes the max
-      // and can never regress. Consistency is computed from this, which is why
-      // it must not silently shrink.
-      const bestDay = snapshotBest == null ? tradeBest
-        : tradeBest == null ? snapshotBest
-        : Math.max(snapshotBest, tradeBest);
-      const bestDaySource = snapshotBest != null && (tradeBest == null || snapshotBest >= tradeBest)
-        ? 'daily_pnl' : (tradeBest != null ? 'trades' : 'none');
+      const bestDay = snapBest[0]?.best == null ? null : round2(snapBest[0].best);
+      const bestDaySource = bestDay == null ? 'none' : 'daily_pnl';
       const bestDaySnapshotDays = Number(snapBest[0]?.n ?? 0);
       // Total profit from the BALANCE — the same figure db-accounts uses, so the
       // two endpoints cannot disagree. The firms define profit as "current
-      // balance minus starting balance", and the trade sum stops being
-      // trustworthy the moment logging is off.
+      // balance minus starting balance". There is no trade-sum fallback any
+      // more: that sum stopped being trustworthy when logging was switched off,
+      // and the table is gone.
       const acctSizeNum = Number(a.account_size ?? 0);
       const balNum = Number(a.balance ?? 0);
       const profitFromBalance = acctSizeNum > 0 ? round2(balNum - acctSizeNum) : null;
-      const totalProfit = profitFromBalance != null
-        ? profitFromBalance
-        : round2(days.reduce((s: number, r: any) => s + Number(r.pnl), 0));
-      // A green day must CLEAR the plan's minimum, not merely be positive —
-      // a $29 day does not count against Lucid Flex's $100 bar. The bar is
-      // inclusive ("$100+"): a day of exactly $100 IS a green day, so this
-      // compares >=. With no known minimum the bar is "any positive day" and
-      // the > 0 branch keeps a breakeven day out.
-      const dayMin = a.winning_day_min == null ? null : Number(a.winning_day_min);
-      const derivedWinningDays = days.filter((r: any) => {
-        const pnl = Number(r.pnl);
-        return dayMin == null ? pnl > 0 : pnl >= dayMin;
-      }).length;
-      // A STORED count beats a derived one. Deriving from `trades` reported 2
-      // while the account was on 4, and made db-state-full contradict
-      // db-accounts — the bot and the card must tell the same story.
+      const totalProfit = profitFromBalance ?? 0;
+      // Green days come ONLY from the stored count — recorded from settled balance
+      // moves by recomputeGreenDays, or set by hand via `set-green-days`. The
+      // derive-from-journal path is gone with the table.
       const storedGreen = a.green_days == null ? null : Number(a.green_days);
-      const winningDays = storedGreen != null ? storedGreen : derivedWinningDays;
+      const winningDays = storedGreen ?? 0;
 
       const consistency = a.consistency_pct == null ? null : Number(a.consistency_pct);
       // A stored 0 means "confirmed: no consistency rule at this stage" and must
@@ -1045,9 +974,6 @@ export async function getPayoutSummaryByAccount(
              r.payout_target, r.payout_interval, r.payout_buffer,
              r.winning_days_req, r.winning_day_min,
              r.payout_min, r.profit_split_pct, r.consistency_pct, r.payout_cap_pct,
-             COALESCE(t.total_profit, 0) AS total_profit,
-             COALESCE(t.winning_days, 0) AS winning_days,
-             t.best_day,
              sn.snapshot_best_pnl, sn.snapshot_days
         FROM acct a
         LEFT JOIN LATERAL (
@@ -1073,37 +999,10 @@ export async function getPayoutSummaryByAccount(
                AND p.stage IN ('any', a.rule_stage)
           ) pr
         ) r ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT SUM(d.pnl) AS total_profit,
-                 COUNT(*) FILTER (WHERE d.pnl > 0)::int AS positive_days,
-                 -- A "green day" is only green if it CLEARS the plan's minimum.
-                 -- Counting pnl > 0 would credit a $29 day against Lucid Flex's
-                 -- $100 bar and overstate how close Daniel is to a payout.
-                 --
-                 -- The comparison is >= when a minimum is known, because the
-                 -- plans read "$100+" — a day of exactly $100 IS a green day.
-                 -- Using > made an exact-threshold day silently not count, and a
-                 -- 3-day run of exactly $250 against a $250 rule scored 0/3.
-                 -- With no known minimum the bar is "any positive day", so that
-                 -- branch keeps > 0 and does not credit a breakeven day.
-                 --
-                 -- NOTE: never put backticks in this comment. This is inside a
-                 -- template literal, and a backtick terminates the SQL string.
-                 -- The rule lateral precedes this one, so its threshold is in scope.
-                 COUNT(*) FILTER (
-                   WHERE CASE WHEN r.winning_day_min IS NULL THEN d.pnl > 0
-                              ELSE d.pnl >= r.winning_day_min END
-                 )::int AS winning_days,
-                 MAX(d.pnl) AS best_day
-            FROM (
-              SELECT trade_date::date AS dt, SUM(amount)::numeric AS pnl
-                FROM trades WHERE user_id = $1 AND account_id = a.id
-               GROUP BY 1
-            ) d
-        ) t ON TRUE
-        -- Best day from the RECORDED daily P&L — the live source. The trade
-        -- lateral above stops where logging stopped, so the two are combined by
-        -- taking the highest, never by preferring one.
+        -- Green-day and profit aggregates used to come from a second lateral over
+        -- the trades table. Both are gone along with it: green days are STORED
+        -- on the account, profit comes from the balance, and the day history
+        -- lives in account_daily_pnl. Nothing here reads the journal any more.
         LEFT JOIN LATERAL (
           SELECT MAX(s.pnl) AS snapshot_best_pnl, COUNT(*)::int AS snapshot_days
             FROM account_daily_pnl s WHERE s.account_id = a.id
@@ -1126,17 +1025,12 @@ export async function getPayoutSummaryByAccount(
       const bal = Number(r.balance ?? 0);
       const profitFromBalance = acctSize > 0 ? round2(bal - acctSize) : null;
 
-      // Best day = the highest daily P&L from EITHER source. The snapshot table
-      // only started recording recently, so using it alone would LOSE the older
-      // trade-derived best day; taking the max can never regress.
-      const tradeBest = num(r.best_day);
+      // Best day comes from the recorded daily P&L only — the journal's days were
+      // copied into account_daily_pnl before the table was retired, so nothing
+      // is lost, and there is no second source left to reconcile against.
       const snapBest = num(r.snapshot_best_pnl);
-      const bestDay = tradeBest == null ? snapBest
-        : snapBest == null ? tradeBest
-        : Math.max(tradeBest, snapBest);
-      const bestDaySource: 'daily_pnl' | 'trades' | 'none' =
-        snapBest != null && (tradeBest == null || snapBest >= tradeBest) ? 'daily_pnl'
-        : tradeBest != null ? 'trades' : 'none';
+      const bestDay = snapBest;
+      const bestDaySource: 'daily_pnl' | 'trades' | 'none' = snapBest == null ? 'none' : 'daily_pnl';
 
       out[String(r.id)] = {
         payoutTarget: num(r.payout_target),
@@ -1148,10 +1042,10 @@ export async function getPayoutSummaryByAccount(
         payoutCapPct: num(r.payout_cap_pct),
         winningDaysReq: num(r.winning_days_req),
         winningDayMin: num(r.winning_day_min),
-        totalProfit: profitFromBalance != null ? profitFromBalance : round2(r.total_profit ?? 0),
-        profitSource: profitFromBalance != null ? 'balance' : 'trades',
-        winningDays: storedGreenDays != null ? storedGreenDays : Number(r.winning_days ?? 0),
-        winningDaysSource: storedGreenDays != null ? 'stored' : 'trades',
+        totalProfit: profitFromBalance ?? 0,
+        profitSource: 'balance',
+        winningDays: storedGreenDays ?? 0,
+        winningDaysSource: 'stored',
         bestDay,
         bestDaySource,
         bestDaySnapshotDays: Number(r.snapshot_days ?? 0),

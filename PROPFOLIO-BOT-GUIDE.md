@@ -353,7 +353,7 @@ A 2-day eval and a 15-day eval can cost the same money and mean opposite things.
 
 ### 5.10 Green days — automatic, from the balance
 
-**Do not derive green days from the trades table.** Trade logging has been off since Sep 27 2026, so `trades` stops there — the count read 2/5 while Daniel was actually on 4/5.
+**Do not derive green days from a trade journal — there isn't one any more.** The `trades` table was dropped in Oct 2026: logging stopped Sep 27 and it had been reading a history that simply ended (the count said 2/5 while Daniel was actually on 4/5). Derive nothing from it, and never try to write to it.
 
 Green days are counted automatically from **settled balance moves**. At every 5pm-ET rollover the daily P&L is recorded (`balance now − day_start_balance`), and the count is:
 
@@ -406,26 +406,19 @@ Push it **once per session or once a day** — the rollover converts the balance
 
 **Do not use `log-trade` for this.** A trade row is a per-trade record; Daniel has no use for those, and the trade journal is no longer a source for any live number.
 
-### 5.5 Logged a trade → `POST db-trades`
+### 5.5 ~~Logged a trade~~ → RETIRED. Use `set-balance`.
+
+**Do not log trades.** `POST db-trades { action: "log-trade" }` and `correct-trade` return **410 Gone**, and the `trades` table no longer exists. Any call to them will fail.
+
+What replaced it: **§5.11 `set-balance`** — one call per account with the figure off the platform. That single action is what keeps green days, payout progress and best day current. There is no per-trade equivalent, and none is needed.
+
+If Daniel describes a *session result*, do not turn it into trades. Read the account's balance from the platform and push it:
 
 ```json
-{
-  "action": "log-trade",
-  "accountRef": "ZERO-0857",
-  "amount": 1493.00,
-  "instrument": "NQ",
-  "direction": "long",
-  "rulesFollowed": true,
-  "rulesBroken": [],
-  "behaviors": [],
-  "tradeDate": "2026-09-03",
-  "netIntoSession": false
-}
+{ "action": "set-balance", "accountRef": "ZERO-0857", "balance": 26493.00 }
 ```
 
-`amount` is **signed** — positive win, negative loss. Updates the trade row, balance, high-water mark, the rule-calendar entry for that day, and returns a drawdown verdict (see §6).
-
-**`netIntoSession: true`** folds a small scratch trade into that day's main trade instead of creating a new row — Daniel's standing rule, since small trades pollute his stats. **Exception:** if the small trade is a *rule break*, log it separately with `netIntoSession: false` so it stays visible.
+If he corrects a figure ("actually it was 1200, not 1493"), the fix is still `set-balance` with the corrected total — not a trade edit. Verify the delta back to him so he can confirm the direction.
 
 ### 5.6 Payout → `POST db-trades` — TWO STEPS, always
 
@@ -837,18 +830,18 @@ Shared facts on the `any` row are inherited at both stages, so you only record w
 
 ### 5.10 Idempotency — send a key with every write
 
-Netlify can time out *after* the write committed. Retrying then double-logs the trade. Send a unique `idempotencyKey` per statement and a retry returns the original result instead:
+Netlify can time out *after* the write committed. Retrying then double-logs the action. Send a unique `idempotencyKey` per statement and a retry returns the original result instead:
 
 ```json
-{ "action": "log-trade", "accountRef": "ZERO-0857", "amount": 1493,
+{ "action": "record-payout", "accountRef": "ZERO-0857", "amount": 1500,
   "idempotencyKey": "tg-msg-84321" }
 ```
 
-Use something stable and unique — the Telegram message id is ideal. The response carries `idempotentReplay: true` when it's a replay. Supported on `buy-eval`, `pass-eval`, `fail-account`, `log-trade`, `record-payout` and `undo`.
+Use something stable and unique — the Telegram message id is ideal. The response carries `idempotentReplay: true` when it's a replay. Supported on `buy-eval`, `pass-eval`, `fail-account`, `record-payout` and `undo`.
 
 ### 5.7d "Done for the Day" → `POST db-accounts`
 
-When Daniel says he's done trading an account for the day, after logging the session P&L with `log-trade`, mark it done:
+When Daniel says he's done trading an account for the day, **first push the day's closing balance** with `set-balance` (§5.11), then mark it done:
 
 **Mark one account done:**
 ```json
@@ -872,23 +865,23 @@ This clears `done_for_day` on all accounts so the "DONE FOR THE DAY" overlay dis
 
 Reverses the last action. Pass `actionId` to target a specific one; `GET db-state-full?action=history` lists them.
 
-Reversible: `log-trade`, `correct-trade`, `record-payout` (including every budget slice), `fail-account`, `log-expense`, `transfer`, `reconcile-balances`, `correct-plan`. Buying and passing an eval are **not** auto-reversible — they create accounts that may have been traded on since; you'll get `not_undoable` and should ask Daniel exactly what to unwind.
+Reversible: `set-balance`, `record-payout` (including every budget slice), `fail-account`, `log-expense`, `transfer`, `reconcile-balances`, `correct-plan`. Trade actions were retired with the table and now refuse with `trade_logging_retired`. Buying and passing an eval are **not** auto-reversible — they create accounts that may have been traded on since; you'll get `not_undoable` and should ask Daniel exactly what to unwind.
 
 **Confirm before undoing.** Read the summary back to him first: *"Last action was 'Win of $800.00 on 0857' — undo that?"*
 
-**Correcting a trade** (wrong amount, wrong win/loss) is also undoable. Use `correct-trade` to fix it in-place — the account balance is recomputed from the trade ledger — or `undo` to reverse the last trade entirely. Both are journaled.
+**Correcting a balance figure** is `set-balance` with the right total — there is no trade to edit any more. `set-balance` itself is journaled and undoable.
 
 ---
 
 ## 6. Drawdown verdicts — the rule that got 9058 wrong
 
-`log-trade` returns a `verdict`. **Read `consequence`, not `breached`.** What a breach *means* depends on the plan:
+**Verdicts are no longer returned.** They came from `log-trade`, which is retired. The drawdown tables below still describe how each plan TYPE behaves, but nothing hands you a `consequence` field any more — read the account's `drawdownUsed` / `maxDrawdown` from `GET db-state-full` and judge against the plan's style. If it looks breached, say it *looks* breached and ask Daniel to check the platform.
 
 | `consequence` | Meaning |
 |---|---|
 | `none` | Fine, keep trading |
 | `session_lockout` | Daily limit hit on an **EOD** plan. Locked out for the session, **account survives**, trades again next session. |
-| `account_lost` | **A WARNING ONLY — the account is NOT dead.** Propfolio only sees trades Daniel logged, not his real broker balance, so this verdict can be wrong. Tell him it *looks* blown by Propfolio's numbers and ask him to check the platform. **Nothing changes until he says it failed**, at which point you call `fail-account`. |
+| `account_lost` | **A WARNING ONLY — the account is NOT dead.** Propfolio now reads the pushed balance, but that only updates when the bot pushes it, so it can still be stale. Tell him it *looks* blown by Propfolio's numbers and ask him to check the platform. **Nothing changes until he says it failed**, at which point you call `fail-account`. |
 
 Two drawdown styles:
 
@@ -941,7 +934,7 @@ A 400 means **nothing was written**. The transaction rolled back. Safe to retry 
 6. **Prompt for rules** on every new account. No rules = the Rule Calendar can't check anything.
 7. **Dates are America/New_York local.** Never use `toISOString().slice(0,10)` — it rolls to tomorrow after ~7pm ET and files trades on the wrong day.
 8. **A pass gives a FUNDED account.** Always ask for the new funded account number.
-9. **Everything is connected through code.** One `buy-eval` call creates the challenge row, account card, budget expense, and calendar row in one transaction. One `pass-eval` retires the eval, creates the funded card, and links them. One `log-trade` updates the trade row, balance, HWM, calendar entry, and drawdown verdict. Never call three endpoints to do what one does — the cascade is the atomic unit, and calling pieces separately is how surfaces drift apart.
+9. **Everything is connected through code.** One `buy-eval` call creates the challenge row, account card, budget expense, and calendar row in one transaction. One `pass-eval` retires the eval, creates the funded card, and links them. One `set-balance` updates the balance, the drawdown used, and the high-water mark. Never call three endpoints to do what one does — the cascade is the atomic unit, and calling pieces separately is how surfaces drift apart.
 10. **Never loop `buy-eval` for a batch.** Use `accounts[]` in a single `buy-eval` call. Looping produced only 1 card for a batch of 3 because the unique index blocked the 2nd insert.
 11. **Always send `idempotencyKey` on writes.** The Telegram message id works. Without it, a Netlify timeout + retry double-writes the trade.
 
@@ -966,9 +959,9 @@ If Daniel asks about pre-September-2026 history, it's all on the dashboard now �
 | "passed 0045" | `pass-eval` (ask for the new funded last4) |
 | "they moved me to live on 0857" | `promote-to-live` (needs 5+ payouts) |
 | "failed 9056" | `fail-account` |
-| "made 1493 on 0047" | `log-trade` |
-| "made 800 on each of the 3 copy-traded 50Ks" | `log-trade` 3 times — one per account ref (see §5.12) |
-| "actually it was 1200, not 1493" | `correct-trade` (fixes the amount in-place, recomputes balance) |
+| "made 1493 on 0047" | `set-balance` with the account's new balance (§5.11) |
+| "made 800 on each of the 3 copy-traded 50Ks" | `set-balance` once per account ref (see §5.12) |
+| "actually it was 1200, not 1493" | `set-balance` with the corrected total (§5.11) |
 | "bought 3 lucid 50ks" | `buy-eval` with `accounts[]` (NOT a loop of 3 calls) |
 | "got a 1500 payout on 0857" | `record-payout` → show split → confirm → apply |
 | "spent 60 on gas from sofi" | `log-expense` |
@@ -1001,18 +994,18 @@ Daniel copy-trades multiple accounts at once. They are linked as a **copy-trade 
 **Log EACH account separately.** Different firms have different fills and fees, so the end result on each account may be slightly different. Daniel will give you individual amounts per account.
 
 ```json
-{ "action": "log-trade", "accountRef": "LFE0-0048", "amount": 800.00 }
-{ "action": "log-trade", "accountRef": "LFE0-0049", "amount": 798.50 }
-{ "action": "log-trade", "accountRef": "LFE0-0050", "amount": 801.25 }
+{ "action": "set-balance", "accountRef": "LFE0-0048", "balance": 50800.00 }
+{ "action": "set-balance", "accountRef": "LFE0-0049", "balance": 50798.50 }
+{ "action": "set-balance", "accountRef": "LFE0-0050", "balance": 50801.25 }
 ```
 
-Send one `log-trade` per account. Each gets its own trade row, its own balance update, and its own drawdown verdict. The `idempotencyKey` prevents a retry from double-logging.
+Send one `set-balance` per account, each with **that account's own figure off the platform**. Never log trades any more — see §5.5.
 
 ### What NOT to do
 
-- **Do NOT sum the amounts and log once.** Each account has its own balance, its own drawdown, and its own stop-out level. Logging $2,400 on one account would blow its drawdown calculation.
+- **Do NOT push one account's balance onto the others.** Each has its own balance, drawdown and stop-out level; one account's number would corrupt the rest.
 - **Do NOT guess that the amounts are the same.** Daniel will tell you each one. If he says "made 800 on each" without specifics, ask: "Were the fills identical or should I log each one separately?"
-- **Do NOT unlink accounts to log trades.** The `unlink-copy-trade` API is for managing group membership, not for logging. Log each account by its own ref.
+- **Do NOT unlink accounts to update them.** The `unlink-copy-trade` API is for managing group membership only. Address each account by its own ref.
 
 ### Linking / unlinking copy-trade accounts
 

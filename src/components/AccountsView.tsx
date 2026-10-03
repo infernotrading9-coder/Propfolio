@@ -49,13 +49,13 @@ interface AccountPayout {
   winningDaysReq: number | null;
   winningDayMin: number | null;
   totalProfit: number;
-  /** 'balance' = live; 'trades' = stale table sum. */
+  /** Always 'balance' now — trade logging retired, so the balance is the source. */
   profitSource?: 'balance' | 'trades';
   winningDays: number;
-  /** 'stored' = confirmed count; 'trades' = derived from a stale table. */
+  /** Always 'stored' now — recorded from balance moves, or set by hand. */
   winningDaysSource?: 'stored' | 'trades';
   bestDay: number | null;
-  /** 'daily_pnl' = recorded snapshots (live); 'trades' = stale journal. */
+  /** 'daily_pnl' = recorded snapshots (live). 'trades' is legacy only. */
   bestDaySource?: 'daily_pnl' | 'trades' | 'none';
   /** Days the snapshot source has — 0 means no live history yet. */
   bestDaySnapshotDays?: number;
@@ -327,7 +327,6 @@ const PayoutPanel: React.FC<{ payout: AccountPayout }> = ({ payout }) => {
   const {
     payoutTarget, payoutInterval, payoutBuffer, payoutMin,
     profitSplitPct, payoutCapPct, winningDaysReq, winningDayMin, totalProfit, winningDays,
-    winningDaysSource,
   } = payout;
 
   const hasAnything =
@@ -383,14 +382,6 @@ const PayoutPanel: React.FC<{ payout: AccountPayout }> = ({ payout }) => {
               {winningDays}/{winningDaysReq}
             </span>
           </div>
-          {/* Say when the number is guessed rather than known. Trade logging is
-              off, so a trade-derived count reads a history that stopped — it
-              under-reports, and silently showing it would look authoritative. */}
-          {winningDaysSource === 'trades' && (
-            <div className="text-[10px] text-white/30 mb-1">
-              from logged trades — may be behind
-            </div>
-          )}
           <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${winningDays >= winningDaysReq ? 'bg-emerald-400' : 'bg-gradient-to-r from-cyan-400 to-emerald-400'}`}

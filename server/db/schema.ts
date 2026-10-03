@@ -221,25 +221,10 @@ export const tradingAccounts = pgTable('trading_accounts', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
-// Trades table - individual trade log
-export const trades = pgTable('trades', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').references(() => users.id).notNull(),
-  accountId: uuid('account_id').references(() => tradingAccounts.id).notNull(),
-  direction: text('direction'), // 'long' or 'short'
-  instrument: text('instrument'), // e.g. "NQ", "ES", "CL"
-  entryPrice: decimal('entry_price', { precision: 12, scale: 4 }),
-  exitPrice: decimal('exit_price', { precision: 12, scale: 4 }),
-  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(), // P&L in dollars
-  result: text('result').notNull(), // 'win' or 'loss'
-  riskReward: decimal('risk_reward', { precision: 6, scale: 2 }), // e.g. 2.5 = 2.5R
-  rulesFollowed: boolean('rules_followed').default(true),
-  rulesBroken: text('rules_broken').array().default([]),
-  behaviors: text('behaviors').array().default([]),
-  notes: text('notes'),
-  tradeDate: timestamp('trade_date').defaultNow().notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+// Trades table REMOVED (Oct 2026) — Daniel does not log trades. Balances move
+// via `set-balance`, and daily P&L is recorded in `account_daily_pnl`
+// (raw SQL; see stateService.recordDailyRollover). The physical table was
+// dropped after its day history was backfilled.
 
 // Calendar accounts — rule-tracking calendars linked to challenges/phases
 export const calendarAccounts = pgTable('calendar_accounts', {
