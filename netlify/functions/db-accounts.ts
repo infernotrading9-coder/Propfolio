@@ -547,7 +547,7 @@ export const handler: Handler = async (event) => {
         // the balance could never move — and green days, payout progress and
         // best day all read the balance, so the whole tracker sat frozen.
         // (The personal NinjaTrader account already had `update-balance`.)
-        const { accountRef, balance: newBalance, note } = input
+        const { accountRef, balance: newBalance, note, correction } = input
         if (!accountRef) return json(400, { error: 'accountRef required', code: 'no_ref' })
         if (newBalance === undefined || newBalance === null) {
           return json(400, { error: 'balance required', code: 'no_balance' })
@@ -574,11 +574,14 @@ export const handler: Handler = async (event) => {
 
         const bTarget: any = bMatches[0]
         try {
-          const res = await setAccountBalance(user.id, bTarget.id, target, note ?? null)
+          const isCorrection = correction === true
+          const res = await setAccountBalance(user.id, bTarget.id, target, note ?? null, isCorrection)
           return json(200, {
             ...res,
             accountRef: bTarget.displayLabel,
-            message: `${bTarget.displayLabel} balance $${res.previousBalance.toFixed(2)} → $${res.balance.toFixed(2)}`,
+            message: isCorrection
+              ? `${bTarget.displayLabel} balance corrected $${res.previousBalance.toFixed(2)} → $${res.balance.toFixed(2)} (drawdown and high-water mark untouched)`
+              : `${bTarget.displayLabel} balance $${res.previousBalance.toFixed(2)} → $${res.balance.toFixed(2)}`,
           })
         } catch (e: any) {
           return json(404, { error: e?.message || 'Could not set balance', code: 'not_found' })

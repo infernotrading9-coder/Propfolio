@@ -154,6 +154,23 @@ async function applyBalanceDelta(
 }
 
 /**
+ * Write a balance with NO side effects — no drawdown move, no HWM move.
+ *
+ * Used for a CORRECTION (the stored number was simply wrong) as opposed to a
+ * real P&L move. `applyBalanceDelta` treats every change as a trade, which is
+ * right for "I made $400" and wrong for "the balance is off by $2": no trade
+ * happened, so the drawdown must not absorb the difference.
+ */
+async function writeBalanceOnly(
+  tx: TxClient, userId: string, accountId: string, balance: number,
+): Promise<void> {
+  await tx.query(
+    `UPDATE trading_accounts SET balance=$2, updated_at=NOW()
+      WHERE id=$1 AND user_id=$3`,
+    [accountId, String(round2(balance)), userId]);
+}
+
+/**
  * Push an account's balance straight from the platform, with NO trade involved.
  *
  * This is the missing piece: for prop accounts every path that moved a balance
@@ -162,11 +179,18 @@ async function applyBalanceDelta(
  * balance, so the whole tracker would sit frozen. The personal NinjaTrader
  * account already had `update-balance`; this is the prop equivalent.
  *
- * Recorded in `action_log` so it can be undone.
+ * Two intents, and they are NOT the same thing:
+ *   correction = false (default) → a real P&L move. Drawdown absorbs it, the
+ *                                  HWM can rise. "I made $400 today."
+ *   correction = true            → fix a wrong number. Balance ONLY; drawdown
+ *                                  and HWM are untouched. "The balance is off."
+ *
+ * Recorded in `action_log` so either can be undone.
  */
 export async function setAccountBalance(
-  userId: string, accountId: string, balance: number, note?: string | null,
-): Promise<{ previousBalance: number; balance: number; delta: number; actedAt: string }> {
+  userId: string, accountId: string, balance: number,
+  note?: string | null, correction: boolean = false,
+): Promise<{ previousBalance: number; balance: number; delta: number; correction: boolean; actedAt: string }> {
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(
       `SELECT id, display_label, balance FROM trading_accounts
@@ -176,14 +200,20 @@ export async function setAccountBalance(
     const next = round2(balance);
     const delta = round2(next - prev);
 
-    await applyBalanceDelta(tx, userId, accountId, delta);
+    if (correction) {
+      await writeBalanceOnly(tx, userId, accountId, next);
+    } else {
+      await applyBalanceDelta(tx, userId, accountId, delta);
+    }
 
     const actedAt = new Date().toISOString();
     await logAction(tx, userId, 'set-balance',
-      `Set ${rows[0].display_label} balance to $${next.toFixed(2)} (was $${prev.toFixed(2)})`,
-      { accountId, previousBalance: prev, balance: next, note: note ?? null });
+      correction
+        ? `Corrected ${rows[0].display_label} balance to $${next.toFixed(2)} (was $${prev.toFixed(2)}) — no drawdown change`
+        : `Set ${rows[0].display_label} balance to $${next.toFixed(2)} (was $${prev.toFixed(2)})`,
+      { accountId, previousBalance: prev, balance: next, note: note ?? null, correction });
 
-    return { previousBalance: prev, balance: next, delta, actedAt };
+    return { previousBalance: prev, balance: next, delta, correction, actedAt };
   });
 }
 
@@ -229,11 +259,18 @@ export async function undoAction(
       }
 
       case 'set-balance': {
-        // Undo by applying the INVERSE DELTA, not by writing the stored previous
-        // value back. Anything else that moved the balance in the meantime must
-        // survive the undo; restoring an absolute number would clobber it.
-        await applyBalanceDelta(tx, userId, d.accountId,
-          Number(d.previousBalance ?? 0) - Number(d.balance ?? 0));
+        if (d.correction) {
+          // A correction never touched the drawdown or the HWM, so the undo must
+          // not either — restore the balance alone.
+          await writeBalanceOnly(tx, userId, d.accountId, Number(d.previousBalance ?? 0));
+        } else {
+          // Undo by applying the INVERSE DELTA, not by writing the stored
+          // previous value back. Anything else that moved the balance in the
+          // meantime must survive the undo; restoring an absolute number would
+          // clobber it.
+          await applyBalanceDelta(tx, userId, d.accountId,
+            Number(d.previousBalance ?? 0) - Number(d.balance ?? 0));
+        }
         break;
       }
 

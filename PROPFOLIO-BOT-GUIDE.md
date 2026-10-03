@@ -394,6 +394,21 @@ Inclusive, because the firms write "$100+". A day of exactly $100 counts; $99 do
 - **`delta` drives the drawdown model.** A fall grows `drawdown_used`; a rise pays it back and can set a new high-water mark. **HWM never decreases.** This is exactly what `log-trade` would have done for a trade of that size.
 - Recorded in `action_log` and **undoable** — the undo applies the inverse delta, so anything that moved the balance in the meantime survives.
 
+**Two intents — pick the right one:**
+
+| | What it does | Use when |
+|---|---|---|
+| default | Real P&L move. Drawdown absorbs it; HWM can rise. | *"I made $400 today."* |
+| **`"correction": true`** | Writes the balance **only**. Drawdown and HWM untouched. | *"The balance is off by a couple of dollars — fix it."* |
+
+```json
+{ "action": "set-balance", "accountRef": "LFF0-0002", "balance": 25980.50, "correction": true }
+```
+
+Use `correction: true` whenever the number was simply **wrong** (drift, a bad sync, a typo). A correction is not a trade, so it must not move the drawdown — otherwise fixing $2 of drift silently adds $2 to the drawdown used. Corrections are undoable too, and the undo restores the balance without touching the drawdown or HWM.
+
+**Never fix a balance with `set-account-size`** — that one also resets `maxDrawdown` and `floorLockLevel` and would wipe more than you intend.
+
 **Every live number reads the balance**, so this one action keeps green days, payout progress and best day current without any trade logging:
 
 | Reads the balance | |
