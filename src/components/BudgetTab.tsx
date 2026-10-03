@@ -533,7 +533,37 @@ function AccountCard({
         <div className="budget-icon-wrap">
           <AccountIconSvg icon={acc.icon || 'cash'} />
         </div>
-        <div className="name">{stripEmoji(acc.name)}</div>
+        <div className="name">
+          {stripEmoji(acc.name)}
+          {(acc as any).overdue && (
+            <span
+              title={`Overdue — bad debt${(acc as any).overdueSince ? ` since ${(acc as any).overdueSince}` : ''}. Holds the trading-mode score down.`}
+              style={{
+                marginLeft: 6, fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
+                padding: '1px 5px', borderRadius: 999,
+                background: 'rgba(245,158,11,0.18)', color: '#fbbf24',
+                border: '1px solid rgba(245,158,11,0.45)',
+                verticalAlign: 'middle',
+              }}
+            >
+              OVERDUE
+            </span>
+          )}
+          {isBorrowLiabilityLoan(acc) && fullBalance < 0 && (
+            <span
+              title="You overpaid this — the balance is money owed back to you"
+              style={{
+                marginLeft: 6, fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
+                padding: '1px 5px', borderRadius: 999,
+                background: 'rgba(16,185,129,0.18)', color: '#34d399',
+                border: '1px solid rgba(16,185,129,0.45)',
+                verticalAlign: 'middle',
+              }}
+            >
+              OWES YOU
+            </span>
+          )}
+        </div>
       </div>
       <div className="budget-card-bottom">
         <div className="balance" style={balanceColor} title="Double-click to adjust">
@@ -1046,6 +1076,42 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
   const updateState = useCallback((updater: (prev: BudgetState) => BudgetState) => {
     void updater;
   }, []);
+
+  // ─── Recurring charges ──────────────────────────────────────────────────────
+  // A recurring charge is a DEFINITION (car + insurance), not a transaction, so
+  // switching one off never touches history. `active: false` means paid off or
+  // cancelled but deliberately kept on record.
+  const recurringList: any[] = ((state as any).recurring || []) as any[];
+  const recurringActiveTotal = round2(
+    recurringList.filter((r) => r.active !== false).reduce((s, r) => s + Number(r.amount || 0), 0));
+
+  const setRecurring = useCallback((next: any[]) => {
+    handleChange({ ...(state as any), recurring: next } as BudgetState);
+  }, [handleChange, state]);
+
+  const toggleRecurring = useCallback((id: string) => {
+    setRecurring(recurringList.map((r) =>
+      r.id === id ? { ...r, active: r.active === false } : r));
+  }, [recurringList, setRecurring]);
+
+  const removeRecurring = useCallback((id: string) => {
+    if (!confirm('Delete this recurring charge permanently? Turn it off instead to keep the record of what it cost.')) return;
+    setRecurring(recurringList.filter((r) => r.id !== id));
+  }, [recurringList, setRecurring]);
+
+  const addRecurring = useCallback(() => {
+    const name = window.prompt('What is the recurring charge called?  (e.g. Car + insurance)');
+    if (!name || !name.trim()) return;
+    const amt = Number(window.prompt('How much per month?') || 0);
+    if (!Number.isFinite(amt) || amt <= 0) return;
+    const dayRaw = window.prompt('Day of the month it is due? (1-31 — leave blank if unsure)') || '';
+    const day = dayRaw.trim() === '' ? null : Math.min(31, Math.max(1, Math.trunc(Number(dayRaw) || 0)));
+    setRecurring([...recurringList, {
+      id: `rec_${Math.random().toString(36).slice(2, 9)}`,
+      name: name.trim(), amount: round2(amt), dayOfMonth: day, accountId: null,
+      categoryId: null, frequency: 'monthly', active: true, notes: null,
+    }]);
+  }, [recurringList, setRecurring]);
   void updateState;
 
   const saveAndRender = useCallback((newState: BudgetState) => {
@@ -1649,6 +1715,83 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
               <div className="budget-total-label">Total Debt</div>
               <div className="budget-total-balance budget-total-balance-sm budget-total-debt-amount">{fmt.format(totalDebt)}</div>
             </div>
+          </div>
+        </section>
+
+        {/* Recurring charges */}
+        <section className="budget-card full">
+          <div className="budget-card-header">
+            <h2>Recurring</h2>
+            <span className="hint">
+              {recurringList.length === 0
+                ? 'Nothing recurring yet — car, insurance, rent'
+                : `${fmt.format(recurringActiveTotal)}/mo across ${recurringList.filter(r => r.active !== false).length} active`}
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {recurringList.length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                Add the charges that repeat every month. Turning one off keeps it on record — nothing is deleted.
+              </div>
+            )}
+            {recurringList.map((r) => {
+              const on = r.active !== false;
+              return (
+                <div
+                  key={r.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 10px', borderRadius: 8,
+                    border: '1px solid ' + (on ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.05)'),
+                    background: on ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.01)',
+                    opacity: on ? 1 : 0.55,
+                  }}
+                >
+                  <button
+                    onClick={() => toggleRecurring(r.id)}
+                    title={on ? 'Turn off (paid off / cancelled)' : 'Turn back on'}
+                    style={{
+                      flexShrink: 0, width: 34, height: 18, borderRadius: 999, border: 'none', cursor: 'pointer',
+                      background: on ? '#10b981' : 'rgba(255,255,255,0.15)', position: 'relative',
+                    }}
+                  >
+                    <span style={{
+                      position: 'absolute', top: 2, left: on ? 18 : 2, width: 14, height: 14,
+                      borderRadius: '50%', background: '#fff', transition: 'left 0.15s ease',
+                    }} />
+                  </button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, textDecoration: on ? 'none' : 'line-through' }}>
+                      {r.name}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--muted)' }}>
+                      {r.dayOfMonth ? `due the ${r.dayOfMonth}${r.dayOfMonth === 1 ? 'st' : r.dayOfMonth === 2 ? 'nd' : r.dayOfMonth === 3 ? 'rd' : 'th'} · ` : ''}
+                      {r.frequency || 'monthly'}{r.notes ? ` · ${r.notes}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    {fmt.format(Number(r.amount || 0))}
+                  </div>
+                  <button
+                    onClick={() => removeRecurring(r.id)}
+                    title="Delete permanently"
+                    style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14, flexShrink: 0 }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+            <button
+              onClick={addRecurring}
+              style={{
+                alignSelf: 'flex-start', marginTop: 4, padding: '6px 12px', borderRadius: 8,
+                border: '1px dashed rgba(255,255,255,0.2)', background: 'none',
+                color: 'inherit', cursor: 'pointer', fontSize: 12,
+              }}
+            >
+              + Add recurring charge
+            </button>
           </div>
         </section>
 

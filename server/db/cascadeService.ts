@@ -785,6 +785,14 @@ export interface BudgetAccountSummary {
   balance: number;
   kind: 'cash' | 'credit' | 'debt' | 'borrow';
   isLiability: boolean;
+  /** Marked behind on payments — BAD debt, the kind that moves the score. */
+  overdue: boolean;
+  overdueSince: string | null;
+  /**
+   * Money owed back TO Daniel: a liability he overpaid, so its balance went
+   * negative. Reported as a positive number, or 0.
+   */
+  owedToMe: number;
 }
 
 /**
@@ -800,12 +808,18 @@ export async function listBudgetAccounts(userId: string): Promise<BudgetAccountS
     const state = typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state;
     return (state?.accounts ?? []).map((a: any) => {
       const kind = String(a.loanKind || 'cash') as BudgetAccountSummary['kind'];
+      const isLiability = kind === 'credit' || kind === 'debt' || kind === 'borrow';
+      const balance = round2(a.balance);
       return {
         id: String(a.id),
         name: String(a.name),
-        balance: round2(a.balance),
+        balance,
         kind,
-        isLiability: kind === 'credit' || kind === 'debt' || kind === 'borrow',
+        isLiability,
+        // Only a liability can be overdue, and only while it still holds debt.
+        overdue: isLiability && balance > 0 && !!a.overdue,
+        overdueSince: a.overdueSince ? String(a.overdueSince) : null,
+        owedToMe: isLiability && balance < 0 ? round2(Math.abs(balance)) : 0,
       };
     });
   });

@@ -19,16 +19,79 @@ async function computeTradingModeCounters(userId: string) {
   ]);
   const accounts = budget?.accounts || [];
   const isLiab = (a: any) => ['credit', 'debt', 'borrow'].includes(String(a?.loanKind || ''));
-  const cashOnHand = Math.round(
-    accounts.filter((a: any) => !isLiab(a))
-      .reduce((s: number, a: any) => s + (Number(a?.balance) || 0), 0) * 100) / 100;
-  const totalDebt = Math.round(
-    accounts.filter((a: any) => isLiab(a) && (Number(a?.balance) || 0) > 0)
-      .reduce((s: number, a: any) => s + (Number(a?.balance) || 0), 0) * 100) / 100;
+  const bal = (a: any) => Number(a?.balance) || 0;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+
+  const cashOnHand = r2(accounts.filter((a: any) => !isLiab(a)).reduce((s: number, a: any) => s + bal(a), 0));
+
+  // A liability normally holds what Daniel OWES, so a positive balance is debt.
+  // If it goes BELOW zero he overpaid — the excess is money owed back TO him,
+  // not negative debt. (Christian: owe $1,500, pay his $1,700 card, he owes $200.)
+  const debts = accounts.filter((a: any) => isLiab(a) && bal(a) > 0);
+  const totalDebt = r2(debts.reduce((s: number, a: any) => s + bal(a), 0));
+
+  // Overdue = the account is flagged behind. This is BAD debt — the kind that
+  // belongs in the score. Not all debt is equal, and the flag is now a fact in
+  // the DB rather than something the bot has to remember.
+  const overdueDebt = r2(debts.filter((a: any) => !!a.overdue).reduce((s: number, a: any) => s + bal(a), 0));
+  const owedToMe = r2(
+    accounts.filter((a: any) => isLiab(a) && bal(a) < 0).reduce((s: number, a: any) => s + Math.abs(bal(a)), 0));
+
   const evalCount = challenges.filter((c: any) => c.status === 'active' && String(c.lifecycle || '').startsWith('eval')).length;
   const fundedCount = challenges.filter((c: any) => c.lifecycle === 'funded_active').length;
   const liveCount = challenges.filter((c: any) => c.lifecycle === 'live_active').length;
-  return { cashOnHand, totalDebt, evalCount, fundedCount, liveCount };
+
+  // ── Pace ────────────────────────────────────────────────────────────────
+  // How fast evals are being lost, and how long they take to pass. Mirrors the
+  // `velocity` block in getFullState, reduced to the headline numbers the score
+  // reacts to.
+  //
+  // `failureDate` is only populated on a minority of historical rows, so each
+  // average ships WITH its sample size — a 3-account average is not a trend,
+  // and the score must not treat it as one.
+  //
+  // startDate is TEXT ('YYYY-MM-DD') while phase1CompletedAt is a Date, so both
+  // are normalised to a UTC midnight before differencing.
+  const toDayMs = (v: any): number | null => {
+    if (v == null) return null;
+    const s = v instanceof Date
+      ? (isNaN(v.getTime()) ? null : v.toISOString().slice(0, 10))
+      : (typeof v === 'string' ? v.slice(0, 10) : null);
+    if (!s) return null;
+    const d = new Date(s + 'T00:00:00Z');
+    return isNaN(d.getTime()) ? null : d.getTime();
+  };
+  const dayDiff = (a: any, b: any): number | null => {
+    const f = toDayMs(a), t = toDayMs(b);
+    if (f == null || t == null) return null;
+    return Math.max(0, Math.round((t - f) / 86400000));
+  };
+  const avgOf = (arr: number[]) =>
+    arr.length ? Math.round((arr.reduce((s, n) => s + n, 0) / arr.length) * 10) / 10 : null;
+
+  const dated = challenges
+    .map((c: any) => ({ c, d: dayDiff(c.startDate, c.failureDate) }))
+    .filter((x: any) => x.d != null);
+  const evalDurs = dated.filter((x: any) => String(x.c.lifecycle || '').startsWith('eval')).map((x: any) => x.d);
+  const fundedDurs = dated.filter((x: any) => String(x.c.lifecycle || '').startsWith('funded')).map((x: any) => x.d);
+
+  // How long it takes him to PASS an eval. Both dates are already on the row —
+  // nothing new to store, this just derives the duration that was never computed.
+  const passDurs = challenges
+    .map((c: any) => dayDiff(c.startDate, c.phase1CompletedAt))
+    .filter((d: number | null): d is number => d != null);
+
+  return {
+    cashOnHand, totalDebt, overdueDebt, owedToMe, evalCount, fundedCount, liveCount,
+    // Pace — avg days an account lasted before being lost, with sample sizes.
+    evalFailAvgDays: avgOf(evalDurs),
+    evalFailSample: evalDurs.length,
+    fundedFailAvgDays: avgOf(fundedDurs),
+    fundedFailSample: fundedDurs.length,
+    // Pace — how long phase 1 takes him to clear.
+    evalPassAvgDays: avgOf(passDurs),
+    evalPassSample: passDurs.length,
+  };
 }
 
 /**

@@ -9,6 +9,10 @@ interface TradingModeState {
   liveCount: number;
   cashOnHand: number;
   totalDebt: number;
+  /** The slice of debt flagged overdue — BAD debt. Drives the score. */
+  overdueDebt: number;
+  /** Money owed back to Daniel (overpaid liabilities). Adds to net worth. */
+  owedToMe: number;
   personalBalance: number | null;
   riskPerTrade: number | null;
   maxEvalLoss: number;
@@ -43,7 +47,7 @@ function tickColor(deg: number): string {
 
 const DEFAULT_STATE: TradingModeState = {
   score: 5, mode: 'survival', evalCount: 0, fundedCount: 0, liveCount: 0,
-  cashOnHand: 0, totalDebt: 0, personalBalance: null, riskPerTrade: null,
+  cashOnHand: 0, totalDebt: 0, overdueDebt: 0, owedToMe: 0, personalBalance: null, riskPerTrade: null,
   maxEvalLoss: 2, maxFundedLoss: 1, maxLiveLoss: 0,
   notes: null, rules: {
     survival: [
@@ -110,6 +114,8 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
           liveCount: data.liveCount ?? 0,
           cashOnHand: parseFloat(data.cashOnHand ?? '0'),
           totalDebt: parseFloat(data.totalDebt ?? '0'),
+          overdueDebt: parseFloat(data.overdueDebt ?? '0'),
+          owedToMe: parseFloat(data.owedToMe ?? '0'),
           personalBalance: data.personalBalance != null ? parseFloat(data.personalBalance) : null,
           riskPerTrade: data.riskPerTrade != null ? parseFloat(data.riskPerTrade) : null,
           maxEvalLoss: data.maxEvalLoss ?? 2,
@@ -239,7 +245,23 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
             <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Fund</div><div className="text-sm sm:text-base font-bold whitespace-nowrap text-cyan-400">{state.fundedCount}</div></div>
             <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Live</div><div className="text-sm sm:text-base font-bold whitespace-nowrap text-lime-400">{state.liveCount}</div></div>
             <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Cash</div><div className={`text-sm sm:text-base font-bold whitespace-nowrap ${state.cashOnHand >= 0 ? 'text-lime-400' : 'text-red-400'}`}>${state.cashOnHand.toFixed(0)}</div></div>
-            <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Debt</div><div className="text-sm sm:text-base font-bold whitespace-nowrap text-red-400">${state.totalDebt.toFixed(0)}</div></div>
+            <div>
+              <div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Debt</div>
+              <div className="text-sm sm:text-base font-bold whitespace-nowrap text-red-400">
+                ${state.totalDebt.toFixed(0)}
+                {state.overdueDebt > 0 && (
+                  <span className="text-[9px] sm:text-[10px] text-amber-400 ml-1" title="Overdue — bad debt">
+                    ${state.overdueDebt.toFixed(0)} late
+                  </span>
+                )}
+              </div>
+            </div>
+            {state.owedToMe > 0 && (
+              <div>
+                <div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Owed to you</div>
+                <div className="text-sm sm:text-base font-bold whitespace-nowrap text-emerald-400">${state.owedToMe.toFixed(0)}</div>
+              </div>
+            )}
             <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Balance</div><div className="text-sm sm:text-base font-bold whitespace-nowrap text-cyan-400">{state.personalBalance != null ? `$${state.personalBalance.toFixed(0)}` : '—'}</div></div>
             <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Risk</div><div className="text-sm sm:text-base font-bold whitespace-nowrap" style={{ color: colorHex }}>{state.riskPerTrade != null ? `$${state.riskPerTrade.toFixed(0)}` : '—'}</div></div>
           </div>

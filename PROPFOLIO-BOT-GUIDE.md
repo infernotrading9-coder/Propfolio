@@ -295,6 +295,55 @@ When Daniel gives you a goal:
 
 Linking a note to itself, or to one of its own steps, is rejected (`code: "cycle"`) — both would then render nowhere. `horizon` must be one of the four.
 
+### 5.8 Bad debt, recurring charges, and receivables
+
+**Bad debt is a fact in the DB now — do not keep a list of which debts are behind.** Mark it on the account:
+
+```json
+{ "action": "set-overdue", "budgetAccountId": "pkqdn66", "overdue": true }
+```
+
+`overdue: true` stamps `overdueSince` automatically (pass `since` to backdate). Only a `credit`/`debt`/`borrow` account can be overdue — a cash account is rejected with `code: "not_a_liability"`. Clear it with `overdue: false` when it's caught up.
+
+`GET db-accounts?action=get-trading-mode` returns **`overdueDebt`** — the dollar total of everything flagged. That is the bad-debt number that belongs in the score. Good debt (car loan on schedule, manageable cards) is in `totalDebt` but NOT in `overdueDebt`.
+
+**Recurring charges** are definitions, not transactions — so `get-recurring` no longer looks at `transactions`:
+
+```json
+{ "action": "add-recurring", "name": "Car + insurance", "amount": 1034,
+  "dayOfMonth": 9, "budgetAccountId": "acc_sofi", "categoryId": "cat_needs",
+  "notes": "Car $680 + insurance $354" }
+```
+
+- `get-recurring` → `{ recurring[], activeCount, inactiveCount, monthlyTotal }` (`monthlyTotal` counts ACTIVE only)
+- `update-recurring` `{ id, ... }` — partial. **`{ id, active: false }` is how you turn one off** when the debt is paid off or the service is cancelled. It stays on record; nothing is deleted.
+- `delete-recurring` `{ id }` — permanent removal. Prefer switching `active` off.
+- `get-cost-of-living` reads the same active list.
+- An entry with no `active` flag is treated as **active** — never assume off.
+
+**Receivables.** A liability holding what Daniel owes is positive. If it goes NEGATIVE he overpaid and the excess is owed back to him:
+
+- `owedToMe` (in `get-trading-mode` and `getFullState`) is the total owed back to him, as a positive number.
+- It is **not** negative debt — it's excluded from `totalDebt` and ADDED to net worth.
+- Worked example (Christian): he owes $1,500. He pays Christian's $1,700 card instead → balance becomes −200 → `owedToMe` reports $200. **Only record it once the payment actually clears** — the arrangement being agreed is not a payment.
+
+### 5.9 Pace — how fast accounts are lost
+
+`get-trading-mode` and `db-state-full` both return pace metrics. Use them to judge *how* Daniel is losing, not just how much:
+
+| Field | Meaning |
+|---|---|
+| `evalFailAvgDays` / `fundedFailAvgDays` | average days an account lasted before being lost |
+| `evalFailSample` / `fundedFailSample` | **how many accounts that average is based on** |
+| `accounts[].lifespanDays` | per-account: days it lasted (failed) or has survived so far (running) |
+| `accounts[].daysAlive` | days since it opened |
+| `evalPassAvgDays` | avg days from open → passing phase 1 (how long it takes him to pass) |
+| `evalPassSample` | how many passes that average rests on |
+
+**Always read the sample size with the average.** `failureDate` is only populated on a minority of historical rows, so an average can rest on a handful of accounts. A 3-account average is not a trend — say so rather than quoting it as one.
+
+A 2-day eval and a 15-day eval can cost the same money and mean opposite things. Pace is the difference between "unlucky" and "tilt".
+
 ### 5.5 Logged a trade → `POST db-trades`
 
 ```json

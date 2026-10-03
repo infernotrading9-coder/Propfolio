@@ -360,15 +360,54 @@ export interface AccountState {
   payoutTarget: number | null;
   payoutInterval: 'daily' | 'green_days' | 'consistency' | null;
   payoutBuffer: number | null;
+  /**
+   * How long this account lasted. For a dead account it is its whole life
+   * (failure_date − start_date); for a live one it is how long it has survived
+   * so far. Null when the account has no start_date on record.
+   *
+   * This is the "how fast am I losing evals" number — a 2-day eval is a much
+   * louder signal than a 15-day one, even at the same dollar loss.
+   */
+  lifespanDays: number | null;
+  /** Days since it opened, regardless of whether it has since died. */
+  daysAlive: number | null;
+  /** start_date, as stored (TEXT, YYYY-MM-DD). */
+  openedAt: string | null;
 }
 
 export interface FullState {
   accounts: AccountState[];
+  /**
+   * Pace metrics — how fast accounts are being lost and earned. Every average
+   * carries its sample size because `failure_date` is only populated on a
+   * minority of historical rows; never quote one without checking `n`.
+   */
+  velocity: {
+    evalFailures: { n: number; avgDays: number | null; medianDays: number | null; fastestDays: number | null };
+    fundedFailures: { n: number; avgDays: number | null };
+    evalPasses: { n: number; avgDays: number | null; fastestDays: number | null };
+    oldestOpenDays: number | null;
+    newestOpenDays: number | null;
+  };
   budget: {
     cashOnHand: number;
     totalOwed: number;
+    /** Money owed back to Daniel — overpaid liabilities. Adds to net worth. */
+    owedToMe: number;
+    /** The slice of debt flagged behind — BAD debt. What the score reacts to. */
+    overdueDebt: number;
+    /** Monthly total of ACTIVE recurring charges only. */
+    monthlyRecurring: number;
     net: number;
-    accounts: Array<{ id: string; name: string; balance: number; isLiability: boolean }>;
+    accounts: Array<{
+      id: string; name: string; balance: number; isLiability: boolean;
+      overdue: boolean; overdueSince: string | null; owedToMe: number;
+    }>;
+    recurring: Array<{
+      id: string; name: string; amount: number; dayOfMonth: number | null;
+      accountId: string | null; categoryId: string | null;
+      frequency: string; active: boolean; notes: string | null;
+    }>;
   };
   totals: {
     activeEvals: number;
@@ -378,6 +417,15 @@ export interface FullState {
     payoutsThisMonth: number;
   };
   lastActions: UndoableAction[];
+}
+
+/** Whole days between two dates. Null when either is missing or unparseable. */
+function daysBetween(from?: any, to?: any): number | null {
+  if (!from || !to) return null;
+  const f = new Date(String(from).slice(0, 10));
+  const t = new Date(String(to).slice(0, 10));
+  if (isNaN(f.getTime()) || isNaN(t.getTime())) return null;
+  return Math.max(0, Math.round((t.getTime() - f.getTime()) / 86400000));
 }
 
 /**
@@ -391,6 +439,7 @@ export interface FullState {
  */
 export async function getFullState(userId: string): Promise<FullState> {
   return withTransaction(async (tx) => {
+    const TODAY = new Date().toISOString().slice(0, 10);
     // Resolve plan facts for the stage each account is ACTUALLY in.
     //
     // Consistency rules commonly differ between eval and funded — some plans
@@ -404,6 +453,7 @@ export async function getFullState(userId: string): Promise<FullState> {
     const { rows: accts } = await tx.query(`
       WITH acct AS (
         SELECT ta.*, ch.lifecycle, ch.payout_count, ch.id AS challenge_id,
+               ch.start_date, ch.failure_date, ch.phase1_completed_at, ch.went_live_at,
                CASE WHEN ch.lifecycle LIKE 'funded%' OR ch.lifecycle LIKE 'live%'
                     THEN 'funded' ELSE 'eval' END AS rule_stage
           FROM trading_accounts ta
@@ -502,22 +552,112 @@ export async function getFullState(userId: string): Promise<FullState> {
         payoutTarget: a.payout_target == null ? null : Number(a.payout_target),
         payoutInterval: (a.payout_interval ?? null) as AccountState['payoutInterval'],
         payoutBuffer: a.payout_buffer == null ? null : Number(a.payout_buffer),
+        // How long this account has lasted. A FAILED account is measured to its
+        // failure date; one still running is measured to today.
+        //
+        // phase1_completed_at must NOT be used as an end-of-life date for a
+        // running account: it marks the eval phase closing, not the account
+        // dying. A funded account that passed its eval the same day it opened
+        // would otherwise report a lifespan of 0 days.
+        lifespanDays: a.start_date
+          ? (String(a.lifecycle || '').endsWith('_failed')
+              ? (daysBetween(a.start_date, a.failure_date || a.phase1_completed_at)
+                 ?? daysBetween(a.start_date, TODAY))
+              : daysBetween(a.start_date, TODAY))
+          : null,
+        daysAlive: a.start_date ? daysBetween(a.start_date, TODAY) : null,
+        openedAt: a.start_date || null,
       });
     }
+
+    // ── Velocity: how fast evals are being lost and earned ────────────────────
+    // A 2-day eval and a 15-day eval can cost the same money but mean opposite
+    // things. These are the durations, kept server-side so the bot can reason
+    // about pace rather than just balance.
+    //
+    // CAUTION: `failure_date` is only populated on a minority of historical
+    // rows, so every average here carries its own sample size. Never present one
+    // as a trend without checking `n` — that is why they ship together.
+    const { rows: velRows } = await tx.query(`
+      WITH fail AS (
+        SELECT lifecycle, (failure_date::date - start_date::date) AS days
+          FROM challenges
+         WHERE user_id = $1
+           AND start_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+           AND failure_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+      ),
+      pass AS (
+        SELECT (phase1_completed_at::date - start_date::date) AS days
+          FROM challenges
+         WHERE user_id = $1
+           AND start_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+           AND phase1_completed_at IS NOT NULL
+      )
+      SELECT
+        (SELECT count(*)::int FROM fail WHERE lifecycle LIKE 'eval%')            AS eval_fail_n,
+        (SELECT round(avg(days), 1) FROM fail WHERE lifecycle LIKE 'eval%')      AS eval_fail_avg_days,
+        (SELECT round(percentile_cont(0.5) WITHIN GROUP (ORDER BY days)::numeric, 1)
+           FROM fail WHERE lifecycle LIKE 'eval%')                               AS eval_fail_median_days,
+        (SELECT min(days) FROM fail WHERE lifecycle LIKE 'eval%')                AS eval_fail_fastest,
+        (SELECT count(*)::int FROM fail WHERE lifecycle LIKE 'funded%')          AS funded_fail_n,
+        (SELECT round(avg(days), 1) FROM fail WHERE lifecycle LIKE 'funded%')    AS funded_fail_avg_days,
+        (SELECT count(*)::int FROM pass)                                         AS pass_n,
+        (SELECT round(avg(days), 1) FROM pass)                                   AS pass_avg_days,
+        (SELECT min(days) FROM pass)                                             AS pass_fastest_days`,
+      [userId]);
+    const v = velRows[0] ?? {};
+    const num = (x: any) => (x == null ? null : Number(x));
+
+    // How long the currently-open accounts have survived so far.
+    const liveDurations = accounts
+      .map((a) => a.daysAlive)
+      .filter((d): d is number => d != null);
+    const oldestOpenDays = liveDurations.length ? Math.max(...liveDurations) : null;
+    const newestOpenDays = liveDurations.length ? Math.min(...liveDurations) : null;
 
     // Budget
     const { rows: bs } = await tx.query(
       `SELECT state FROM budget_state WHERE user_id=$1`, [userId]);
     const state = bs.length
       ? (typeof bs[0].state === 'string' ? JSON.parse(bs[0].state) : bs[0].state) : { accounts: [] };
-    const budgetAccounts = (state.accounts || []).map((a: any) => ({
-      id: String(a.id), name: String(a.name), balance: round2(a.balance),
-      isLiability: ['credit', 'debt', 'borrow'].includes(String(a.loanKind || '')),
-    }));
+    const budgetAccounts = (state.accounts || []).map((a: any) => {
+      const balance = round2(a.balance);
+      const isLiability = ['credit', 'debt', 'borrow'].includes(String(a.loanKind || ''));
+      return {
+        id: String(a.id), name: String(a.name), balance, isLiability,
+        // Behind on payments = BAD debt. A fact on the account now, not a
+        // judgement the bot has to carry.
+        overdue: isLiability && balance > 0 && !!a.overdue,
+        overdueSince: a.overdueSince ? String(a.overdueSince) : null,
+        // Overpaid liability -> the excess is owed back to Daniel.
+        owedToMe: isLiability && balance < 0 ? round2(Math.abs(balance)) : 0,
+      };
+    });
     const cashOnHand = round2(budgetAccounts.filter((a: any) => !a.isLiability)
       .reduce((s: number, a: any) => s + a.balance, 0));
-    const totalOwed = round2(budgetAccounts.filter((a: any) => a.isLiability)
+    // Only a liability still holding debt counts as owed — a negative balance is
+    // a receivable, counted separately, not negative debt.
+    const totalOwed = round2(budgetAccounts.filter((a: any) => a.isLiability && a.balance > 0)
       .reduce((s: number, a: any) => s + a.balance, 0));
+    const owedToMe = round2(budgetAccounts.reduce((s: number, a: any) => s + a.owedToMe, 0));
+    const overdueDebt = round2(budgetAccounts.filter((a: any) => a.overdue)
+      .reduce((s: number, a: any) => s + a.balance, 0));
+
+    // Recurring charges live in their own list — a definition, not a transaction.
+    const recurring = (Array.isArray(state.recurring) ? state.recurring : [])
+      .filter((r: any) => r && typeof r === 'object')
+      .map((r: any) => ({
+        id: String(r.id), name: String(r.name), amount: round2(r.amount),
+        dayOfMonth: r.dayOfMonth == null ? null : Number(r.dayOfMonth),
+        accountId: r.accountId ? String(r.accountId) : null,
+        categoryId: r.categoryId ? String(r.categoryId) : null,
+        frequency: r.frequency ? String(r.frequency) : 'monthly',
+        // Missing flag = active: never silently drop a charge he still pays.
+        active: r.active === undefined ? true : !!r.active,
+        notes: r.notes ? String(r.notes) : null,
+      }));
+    const monthlyRecurring = round2(recurring.filter((r: any) => r.active)
+      .reduce((s: number, r: any) => s + r.amount, 0));
 
     // Month-to-date
     const { rows: mtd } = await tx.query(`
@@ -534,7 +674,34 @@ export async function getFullState(userId: string): Promise<FullState> {
 
     return {
       accounts,
-      budget: { cashOnHand, totalOwed, net: round2(cashOnHand - totalOwed), accounts: budgetAccounts },
+      // Pace, not just balance. Every average ships with its own sample size —
+      // see the CAUTION above.
+      velocity: {
+        evalFailures: {
+          n: Number(v.eval_fail_n ?? 0),
+          avgDays: num(v.eval_fail_avg_days),
+          medianDays: num(v.eval_fail_median_days),
+          fastestDays: num(v.eval_fail_fastest),
+        },
+        fundedFailures: {
+          n: Number(v.funded_fail_n ?? 0),
+          avgDays: num(v.funded_fail_avg_days),
+        },
+        evalPasses: {
+          n: Number(v.pass_n ?? 0),
+          avgDays: num(v.pass_avg_days),
+          fastestDays: num(v.pass_fastest_days),
+        },
+        /** Oldest / newest currently-open account, in days survived so far. */
+        oldestOpenDays,
+        newestOpenDays,
+      },
+      budget: {
+        cashOnHand, totalOwed, owedToMe, overdueDebt, monthlyRecurring,
+        // A receivable ADDS to net worth; it is not negative debt.
+        net: round2(cashOnHand + owedToMe - totalOwed),
+        accounts: budgetAccounts, recurring,
+      },
       totals: {
         activeEvals: accounts.filter(a => a.stage === 'eval_active').length,
         fundedAccounts: accounts.filter(a => a.stage === 'funded_active').length,

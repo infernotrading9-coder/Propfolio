@@ -57,6 +57,39 @@ function isWebClient(event: any): boolean {
   return String(v).toLowerCase() === WEB_CLIENT
 }
 
+const round2 = (n: any) => Math.round((Number(n) || 0) * 100) / 100;
+
+/** budgetStateService.getByUserId may hand back the raw object or a JSON string. */
+function readState(bs: any): any {
+  if (!bs) return null;
+  return typeof bs === 'string' ? JSON.parse(bs) : bs;
+}
+
+/**
+ * Coerce the stored recurring list into a known shape.
+ *
+ * Entries predating this model (or written by hand in the browser) may be
+ * missing `active` — an entry with no flag is treated as ACTIVE, because
+ * silently switching off a charge Daniel is still paying would understate his
+ * cost of living.
+ */
+function normalizeRecurring(raw: any): any[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((r: any) => r && typeof r === 'object')
+    .map((r: any, i: number) => ({
+      id: r.id ? String(r.id) : `rec_${i}`,
+      name: r.name ? String(r.name) : '(unnamed)',
+      amount: round2(r.amount),
+      dayOfMonth: r.dayOfMonth == null ? null : Number(r.dayOfMonth),
+      accountId: r.accountId ? String(r.accountId) : null,
+      categoryId: r.categoryId ? String(r.categoryId) : null,
+      frequency: r.frequency ? String(r.frequency) : 'monthly',
+      active: r.active === undefined ? true : !!r.active,
+      notes: r.notes ? String(r.notes) : null,
+    }));
+}
+
 export const handler: Handler = async (event) => {
   try {
     const user = await getUserFromSession(event)
@@ -228,26 +261,136 @@ export const handler: Handler = async (event) => {
               return json(200, { ok: true, removed: acctId });
             }
 
-            // Recurring transactions — tag monthly cost-of-living expenses
+            // ── Recurring charges ─────────────────────────────────────────
+            // A recurring charge is a DEFINITION (rent, car + insurance), not a
+            // transaction. It lives in its own list so the bot can SEE what
+            // repeats without inferring it, and so a charge can be switched off
+            // the moment the underlying thing is paid off — without editing
+            // history or deleting the record of what it used to cost.
             case 'get-recurring': {
               const bs = await budgetStateService.getByUserId(user.id);
-              if (!bs) return json(200, { recurring: [], monthlyTotal: 0 });
-              const recurring = (bs.transactions || []).filter((t: any) => t.recurring);
-              const monthlyTotal = recurring.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
+              const list = normalizeRecurring(readState(bs).recurring);
+              const active = list.filter((r) => r.active);
               return json(200, {
-                recurring: recurring.map((t: any) => ({ id: t.id, name: t.name, amount: t.amount, type: t.type, frequency: t.recurringFrequency || 'monthly', dayOfMonth: t.recurringDayOfMonth })),
-                monthlyTotal,
+                recurring: list,
+                activeCount: active.length,
+                inactiveCount: list.length - active.length,
+                monthlyTotal: round2(active.reduce((s, r) => s + Number(r.amount || 0), 0)),
               });
+            }
+
+            case 'add-recurring': {
+              if (!body.name) return json(400, { error: 'name required', code: 'missing_name' });
+              const amount = Number(body.amount);
+              if (!Number.isFinite(amount) || amount <= 0) {
+                return json(400, { error: 'amount must be a positive number', code: 'bad_amount' });
+              }
+              const bs = await budgetStateService.getByUserId(user.id);
+              const state: any = readState(bs) ?? {};
+              state.recurring = normalizeRecurring(state.recurring);
+
+              const entry = {
+                id: body.id ? String(body.id) : `rec_${Date.now().toString(36)}`,
+                name: String(body.name),
+                amount: round2(amount),
+                dayOfMonth: Number.isFinite(Number(body.dayOfMonth)) ? Math.trunc(Number(body.dayOfMonth)) : null,
+                accountId: body.budgetAccountId ? String(body.budgetAccountId) : null,
+                categoryId: body.categoryId ? String(body.categoryId) : null,
+                frequency: body.frequency ? String(body.frequency) : 'monthly',
+                active: body.active === undefined ? true : !!body.active,
+                notes: body.notes ? String(body.notes) : null,
+              };
+              if (state.recurring.some((r: any) => r.id === entry.id)) {
+                return json(400, { error: `Recurring charge "${entry.id}" already exists`, code: 'duplicate' });
+              }
+              state.recurring.push(entry);
+              await budgetStateService.upsert(user.id, state);
+              return json(200, { ok: true, recurring: entry });
+            }
+
+            case 'update-recurring': {
+              if (!body.id) return json(400, { error: 'id required', code: 'missing_id' });
+              const bs = await budgetStateService.getByUserId(user.id);
+              const state: any = readState(bs);
+              if (!state) return json(404, { error: 'No budget state', code: 'no_budget' });
+              state.recurring = normalizeRecurring(state.recurring);
+              const entry = state.recurring.find((r: any) => r.id === String(body.id));
+              if (!entry) return json(404, { error: `Recurring charge "${body.id}" not found`, code: 'not_found' });
+
+              // Partial update — `{ id, active: false }` is the "paid it off /
+              // cancelled it" call and must not disturb anything else.
+              if (body.name !== undefined) entry.name = String(body.name);
+              if (body.amount !== undefined) {
+                const a = Number(body.amount);
+                if (!Number.isFinite(a) || a <= 0) return json(400, { error: 'amount must be a positive number', code: 'bad_amount' });
+                entry.amount = round2(a);
+              }
+              if (body.dayOfMonth !== undefined) {
+                entry.dayOfMonth = body.dayOfMonth === null ? null : Math.trunc(Number(body.dayOfMonth));
+              }
+              if (body.budgetAccountId !== undefined) entry.accountId = body.budgetAccountId ? String(body.budgetAccountId) : null;
+              if (body.categoryId !== undefined) entry.categoryId = body.categoryId ? String(body.categoryId) : null;
+              if (body.frequency !== undefined) entry.frequency = String(body.frequency);
+              if (body.active !== undefined) entry.active = !!body.active;
+              if (body.notes !== undefined) entry.notes = body.notes ? String(body.notes) : null;
+
+              await budgetStateService.upsert(user.id, state);
+              return json(200, { ok: true, recurring: entry });
+            }
+
+            case 'delete-recurring': {
+              if (!body.id) return json(400, { error: 'id required', code: 'missing_id' });
+              const bs = await budgetStateService.getByUserId(user.id);
+              const state: any = readState(bs);
+              if (!state) return json(404, { error: 'No budget state', code: 'no_budget' });
+              const list = normalizeRecurring(state.recurring);
+              const next = list.filter((r: any) => r.id !== String(body.id));
+              if (next.length === list.length) {
+                return json(404, { error: `Recurring charge "${body.id}" not found`, code: 'not_found' });
+              }
+              state.recurring = next;
+              await budgetStateService.upsert(user.id, state);
+              return json(200, { ok: true, deleted: String(body.id) });
+            }
+
+            // ── Overdue / bad debt ────────────────────────────────────────
+            // "Bad debt" used to be a judgement the bot had to remember. Now it
+            // is a fact on the account, so the gauge can score it and the bot
+            // can read it instead of guessing from a balance.
+            case 'set-overdue': {
+              const acctId = body.budgetAccountId || body.id;
+              if (!acctId) return json(400, { error: 'budgetAccountId required', code: 'missing_id' });
+              const bs = await budgetStateService.getByUserId(user.id);
+              const state: any = readState(bs);
+              if (!state) return json(404, { error: 'No budget state', code: 'no_budget' });
+              state.accounts = Array.isArray(state.accounts) ? state.accounts : [];
+              const acct = state.accounts.find((a: any) => a.id === String(acctId));
+              if (!acct) return json(404, { error: `Budget account "${acctId}" not found`, code: 'not_found' });
+
+              const isLiab = ['credit', 'debt', 'borrow'].includes(String(acct.loanKind || ''));
+              if (!isLiab) {
+                return json(400, {
+                  error: `"${acct.name}" is not a liability (loanKind=${acct.loanKind}) — only debt can be overdue.`,
+                  code: 'not_a_liability',
+                });
+              }
+              acct.overdue = body.overdue === undefined ? true : !!body.overdue;
+              // Stamp/clear the date alongside the flag so they cannot drift.
+              acct.overdueSince = acct.overdue
+                ? (body.since ? String(body.since) : new Date().toISOString().slice(0, 10))
+                : null;
+              if (body.notes !== undefined) acct.overdueNotes = body.notes ? String(body.notes) : null;
+
+              await budgetStateService.upsert(user.id, state);
+              return json(200, { ok: true, account: { id: acct.id, name: acct.name, overdue: acct.overdue, overdueSince: acct.overdueSince } });
             }
 
             case 'get-cost-of-living': {
               const bs = await budgetStateService.getByUserId(user.id);
-              if (!bs) return json(200, { monthlyCostOfLiving: 0, recurring: [] });
-              const recurring = (bs.transactions || []).filter((t: any) => t.recurring && t.type === 'expense');
-              const monthlyCostOfLiving = recurring.reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
+              const list = normalizeRecurring(readState(bs)?.recurring).filter((r) => r.active);
               return json(200, {
-                monthlyCostOfLiving,
-                recurring: recurring.map((t: any) => ({ id: t.id, name: t.name, amount: t.amount })),
+                monthlyCostOfLiving: round2(list.reduce((s, r) => s + Number(r.amount || 0), 0)),
+                recurring: list.map((r) => ({ id: r.id, name: r.name, amount: r.amount, dayOfMonth: r.dayOfMonth })),
               });
             }
 
