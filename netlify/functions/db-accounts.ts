@@ -4,7 +4,7 @@ import { tradingAccountService, accountDailyOrderService, sessionLimitsService, 
 import { settleAccount } from '../../server/db/drawdownModel'
 import { correctPlan } from '../../server/db/correctPlanService'
 import { buyEval, CascadeError } from '../../server/db/cascadeService'
-import { getPayoutSummaryByAccount, getGreenDayThresholds, recordDailyRollover, recomputeGreenDays } from '../../server/db/stateService'
+import { getPayoutSummaryByAccount, getGreenDayThresholds, recordDailyRollover, recomputeGreenDays, setAccountBalance } from '../../server/db/stateService'
 
 /**
  * Compute the widget's counters from REAL data — cash/debt from the budget tab,
@@ -539,6 +539,52 @@ export const handler: Handler = async (event) => {
         })
       }
 
+      if (input.action === 'set-balance') {
+        // Push the platform's balance straight in — NO trade involved.
+        //
+        // Prop accounts had no balance-only path: every route that moved a
+        // balance was a trade endpoint. So "I don't want to log trades" meant
+        // the balance could never move — and green days, payout progress and
+        // best day all read the balance, so the whole tracker sat frozen.
+        // (The personal NinjaTrader account already had `update-balance`.)
+        const { accountRef, balance: newBalance, note } = input
+        if (!accountRef) return json(400, { error: 'accountRef required', code: 'no_ref' })
+        if (newBalance === undefined || newBalance === null) {
+          return json(400, { error: 'balance required', code: 'no_balance' })
+        }
+        const target = Number(newBalance)
+        if (!Number.isFinite(target)) {
+          return json(400, { error: 'balance must be a number', code: 'bad_balance' })
+        }
+
+        const allBal = await tradingAccountService.getByUserId(user.id)
+        const bMatches = allBal.filter((a: any) => a.status === 'active' && (
+          String(a.nickname || '').toLowerCase() === String(accountRef).toLowerCase() ||
+          a.displayLabel === accountRef ||
+          a.accountNumberLast4 === accountRef ||
+          String(a.accountFirst4 || '').toUpperCase() === String(accountRef).toUpperCase() ||
+          `${String(a.accountFirst4 || '').toUpperCase()}-${a.accountNumberLast4}` === String(accountRef).toUpperCase()))
+        if (bMatches.length === 0) return json(404, { error: `No active account "${accountRef}"`, code: 'not_found' })
+        if (bMatches.length > 1) {
+          return json(400, {
+            error: `"${accountRef}" matches ${bMatches.length} accounts (${bMatches.map((m: any) => m.displayLabel).join(', ')}). Say which one.`,
+            code: 'ambiguous',
+          })
+        }
+
+        const bTarget: any = bMatches[0]
+        try {
+          const res = await setAccountBalance(user.id, bTarget.id, target, note ?? null)
+          return json(200, {
+            ...res,
+            accountRef: bTarget.displayLabel,
+            message: `${bTarget.displayLabel} balance $${res.previousBalance.toFixed(2)} → $${res.balance.toFixed(2)}`,
+          })
+        } catch (e: any) {
+          return json(404, { error: e?.message || 'Could not set balance', code: 'not_found' })
+        }
+      }
+
       if (input.action === 'set-daily-order') {
         const { orderDate, orderedAccountIds, notes: orderNotes } = input
         if (!orderDate || !Array.isArray(orderedAccountIds)) {
@@ -727,7 +773,7 @@ export const handler: Handler = async (event) => {
         return json(200, { success: true })
       }
 
-      return json(400, { error: 'Invalid action. Use: create, correct-plan, set-account-number, set-nickname, set-account-size, set-green-days, set-daily-order, done-for-day, uncollapse-all, link-copy-trade, unlink-copy-trade, get-trading-mode, update-trading-mode, reorder' })
+      return json(400, { error: 'Invalid action. Use: create, correct-plan, set-account-number, set-nickname, set-account-size, set-green-days, set-balance, set-daily-order, done-for-day, uncollapse-all, link-copy-trade, unlink-copy-trade, get-trading-mode, update-trading-mode, reorder' })
     }
 
     if (event.httpMethod === 'PUT') {

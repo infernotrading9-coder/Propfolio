@@ -20,6 +20,7 @@
 import { randomUUID } from 'crypto';
 import { withTransaction, type TxClient } from './txConnection';
 import { CascadeError } from './cascadeService';
+import { logAction } from './actionLog';
 import { computeDrawdown } from './drawdownModel';
 
 const round2 = (n: unknown) => Math.round((Number(n) || 0) * 100) / 100;
@@ -113,29 +114,77 @@ function toPgTextArray(values?: string[] | null): string {
   return `{${list.map((v) => JSON.stringify(String(v))).join(',')}}`;
 }
 
-async function recomputeAccountFromTrades(tx: TxClient, userId: string, accountId: string) {
-  const { rows: acctRows } = await tx.query(
-    `SELECT id, account_size FROM trading_accounts WHERE id=$1 AND user_id=$2 FOR UPDATE`,
-    [accountId, userId]);
-  if (!acctRows.length) return;
-
-  const startingBalance = round2(acctRows[0].account_size);
-  let balance = startingBalance;
-  let highWaterMark = startingBalance;
-
-  const { rows: tradeRows } = await tx.query(
-    `SELECT amount, result FROM trades
-      WHERE user_id=$1 AND account_id=$2
-      ORDER BY trade_date, created_at, id`,
-    [userId, accountId]);
-  for (const trade of tradeRows) {
-    balance = round2(balance + signedTradeAmount(trade));
-    highWaterMark = Math.max(highWaterMark, balance);
+/**
+ * Apply a P&L delta to an account's balance, mirroring exactly what `logTrade`
+ * does for a trade of that size — a fall grows `drawdown_used`, a rise pays it
+ * back and can set a new high-water mark. HWM never decreases.
+ *
+ * WHY DELTAS, NOT A REPLAY. The old `recomputeAccountFromTrades` rebuilt the
+ * balance by replaying the entire trade ledger from `account_size`. That was
+ * correct only while every trade was logged. Trade logging was switched off
+ * Sep 27 2026, so the ledger is now INCOMPLETE — a replay recomputes from a
+ * partial history and silently rewrites the balance. Measured on LFF0-0002:
+ * replay yields $25,595 against a real $25,982.50, so undoing any September
+ * trade would have quietly destroyed $387.50 of balance. A delta is correct
+ * whatever the ledger contains.
+ */
+async function applyBalanceDelta(
+  tx: TxClient, userId: string, accountId: string, delta: number,
+): Promise<void> {
+  if (!delta) return;
+  const { rows } = await tx.query(
+    `SELECT balance, drawdown_used, high_water_mark FROM trading_accounts
+      WHERE id=$1 AND user_id=$2 FOR UPDATE`, [accountId, userId]);
+  if (!rows.length) return;
+  const a = rows[0];
+  const newBalance = round2(Number(a.balance) + delta);
+  let newDrawdown = round2(Number(a.drawdown_used ?? 0));
+  let newHwm = round2(Number(a.high_water_mark ?? 0));
+  if (delta < 0) {
+    newDrawdown = round2(newDrawdown + Math.abs(delta));
+  } else {
+    newDrawdown = round2(Math.max(0, newDrawdown - delta));
+    if (newBalance > newHwm) newHwm = newBalance;
   }
-
   await tx.query(
-    `UPDATE trading_accounts SET balance=$2, high_water_mark=$3, updated_at=NOW() WHERE id=$1`,
-    [accountId, String(balance), String(highWaterMark)]);
+    `UPDATE trading_accounts
+        SET balance=$2, drawdown_used=$3, high_water_mark=$4, updated_at=NOW()
+      WHERE id=$1`,
+    [accountId, String(newBalance), String(newDrawdown), String(newHwm)]);
+}
+
+/**
+ * Push an account's balance straight from the platform, with NO trade involved.
+ *
+ * This is the missing piece: for prop accounts every path that moved a balance
+ * was a trade endpoint, so "I don't want to log trades" meant the balance could
+ * never move — and green days, payout progress and best day all read the
+ * balance, so the whole tracker would sit frozen. The personal NinjaTrader
+ * account already had `update-balance`; this is the prop equivalent.
+ *
+ * Recorded in `action_log` so it can be undone.
+ */
+export async function setAccountBalance(
+  userId: string, accountId: string, balance: number, note?: string | null,
+): Promise<{ previousBalance: number; balance: number; delta: number; actedAt: string }> {
+  return withTransaction(async (tx) => {
+    const { rows } = await tx.query(
+      `SELECT id, display_label, balance FROM trading_accounts
+        WHERE id=$1 AND user_id=$2 FOR UPDATE`, [accountId, userId]);
+    if (!rows.length) throw new Error('Account not found');
+    const prev = round2(Number(rows[0].balance));
+    const next = round2(balance);
+    const delta = round2(next - prev);
+
+    await applyBalanceDelta(tx, userId, accountId, delta);
+
+    const actedAt = new Date().toISOString();
+    await logAction(tx, userId, 'set-balance',
+      `Set ${rows[0].display_label} balance to $${next.toFixed(2)} (was $${prev.toFixed(2)})`,
+      { accountId, previousBalance: prev, balance: next, note: note ?? null });
+
+    return { previousBalance: prev, balance: next, delta, actedAt };
+  });
 }
 
 /**
@@ -164,24 +213,49 @@ export async function undoAction(
 
     switch (entry.action) {
       case 'log-trade': {
-        // Reverse the trade, then recompute the account from the remaining trade
-        // ledger. The old code restored a snapshot from before this action; if
-        // Daniel undid a middle trade, that wiped every later trade's P&L.
+        // Reverse THIS trade's effect off the balance directly.
+        //
+        // This used to replay the whole ledger. That is no longer valid: a
+        // replay only ever sees the trades that were logged, and logging stopped
+        // Sep 27 2026, so it rewrites the balance from a partial history —
+        // measured at $25,595 against a real $25,982.50 on LFF0-0002. See
+        // applyBalanceDelta.
+        const { rows: tr } = await tx.query(
+          `SELECT amount, result FROM trades WHERE id=$1`, [d.tradeId]);
         if (d.netted) {
+          // The row survives and reverts to its pre-trade amount, so this
+          // trade's contribution was (merged - prior). Reverse exactly that.
+          const merged = tr.length ? Number(tr[0].amount) : 0;
+          await applyBalanceDelta(tx, userId, d.accountId, -(merged - Number(d.priorAmount || 0)));
           await tx.query(`UPDATE trades SET amount=$2, result=$3 WHERE id=$1`,
             [d.tradeId, String(d.priorAmount), resultForAmount(Number(d.priorAmount) || 0)]);
         } else {
+          await applyBalanceDelta(tx, userId, d.accountId,
+            -(tr.length ? signedTradeAmount(tr[0]) : 0));
           await tx.query(`DELETE FROM trades WHERE id=$1`, [d.tradeId]);
         }
-        await recomputeAccountFromTrades(tx, userId, d.accountId);
         if (d.calendarEntryCreated && d.calendarEntryId) {
           await tx.query(`DELETE FROM calendar_entries WHERE id=$1`, [d.calendarEntryId]);
         }
         break;
       }
 
+      case 'set-balance': {
+        // Undo by applying the INVERSE DELTA, not by writing the stored previous
+        // value back. Anything else that moved the balance in the meantime must
+        // survive the undo; restoring an absolute number would clobber it.
+        await applyBalanceDelta(tx, userId, d.accountId,
+          Number(d.previousBalance ?? 0) - Number(d.balance ?? 0));
+        break;
+      }
+
       case 'correct-trade': {
         const p = d.prior || {};
+        // Read the amount in force BEFORE reverting, so the balance move is the
+        // difference between what the trade says now and what it said before.
+        const { rows: cr } = await tx.query(`SELECT amount FROM trades WHERE id=$1`, [d.tradeId]);
+        const currentAmount = cr.length ? Number(cr[0].amount) : 0;
+        const restoredAmount = Number(p.amount ?? 0);
         await tx.query(`
           UPDATE trades
              SET direction=$2, instrument=$3, entry_price=$4, exit_price=$5,
@@ -202,7 +276,8 @@ export async function undoAction(
           toPgTextArray(p.rulesBroken || []),
           p.tradeDate ?? new Date(),
         ]);
-        await recomputeAccountFromTrades(tx, userId, d.accountId);
+        // Delta, not a replay — see applyBalanceDelta.
+        await applyBalanceDelta(tx, userId, d.accountId, restoredAmount - currentAmount);
         break;
       }
 

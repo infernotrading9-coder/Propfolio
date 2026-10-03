@@ -203,31 +203,38 @@ function toPgTextArray(values?: string[] | null): string {
   return `{${list.map((v) => JSON.stringify(String(v))).join(',')}}`;
 }
 
-async function recomputeAccountFromTrades(tx: TxClient, userId: string, accountId: string) {
-  const { rows: acctRows } = await tx.query(
-    `SELECT id, account_size FROM trading_accounts WHERE id=$1 AND user_id=$2 FOR UPDATE`,
-    [accountId, userId]);
-  if (!acctRows.length) throw new CascadeError('Account not found for trade recompute', 'not_found');
-
-  const startingBalance = round2(acctRows[0].account_size);
-  let balance = startingBalance;
-  let highWaterMark = startingBalance;
-
-  const { rows: tradeRows } = await tx.query(
-    `SELECT amount, result FROM trades
-      WHERE user_id=$1 AND account_id=$2
-      ORDER BY trade_date, created_at, id`,
-    [userId, accountId]);
-
-  for (const trade of tradeRows) {
-    balance = round2(balance + signedTradeAmount(trade));
-    highWaterMark = Math.max(highWaterMark, balance);
+/**
+ * Apply a P&L delta to an account balance, mirroring logTrade's own effect.
+ *
+ * Replaces the old full-ledger replay. The replay was only correct while every
+ * trade was logged; logging stopped Sep 27 2026, so it now rebuilds the balance
+ * from a PARTIAL history and silently overwrites a correct balance. A delta is
+ * right regardless of how complete the ledger is.
+ */
+async function applyBalanceDelta(
+  tx: TxClient, userId: string, accountId: string, delta: number,
+): Promise<void> {
+  if (!delta) return;
+  const { rows } = await tx.query(
+    `SELECT balance, drawdown_used, high_water_mark FROM trading_accounts
+      WHERE id=$1 AND user_id=$2 FOR UPDATE`, [accountId, userId]);
+  if (!rows.length) throw new CascadeError('Account not found for trade recompute', 'not_found');
+  const a = rows[0];
+  const newBalance = round2(Number(a.balance) + delta);
+  let newDrawdown = round2(Number(a.drawdown_used ?? 0));
+  let newHwm = round2(Number(a.high_water_mark ?? 0));
+  if (delta < 0) {
+    newDrawdown = round2(newDrawdown + Math.abs(delta));
+  } else {
+    newDrawdown = round2(Math.max(0, newDrawdown - delta));
+    if (newBalance > newHwm) newHwm = newBalance;
   }
-
   await tx.query(
-    `UPDATE trading_accounts SET balance=$2, high_water_mark=$3, updated_at=NOW() WHERE id=$1`,
-    [accountId, String(balance), String(highWaterMark)]);
-  return { balance, highWaterMark };
+    `UPDATE trading_accounts
+        SET balance=$2, drawdown_used=$3, high_water_mark=$4, updated_at=NOW()
+      WHERE id=$1`,
+    [accountId, String(newBalance), String(newDrawdown), String(newHwm)]);
+  return { balance: newBalance, highWaterMark: newHwm };
 }
 
 /**
@@ -535,7 +542,10 @@ export async function correctTrade(input: CorrectTradeInput): Promise<{
       input.tradeDate === undefined ? t.trade_date : input.tradeDate,
     ]);
 
-    const recalculated = await recomputeAccountFromTrades(tx, input.userId, String(t.account_id));
+    // Delta, not a replay: the ledger is incomplete now that logging is off, so
+    // replaying it would rebuild the balance from a partial history.
+    const recalculated = await applyBalanceDelta(
+      tx, input.userId, String(t.account_id), round2(nextAmount - priorAmount));
 
     await logAction(tx, input.userId, 'correct-trade',
       `Corrected trade on ${t.display_label}: $${priorAmount.toFixed(2)} -> $${nextAmount.toFixed(2)}`,

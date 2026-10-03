@@ -245,16 +245,23 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
             <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Fund</div><div className="text-sm sm:text-base font-bold whitespace-nowrap text-cyan-400">{state.fundedCount}</div></div>
             <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Live</div><div className="text-sm sm:text-base font-bold whitespace-nowrap text-lime-400">{state.liveCount}</div></div>
             <div><div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Cash</div><div className={`text-sm sm:text-base font-bold whitespace-nowrap ${state.cashOnHand >= 0 ? 'text-lime-400' : 'text-red-400'}`}>${state.cashOnHand.toFixed(0)}</div></div>
-            <div>
+            <div className="flex flex-col items-center">
               <div className="text-[9px] sm:text-[10px] text-white/40 uppercase tracking-wider">Debt</div>
               <div className="text-sm sm:text-base font-bold whitespace-nowrap text-red-400">
                 ${state.totalDebt.toFixed(0)}
-                {state.overdueDebt > 0 && (
-                  <span className="text-[9px] sm:text-[10px] text-amber-400 ml-1" title="Overdue — bad debt">
-                    ${state.overdueDebt.toFixed(0)} late
-                  </span>
-                )}
               </div>
+              {/* Late/bad debt sits UNDER the total rather than inline, in a
+                  darker red with a glow — it should read as a separate, worse
+                  thing than ordinary debt, not as a footnote tacked onto it. */}
+              {state.overdueDebt > 0 && (
+                <div
+                  className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wide whitespace-nowrap leading-tight"
+                  style={{ color: '#8b0000', textShadow: '0 0 6px rgba(255,0,0,0.55), 0 0 12px rgba(139,0,0,0.9)' }}
+                  title="Overdue — bad debt"
+                >
+                  ${state.overdueDebt.toFixed(0)} late
+                </div>
+              )}
             </div>
             {state.owedToMe > 0 && (
               <div>

@@ -380,6 +380,32 @@ Inclusive, because the firms write "$100+". A day of exactly $100 counts; $99 do
 
 **Known gap:** the rollover is lazy — it fires on the first page read after the boundary. If the site isn't opened for several days, those days collapse into one row carrying the cumulative move. That **under-counts** rather than inventing green days, which is the safe direction, but if Daniel has been away and reports more green days than the card shows, believe him and use `set-green-days`.
 
+### 5.11 Pushing a balance directly → `set-balance`
+
+**Daniel does not log trades.** That used to make his balance impossible to move — every path that could change a prop balance was a trade endpoint. So:
+
+```json
+{ "action": "set-balance", "accountRef": "LFF0-0002", "balance": 25982.50, "note": "optional" }
+```
+
+- Takes the balance **straight off the platform**. No trade, no per-trade detail, no daily journal row.
+- `accountRef` resolves the same way as every other action (nickname → display label → last4 → FIRST-LAST), and reports `ambiguous` rather than guessing.
+- Returns `previousBalance`, `balance` and `delta` so you can confirm the direction.
+- **`delta` drives the drawdown model.** A fall grows `drawdown_used`; a rise pays it back and can set a new high-water mark. **HWM never decreases.** This is exactly what `log-trade` would have done for a trade of that size.
+- Recorded in `action_log` and **undoable** — the undo applies the inverse delta, so anything that moved the balance in the meantime survives.
+
+**Every live number reads the balance**, so this one action keeps green days, payout progress and best day current without any trade logging:
+
+| Reads the balance | |
+|---|---|
+| Green days | count themselves from the daily balance moves |
+| Payout progress | `balance − account_size` |
+| Best day | recorded from the daily balance moves |
+
+Push it **once per session or once a day** — the rollover converts the balance move into a green day at the 5pm-ET boundary.
+
+**Do not use `log-trade` for this.** A trade row is a per-trade record; Daniel has no use for those, and the trade journal is no longer a source for any live number.
+
 ### 5.5 Logged a trade → `POST db-trades`
 
 ```json
