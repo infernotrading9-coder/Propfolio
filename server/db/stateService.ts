@@ -514,7 +514,11 @@ export async function getFullState(userId: string): Promise<FullState> {
 
       const bestDay = days.length ? round2(days[0].pnl) : null;
       const totalProfit = round2(days.reduce((s: number, r: any) => s + Number(r.pnl), 0));
-      const winningDays = days.filter((r: any) => Number(r.pnl) > 0).length;
+      // A green day must CLEAR the plan's minimum, not merely be positive —
+      // a $29 day does not count against Lucid Flex's $100 bar. Falls back to
+      // "any positive day" only when no threshold is known.
+      const dayMin = a.winning_day_min == null ? 0 : Number(a.winning_day_min);
+      const winningDays = days.filter((r: any) => Number(r.pnl) > dayMin).length;
 
       const consistency = a.consistency_pct == null ? null : Number(a.consistency_pct);
       // A stored 0 means "confirmed: no consistency rule at this stage" and must
@@ -791,7 +795,13 @@ export async function getPayoutSummaryByAccount(
         ) r ON TRUE
         LEFT JOIN LATERAL (
           SELECT SUM(d.pnl) AS total_profit,
-                 COUNT(*) FILTER (WHERE d.pnl > 0)::int AS winning_days,
+                 COUNT(*) FILTER (WHERE d.pnl > 0)::int AS positive_days,
+                 -- A "green day" is only green if it CLEARS the plan's minimum.
+                 -- Counting pnl > 0 would credit a $29 day against Lucid Flex's
+                 -- $100 bar and overstate how close Daniel is to a payout.
+                 -- `r` precedes this lateral, so the threshold is in scope;
+                 -- when the plan hasn't told us one, fall back to > 0.
+                 COUNT(*) FILTER (WHERE d.pnl > COALESCE(r.winning_day_min, 0))::int AS winning_days,
                  MAX(d.pnl) AS best_day
             FROM (
               SELECT trade_date::date AS dt, SUM(amount)::numeric AS pnl
