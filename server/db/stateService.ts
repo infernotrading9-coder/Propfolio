@@ -515,10 +515,15 @@ export async function getFullState(userId: string): Promise<FullState> {
       const bestDay = days.length ? round2(days[0].pnl) : null;
       const totalProfit = round2(days.reduce((s: number, r: any) => s + Number(r.pnl), 0));
       // A green day must CLEAR the plan's minimum, not merely be positive —
-      // a $29 day does not count against Lucid Flex's $100 bar. Falls back to
-      // "any positive day" only when no threshold is known.
-      const dayMin = a.winning_day_min == null ? 0 : Number(a.winning_day_min);
-      const winningDays = days.filter((r: any) => Number(r.pnl) > dayMin).length;
+      // a $29 day does not count against Lucid Flex's $100 bar. The bar is
+      // inclusive ("$100+"): a day of exactly $100 IS a green day, so this
+      // compares >=. With no known minimum the bar is "any positive day" and
+      // the > 0 branch keeps a breakeven day out.
+      const dayMin = a.winning_day_min == null ? null : Number(a.winning_day_min);
+      const winningDays = days.filter((r: any) => {
+        const pnl = Number(r.pnl);
+        return dayMin == null ? pnl > 0 : pnl >= dayMin;
+      }).length;
 
       const consistency = a.consistency_pct == null ? null : Number(a.consistency_pct);
       // A stored 0 means "confirmed: no consistency rule at this stage" and must
@@ -799,9 +804,19 @@ export async function getPayoutSummaryByAccount(
                  -- A "green day" is only green if it CLEARS the plan's minimum.
                  -- Counting pnl > 0 would credit a $29 day against Lucid Flex's
                  -- $100 bar and overstate how close Daniel is to a payout.
-                 -- `r` precedes this lateral, so the threshold is in scope;
-                 -- when the plan hasn't told us one, fall back to > 0.
-                 COUNT(*) FILTER (WHERE d.pnl > COALESCE(r.winning_day_min, 0))::int AS winning_days,
+                 --
+                 -- The comparison is >= when a minimum is known, because the
+                 -- plans read "$100+" — a day of exactly $100 IS a green day.
+                 -- Using > made an exact-threshold day silently not count, and a
+                 -- 3-day run of exactly $250 against a $250 rule scored 0/3.
+                 -- With no known minimum the bar is "any positive day", so that
+                 -- branch keeps > 0 and does not credit a breakeven day.
+                 --
+                 -- `r` precedes this lateral, so its threshold is in scope.
+                 COUNT(*) FILTER (
+                   WHERE CASE WHEN r.winning_day_min IS NULL THEN d.pnl > 0
+                              ELSE d.pnl >= r.winning_day_min END
+                 )::int AS winning_days,
                  MAX(d.pnl) AS best_day
             FROM (
               SELECT trade_date::date AS dt, SUM(amount)::numeric AS pnl
