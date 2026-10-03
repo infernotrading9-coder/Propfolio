@@ -27,6 +27,11 @@ async function computeTradingModeCounters(userId: string) {
   // A liability normally holds what Daniel OWES, so a positive balance is debt.
   // If it goes BELOW zero he overpaid — the excess is money owed back TO him,
   // not negative debt. (Christian: owe $1,500, pay his $1,700 card, he owes $200.)
+  //
+  // CAUTION: a negative liability is more often a SIGN ERROR than a receivable.
+  // acc_dave sat at -205 and was read as a $205 asset, while also hiding $205 of
+  // real debt — overstating net worth by $410. Only treat it as a receivable if
+  // a specific payment explains the flip. See PROPFOLIO-BOT-GUIDE.md §5.8.
   const debts = accounts.filter((a: any) => isLiab(a) && bal(a) > 0);
   const totalDebt = r2(debts.reduce((s: number, a: any) => s + bal(a), 0));
 

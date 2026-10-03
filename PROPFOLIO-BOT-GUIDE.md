@@ -327,6 +327,13 @@ Linking a note to itself, or to one of its own steps, is rejected (`code: "cycle
 - It is **not** negative debt — it's excluded from `totalDebt` and ADDED to net worth.
 - Worked example (Christian): he owes $1,500. He pays Christian's $1,700 card instead → balance becomes −200 → `owedToMe` reports $200. **Only record it once the payment actually clears** — the arrangement being agreed is not a payment.
 
+**⚠️ A negative liability is USUALLY A SIGN ERROR, not a receivable.** Every liability Daniel owes is stored POSITIVE (`American Water debt +1457.20`, `Christian debt +1500`, `Rent money held borrow +650`). Before treating a negative as money owed back to him, check the account's `loanKind` and what it actually is:
+
+- **Real receivable:** you can point at the payment that caused it. Christian's $1,700 paid against a $1,500 debt. The account flipped sign *because of a transaction you can name.*
+- **Sign error:** the account has always been negative and nothing explains it. This is what `acc_dave` was — a **lending app that lent Daniel $205**, so he OWED it, but it sat at −205. That booked $205 as a fake asset *and* hid $205 of real debt, overstating net worth by $410.
+
+If nobody can name the overpayment, fix the sign — don't call it an asset. Fixed Sep 30 2026.
+
 ### 5.9 Pace — how fast accounts are lost
 
 `get-trading-mode` and `db-state-full` both return pace metrics. Use them to judge *how* Daniel is losing, not just how much:
