@@ -215,7 +215,15 @@ const Dashboard: React.FC = () => {
       method: 'PUT',
       headers: budgetAuthHeaders(),
       body: JSON.stringify({ state: next }),
-    }).catch((e) => console.error('Failed to save budget state', e));
+    }).then((res) => {
+      if (!res.ok) throw new Error(`PUT returned ${res.status}`);
+    }).catch((e) => {
+      console.error('Budget save failed — reverting to server state', e);
+      fetch('/.netlify/functions/db-budget-state', { headers: budgetAuthHeaders() })
+        .then((r) => r.ok && r.json())
+        .then((data) => { if (data?.state) setBudgetState(data.state as BudgetState); })
+        .catch(() => {});
+    });
   }, [budgetAuthHeaders]);
 
   // Load server calendar accounts + entries, and migrate localStorage data
