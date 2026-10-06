@@ -254,10 +254,19 @@ export const handler: Handler = async (event) => {
               const bs = await budgetStateService.getByUserId(user.id);
               if (!bs) return json(404, { error: 'No budget state', code: 'no_budget' });
               const state = bs;
+              // Find transactions referencing this account so _deleted can
+              // remove them from the ORM-level merge too.
+              const removedTxnIds = (state.transactions || [])
+                .filter((t: any) => t.accountId === acctId || t.toAccountId === acctId)
+                .map((t: any) => t.id);
               state.accounts = (state.accounts || []).filter((a: any) => a.id !== acctId);
-              // Also remove transactions referencing this account
               state.transactions = (state.transactions || []).filter((t: any) => t.accountId !== acctId && t.toAccountId !== acctId);
-              await budgetStateService.upsert(user.id, state);
+              // _deleted is REQUIRED — without it _mergeById re-adds the account
+              // from the existing DB row (incoming doesn't override, existing wins).
+              await budgetStateService.upsert(user.id, {
+                ...state,
+                _deleted: { accounts: [acctId], transactions: removedTxnIds },
+              });
               return json(200, { ok: true, removed: acctId });
             }
 
