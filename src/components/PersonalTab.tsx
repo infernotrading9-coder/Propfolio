@@ -271,6 +271,22 @@ export const PersonalTab: React.FC = () => {
     return stats.byStrategy.filter(s => s.count >= 1);
   }, [stats]);
 
+  // Build equity curve data — MUST be before early returns (React hooks order)
+  const equityData = useMemo(() => {
+    if (!stats?.dailyPnL) return [];
+    if (showBalanceCurve && stats.balance != null) {
+      let cum = stats.balance;
+      const reversed = [...stats.dailyPnL].reverse();
+      const built: { date: string; pnl: number; cumulative: number }[] = [];
+      for (const d of reversed) {
+        built.push({ date: d.date, pnl: cum - (cum - d.pnl), cumulative: cum });
+        cum -= d.pnl;
+      }
+      return built.reverse();
+    }
+    return stats.dailyPnL;
+  }, [stats, showBalanceCurve]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -302,22 +318,6 @@ export const PersonalTab: React.FC = () => {
   const displayPnL = showNetPnL ? netPnL : grossPnL;
   const hasTrades = stats.totalTrades > 0;
   const balance = stats.balance ?? 0;
-
-  // Build equity curve data: cumulative P&L or reverse-calculated balance
-  const equityData = useMemo(() => {
-    if (!stats?.dailyPnL) return [];
-    if (showBalanceCurve && stats.balance != null) {
-      let cum = stats.balance;
-      const reversed = [...stats.dailyPnL].reverse();
-      const built: { date: string; pnl: number; cumulative: number }[] = [];
-      for (const d of reversed) {
-        built.push({ date: d.date, pnl: cum - (cum - d.pnl), cumulative: cum });
-        cum -= d.pnl;
-      }
-      return built.reverse();
-    }
-    return stats.dailyPnL;
-  }, [stats, showBalanceCurve]);
 
   return (
     <div className="space-y-6">
