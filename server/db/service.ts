@@ -656,11 +656,12 @@ export const personalTradeService = {
   /** Normalize instrument names to strip contract month/year suffixes */
   _normalizeInstr(instr: string | null): string {
     if (!instr) return 'Unknown';
-    // "MNQ SEP 2026" → "MNQ", "NQZ24" → "NQ", "MES DEC 2026" → "MES"
-    return instr
-      .replace(/\s+(MAR|JUN|SEP|DEC|H\d{2}|M\d{2}|U\d{2}|Z\d{2})\s*\d*\s*$/i, '')
-      .replace(/[HMUZ]\d{2}$/i, '')
-      .trim() || instr;
+    // All CME month codes: F G H J K M N Q U V X Z (+ digits for year)
+    // "MNQ SEP 2026" → "MNQ" (word-month with spaces)
+    let result = instr.replace(/\s+(MAR|JUN|SEP|DEC)\s*\d*\s*$/i, '');
+    // "MNQM6" / "MGCJ6" / "NQZ25" → "MNQ" / "MGC" / "NQ" (futures code: letter + 1-2 digits, no space)
+    result = result.replace(/[FGHJKMNQUVXZ]\d{1,2}$/i, '').trim();
+    return result || instr;
   },
 
   async getStats(userId: string): Promise<{

@@ -303,52 +303,24 @@ export const PersonalTab: React.FC = () => {
   const hasTrades = stats.totalTrades > 0;
   const balance = stats.balance ?? 0;
 
-  // Build equity curve data: cumulative P&L or balance view
+  // Build equity curve data: cumulative P&L or reverse-calculated balance
+  const equityData = useMemo(() => {
+    if (!stats?.dailyPnL) return [];
+    if (showBalanceCurve && stats.balance != null) {
+      let cum = stats.balance;
+      const reversed = [...stats.dailyPnL].reverse();
+      const built: { date: string; pnl: number; cumulative: number }[] = [];
+      for (const d of reversed) {
+        built.push({ date: d.date, pnl: cum - (cum - d.pnl), cumulative: cum });
+        cum -= d.pnl;
+      }
+      return built.reverse();
+    }
+    return stats.dailyPnL;
+  }, [stats, showBalanceCurve]);
 
   return (
     <div className="space-y-6">
-      {/* Toggle Row: P&L / Lumped / Equity */}
-      <div className="flex flex-wrap items-center justify-center gap-2 mb-2">
-        <button
-          onClick={() => setShowNetPnL(false)}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            !showNetPnL ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
-          }`}
-        >Gross P&L</button>
-        <button
-          onClick={() => setShowNetPnL(true)}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            showNetPnL ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
-          }`}
-        >Net P&L</button>
-        <div className="w-px h-6 bg-white/10 mx-1" />
-        <button
-          onClick={() => setShowLumped(true)}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            showLumped ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
-          }`}
-        >Lumped</button>
-        <button
-          onClick={() => setShowLumped(false)}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            !showLumped ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
-          }`}
-        >By Contract</button>
-        <div className="w-px h-6 bg-white/10 mx-1" />
-        <button
-          onClick={() => setShowBalanceCurve(false)}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            !showBalanceCurve ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
-          }`}
-        >P&L Curve</button>
-        <button
-          onClick={() => setShowBalanceCurve(true)}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            showBalanceCurve ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
-          }`}
-        >Balance</button>
-      </div>
-
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
         <StatCard
@@ -424,6 +396,18 @@ export const PersonalTab: React.FC = () => {
         />
       </div>
 
+      {/* P&L Toggle */}
+      <div className="flex items-center justify-center gap-2 mb-1">
+        <button onClick={() => setShowNetPnL(false)}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            !showNetPnL ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
+          }`}>Gross P&amp;L</button>
+        <button onClick={() => setShowNetPnL(true)}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            showNetPnL ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
+          }`}>Net P&amp;L</button>
+      </div>
+
       {!hasTrades && (
         <div className="text-center py-12">
           <Activity className="w-14 h-14 mx-auto mb-3 text-white/20" />
@@ -437,12 +421,24 @@ export const PersonalTab: React.FC = () => {
       {/* Equity Curve */}
       {stats.dailyPnL.length > 0 && (
         <div className="bg-white/5 rounded-xl border border-white/10 p-4 sm:p-6">
-          <h3 className="text-lg font-semibold text-white/90 mb-4 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-cyan-400" />
-            {showBalanceCurve ? 'P&L Equity Curve' : 'Cumulative P&L'}
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-white/90 flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-cyan-400" />
+              {showBalanceCurve ? 'Balance Trend' : 'Cumulative P&L'}
+            </h3>
+            <div className="flex gap-1.5">
+              <button onClick={() => setShowBalanceCurve(false)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${
+                  !showBalanceCurve ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
+                }`}>P&L Curve</button>
+              <button onClick={() => setShowBalanceCurve(true)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${
+                  showBalanceCurve ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
+                }`}>Balance</button>
+            </div>
+          </div>
           <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={stats.dailyPnL}>
+            <AreaChart data={equityData}>
               <defs>
                 <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.4} />
@@ -526,10 +522,22 @@ export const PersonalTab: React.FC = () => {
         {/* Instrument P&L Bar Chart */}
         {instrumentChartData.length > 0 && (
           <div className="bg-white/5 rounded-xl border border-white/10 p-4 sm:p-6">
-            <h3 className="text-lg font-semibold text-white/90 mb-4 flex items-center gap-2">
-              <Filter className="w-4 h-4 text-white/50" />
-              P&L by {showLumped ? 'Instrument' : 'Contract'}
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white/90 flex items-center gap-2">
+                <Filter className="w-4 h-4 text-white/50" />
+                P&L by Instrument
+              </h3>
+              <div className="flex gap-1.5">
+                <button onClick={() => setShowLumped(true)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${
+                    showLumped ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
+                  }`}>Lumped</button>
+                <button onClick={() => setShowLumped(false)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${
+                    !showLumped ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
+                  }`}>By Contract</button>
+              </div>
+            </div>
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={instrumentChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
