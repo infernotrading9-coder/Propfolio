@@ -61,6 +61,28 @@ export const handler: Handler = async (event) => {
         return json(200, { deleted: true });
       }
 
+      // Update trade metadata (strategy, SL type, TP method, etc.)
+      if (input.action === 'update-trade') {
+        if (!input.id) return json(400, { error: 'id required' });
+        const trade = await personalTradeService.getById(user.id, input.id);
+        if (!trade) return json(404, { error: 'Trade not found' });
+        const updated = await personalTradeService.update(input.id, user.id, {
+          strategy: input.strategy ?? null,
+          slType: input.slType ?? null,
+          tpMethod: input.tpMethod ?? null,
+          tryCounter: input.tryCounter != null ? Number(input.tryCounter) : null,
+          stuckToSize: input.stuckToSize ?? null,
+          notes: input.notes ?? null,
+        });
+        return json(200, { trade: updated });
+      }
+
+      // List distinct strategies for autocomplete
+      if (input.action === 'strategies') {
+        const strategies = await personalTradeService.getStrategies(user.id);
+        return json(200, { strategies });
+      }
+
       // Update the live account balance (trade monitor bot pushes from Tradovate)
       if (input.action === 'update-balance') {
         const balance = input.balance;

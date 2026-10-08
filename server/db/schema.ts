@@ -358,6 +358,11 @@ export const personalTrades = pgTable('personal_trades', {
   riskReward: decimal('risk_reward', { precision: 6, scale: 2 }), // e.g. 2.5 = 2.5R
   marginCallFees: decimal('margin_call_fees', { precision: 10, scale: 2 }).default('0'), // liquidation fee amount, 0 = no margin call
   notes: text('notes'),
+  strategy: text('strategy'),              // named strategy (free-text, tag-style)
+  slType: text('sl_type'),                 // 'mental' | 'hard'
+  tpMethod: text('tp_method'),             // 'market' | 'limit'
+  tryCounter: integer('try_counter'),       // 1-5 how many attempts before giving up
+  stuckToSize: text('stuck_to_size'),      // 'yes' | 'no'
   tradeDate: timestamp('trade_date').defaultNow().notNull(),
   externalId: text('external_id'),          // NinjaTrader order ID for dedup
   createdAt: timestamp('created_at').defaultNow().notNull(),

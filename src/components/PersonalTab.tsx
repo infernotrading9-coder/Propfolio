@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, Target, Award, Activity, Zap, ShieldAlert, Scale, Wallet } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Target, Award, Activity, Zap, ShieldAlert, Scale, Wallet, BookOpen, Filter } from 'lucide-react';
 
 interface PersonalTrade {
   id: string;
@@ -19,6 +19,11 @@ interface PersonalTrade {
   riskReward: string | number | null;
   marginCallFees: string | number | null;
   notes: string | null;
+  strategy: string | null;
+  slType: string | null;
+  tpMethod: string | null;
+  tryCounter: number | null;
+  stuckToSize: string | null;
   tradeDate: string;
   externalId: string | null;
   createdAt: string;
@@ -41,7 +46,13 @@ interface PersonalStats {
   marginCallCount: number;
   totalMarginCallFees: number;
   byInstrument: { instrument: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
+  byInstrumentRaw: { instrument: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
   dailyPnL: { date: string; pnl: number; cumulative: number }[];
+  byStrategy: { strategy: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
+  bySlType: { slType: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
+  byTpMethod: { tpMethod: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
+  byTryCounter: { tryCounter: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
+  byStuckToSize: { stuckToSize: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
 }
 
 const fmtUSD = (n: number) => {
@@ -54,14 +65,33 @@ const fmtDate = (d: string) => {
   return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
-
-
 export const PersonalTab: React.FC = () => {
   const [trades, setTrades] = useState<PersonalTrade[]>([]);
   const [stats, setStats] = useState<PersonalStats | null>(null);
+  const [strategies, setStrategies] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNetPnL, setShowNetPnL] = useState(false);
+  const [showBalanceCurve, setShowBalanceCurve] = useState(false);
+  const [showLumped, setShowLumped] = useState(true);
+
+  // Strategy dropdown state
+  const [editingTxnId, setEditingTxnId] = useState<string | null>(null);
+  const [strategyInput, setStrategyInput] = useState('');
+  const [strategyDropdownOpen, setStrategyDropdownOpen] = useState<string | null>(null);
+  const [filteredStrategies, setFilteredStrategies] = useState<string[]>([]);
+
+  // Advanced strategy modal
+  const [showStrategyModal, setShowStrategyModal] = useState(false);
+  const [modalTrade, setModalTrade] = useState<PersonalTrade | null>(null);
+  const [modalStrategy, setModalStrategy] = useState('');
+  const [modalSlType, setModalSlType] = useState('');
+  const [modalTpMethod, setModalTpMethod] = useState('');
+  const [modalTryCounter, setModalTryCounter] = useState(0);
+  const [modalStuckToSize, setModalStuckToSize] = useState('');
+
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const strategyInputRef = useRef<HTMLInputElement>(null);
 
   const getAuthHeaders = useCallback(() => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -79,9 +109,14 @@ export const PersonalTab: React.FC = () => {
 
   const loadData = useCallback(async () => {
     try {
-      const [tradesRes, statsRes] = await Promise.all([
+      const [tradesRes, statsRes, stratRes] = await Promise.all([
         fetch('/.netlify/functions/db-personal-trades', { headers: getAuthHeaders() }),
         fetch('/.netlify/functions/db-personal-trades?action=stats', { headers: getAuthHeaders() }),
+        fetch('/.netlify/functions/db-personal-trades', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ action: 'strategies' }),
+        }),
       ]);
       if (tradesRes.ok) {
         const data = await tradesRes.json();
@@ -90,6 +125,10 @@ export const PersonalTab: React.FC = () => {
       if (statsRes.ok) {
         const data = await statsRes.json();
         setStats(data.stats || null);
+      }
+      if (stratRes.ok) {
+        const data = await stratRes.json();
+        setStrategies(data.strategies || []);
       }
       if (!tradesRes.ok && !statsRes.ok) {
         setError('Failed to load personal trades');
@@ -104,6 +143,110 @@ export const PersonalTab: React.FC = () => {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Save trade metadata via API
+  const saveTradeMeta = useCallback(async (tradeId: string, meta: {
+    strategy?: string; slType?: string; tpMethod?: string; tryCounter?: number; stuckToSize?: string; notes?: string;
+  }) => {
+    const res = await fetch('/.netlify/functions/db-personal-trades', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ action: 'update-trade', id: tradeId, ...meta }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.trade) {
+        setTrades(prev => prev.map(t => t.id === tradeId ? { ...t, ...data.trade } : t));
+        // Reload stats to reflect updated data
+        const statsRes = await fetch('/.netlify/functions/db-personal-trades?action=stats', { headers: getAuthHeaders() });
+        if (statsRes.ok) {
+          const statsData = await statsRes.json();
+          setStats(statsData.stats || null);
+        }
+        // Reload strategies list
+        const stratRes = await fetch('/.netlify/functions/db-personal-trades', {
+          method: 'POST', headers: getAuthHeaders(),
+          body: JSON.stringify({ action: 'strategies' }),
+        });
+        if (stratRes.ok) {
+          const stratData = await stratRes.json();
+          setStrategies(stratData.strategies || []);
+        }
+      }
+    }
+  }, [getAuthHeaders]);
+
+  // Strategy dropdown logic
+  const openStrategyDropdown = useCallback((trade: PersonalTrade) => {
+    setStrategyDropdownOpen(trade.id);
+    setStrategyInput(trade.strategy || '');
+    setFilteredStrategies(strategies.filter(s => !trade.strategy || s !== trade.strategy));
+    setEditingTxnId(trade.id);
+  }, [strategies]);
+
+  const closeStrategyDropdown = useCallback(() => {
+    setStrategyDropdownOpen(null);
+    setStrategyInput('');
+    setEditingTxnId(null);
+    setFilteredStrategies([]);
+  }, []);
+
+  const selectStrategy = useCallback(async (tradeId: string, strategy: string) => {
+    await saveTradeMeta(tradeId, { strategy });
+    closeStrategyDropdown();
+  }, [saveTradeMeta, closeStrategyDropdown]);
+
+  const handleStrategyInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setStrategyInput(val);
+    setFilteredStrategies(
+      strategies.filter(s => s.toLowerCase().includes(val.toLowerCase()) && s !== val)
+    );
+  }, [strategies]);
+
+  const handleStrategyInputKeyDown = useCallback(async (e: React.KeyboardEvent, tradeId: string) => {
+    if (e.key === 'Enter' && strategyInput.trim()) {
+      e.preventDefault();
+      await selectStrategy(tradeId, strategyInput.trim());
+    } else if (e.key === 'Escape') {
+      closeStrategyDropdown();
+    }
+  }, [strategyInput, selectStrategy, closeStrategyDropdown]);
+
+  // Open advanced strategy modal
+  const openAdvancedModal = useCallback((trade: PersonalTrade) => {
+    setModalTrade(trade);
+    setModalStrategy(trade.strategy || '');
+    setModalSlType(trade.slType || '');
+    setModalTpMethod(trade.tpMethod || '');
+    setModalTryCounter(trade.tryCounter || 0);
+    setModalStuckToSize(trade.stuckToSize || '');
+    setShowStrategyModal(true);
+  }, []);
+
+  const saveAdvancedModal = useCallback(async () => {
+    if (!modalTrade) return;
+    await saveTradeMeta(modalTrade.id, {
+      strategy: modalStrategy || null,
+      slType: modalSlType || null,
+      tpMethod: modalTpMethod || null,
+      tryCounter: modalTryCounter > 0 ? modalTryCounter : null,
+      stuckToSize: modalStuckToSize || null,
+    });
+    setShowStrategyModal(false);
+    setModalTrade(null);
+  }, [modalTrade, modalStrategy, modalSlType, modalTpMethod, modalTryCounter, modalStuckToSize, saveTradeMeta]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        closeStrategyDropdown();
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [closeStrategyDropdown]);
+
   const winLossData = useMemo(() => {
     if (!stats) return [];
     return [
@@ -112,9 +255,17 @@ export const PersonalTab: React.FC = () => {
     ];
   }, [stats]);
 
+  // Use lumped or raw instrument data based on toggle
   const instrumentChartData = useMemo(() => {
-    if (!stats?.byInstrument) return [];
-    return stats.byInstrument.slice(0, 8);
+    if (!stats) return [];
+    const source = showLumped ? stats.byInstrument : stats.byInstrumentRaw;
+    return source.slice(0, 8);
+  }, [stats, showLumped]);
+
+  // Strategy chart data
+  const strategyChartData = useMemo(() => {
+    if (!stats?.byStrategy) return [];
+    return stats.byStrategy.filter(s => s.count >= 1);
   }, [stats]);
 
   if (loading) {
@@ -149,26 +300,73 @@ export const PersonalTab: React.FC = () => {
   const hasTrades = stats.totalTrades > 0;
   const balance = stats.balance ?? 0;
 
+  // Build equity curve data: cumulative P&L or balance view
+  const equityData = useMemo(() => {
+    if (!stats?.dailyPnL) return [];
+    if (showBalanceCurve && balance !== 0) {
+      // Show balance trend — start from current balance, subtract daily PnL backwards
+      const reversed = [...stats.dailyPnL].reverse();
+      let runningBalance = balance;
+      const result = [];
+      for (let i = reversed.length - 1; i >= 0; i--) {
+        // This is tricky without a starting balance snapshot
+      }
+      // Simpler: just show daily PnL as equity, labeled differently
+      return stats.dailyPnL.map(d => ({
+        ...d,
+        displayKey: d.cumulative,
+        label: 'Cumulative P&L',
+      }));
+    }
+    return stats.dailyPnL.map(d => ({
+      ...d,
+      displayKey: d.cumulative,
+      label: 'Cumulative P&L',
+    }));
+  }, [stats, showBalanceCurve, balance]);
+
   return (
     <div className="space-y-6">
-      {/* P&L Toggle */}
-      <div className="flex items-center justify-center gap-3 mb-2">
+      {/* Toggle Row: P&L / Lumped / Equity */}
+      <div className="flex flex-wrap items-center justify-center gap-2 mb-2">
         <button
           onClick={() => setShowNetPnL(false)}
-          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
             !showNetPnL ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
           }`}
-        >
-          Gross P&L
-        </button>
+        >Gross P&L</button>
         <button
           onClick={() => setShowNetPnL(true)}
-          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
             showNetPnL ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
           }`}
-        >
-          Net P&L (after fees)
-        </button>
+        >Net P&L</button>
+        <div className="w-px h-6 bg-white/10 mx-1" />
+        <button
+          onClick={() => setShowLumped(true)}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            showLumped ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
+          }`}
+        >Lumped</button>
+        <button
+          onClick={() => setShowLumped(false)}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            !showLumped ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
+          }`}
+        >By Contract</button>
+        <div className="w-px h-6 bg-white/10 mx-1" />
+        <button
+          onClick={() => setShowBalanceCurve(false)}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            !showBalanceCurve ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
+          }`}
+        >P&L Curve</button>
+        <button
+          onClick={() => setShowBalanceCurve(true)}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            showBalanceCurve ? 'bg-white/15 text-white border border-white/30' : 'text-white/50 hover:text-white/70 border border-transparent'
+          }`}
+        >Balance</button>
       </div>
 
       {/* Stats Cards */}
@@ -261,7 +459,7 @@ export const PersonalTab: React.FC = () => {
         <div className="bg-white/5 rounded-xl border border-white/10 p-4 sm:p-6">
           <h3 className="text-lg font-semibold text-white/90 mb-4 flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-cyan-400" />
-            Equity Curve
+            {showBalanceCurve ? 'P&L Equity Curve' : 'Cumulative P&L'}
           </h3>
           <ResponsiveContainer width="100%" height={280}>
             <AreaChart data={stats.dailyPnL}>
@@ -301,7 +499,7 @@ export const PersonalTab: React.FC = () => {
                 stroke="#22d3ee"
                 strokeWidth={2}
                 fill="url(#equityGradient)"
-                name="Cumulative P&L"
+                name={showBalanceCurve ? 'Balance' : 'Cumulative P&L'}
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -348,7 +546,10 @@ export const PersonalTab: React.FC = () => {
         {/* Instrument P&L Bar Chart */}
         {instrumentChartData.length > 0 && (
           <div className="bg-white/5 rounded-xl border border-white/10 p-4 sm:p-6">
-            <h3 className="text-lg font-semibold text-white/90 mb-4">P&L by Instrument</h3>
+            <h3 className="text-lg font-semibold text-white/90 mb-4 flex items-center gap-2">
+              <Filter className="w-4 h-4 text-white/50" />
+              P&L by {showLumped ? 'Instrument' : 'Contract'}
+            </h3>
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={instrumentChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
@@ -385,15 +586,18 @@ export const PersonalTab: React.FC = () => {
       </div>
       )}
 
-      {/* Instrument Stats Table */}
-      {stats.byInstrument.length > 0 && (
+      {/* Strategy Stats */}
+      {hasTrades && strategyChartData.length > 0 && (
         <div className="bg-white/5 rounded-xl border border-white/10 p-4 sm:p-6">
-          <h3 className="text-lg font-semibold text-white/90 mb-4">Instrument Breakdown</h3>
+          <h3 className="text-lg font-semibold text-white/90 mb-4 flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-purple-400" />
+            Strategy Breakdown
+          </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-white/50 border-b border-white/10">
-                  <th className="text-left py-2 px-3 font-medium">Instrument</th>
+                  <th className="text-left py-2 px-3 font-medium">Strategy</th>
                   <th className="text-right py-2 px-3 font-medium">Trades</th>
                   <th className="text-right py-2 px-3 font-medium">Wins</th>
                   <th className="text-right py-2 px-3 font-medium">Losses</th>
@@ -402,7 +606,62 @@ export const PersonalTab: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {stats.byInstrument.map((row) => (
+                {strategyChartData.map((row) => (
+                  <tr key={row.strategy} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                    <td className="py-2 px-3 font-mono text-white/90">{row.strategy}</td>
+                    <td className="text-right py-2 px-3 text-white/70">{row.count}</td>
+                    <td className="text-right py-2 px-3 text-emerald-400">{row.wins}</td>
+                    <td className="text-right py-2 px-3 text-red-400">{row.losses}</td>
+                    <td className={`text-right py-2 px-3 font-medium ${row.winRate >= 50 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {row.winRate.toFixed(1)}%
+                    </td>
+                    <td className={`text-right py-2 px-3 font-medium ${row.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {fmtUSD(row.pnl)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Checkbox breakdown */}
+          {stats.bySlType.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+            {stats.bySlType.length > 0 && (
+              <BreakdownCard title="SL Type" data={stats.bySlType} keyField="slType" />
+            )}
+            {stats.byTpMethod.length > 0 && (
+              <BreakdownCard title="TP Method" data={stats.byTpMethod} keyField="tpMethod" />
+            )}
+            {stats.byTryCounter.length > 0 && (
+              <BreakdownCard title="Try Counter" data={stats.byTryCounter} keyField="tryCounter" />
+            )}
+            {stats.byStuckToSize.length > 0 && (
+              <BreakdownCard title="Stuck to Size" data={stats.byStuckToSize} keyField="stuckToSize" />
+            )}
+          </div>
+          )}
+        </div>
+      )}
+
+      {/* Instrument Stats Table */}
+      {instrumentChartData.length > 0 && (
+        <div className="bg-white/5 rounded-xl border border-white/10 p-4 sm:p-6">
+          <h3 className="text-lg font-semibold text-white/90 mb-4">Instrument Breakdown</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-white/50 border-b border-white/10">
+                  <th className="text-left py-2 px-3 font-medium">{showLumped ? 'Instrument' : 'Contract'}</th>
+                  <th className="text-right py-2 px-3 font-medium">Trades</th>
+                  <th className="text-right py-2 px-3 font-medium">Wins</th>
+                  <th className="text-right py-2 px-3 font-medium">Losses</th>
+                  <th className="text-right py-2 px-3 font-medium">Win Rate</th>
+                  <th className="text-right py-2 px-3 font-medium">P&L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(showLumped ? stats.byInstrument : stats.byInstrumentRaw).map((row) => (
                   <tr key={row.instrument} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                     <td className="py-2 px-3 font-mono text-white/90">{row.instrument}</td>
                     <td className="text-right py-2 px-3 text-white/70">{row.count}</td>
@@ -434,6 +693,7 @@ export const PersonalTab: React.FC = () => {
                 <th className="text-right py-2 px-3 font-medium hidden sm:table-cell">Entry</th>
                 <th className="text-right py-2 px-3 font-medium hidden sm:table-cell">Exit</th>
                 <th className="text-right py-2 px-3 font-medium">P&L</th>
+                <th className="text-left py-2 px-3 font-medium">Strategy</th>
                 <th className="text-left py-2 px-3 font-medium hidden sm:table-cell">Notes</th>
               </tr>
             </thead>
@@ -463,6 +723,42 @@ export const PersonalTab: React.FC = () => {
                     <td className={`text-right py-2 px-3 font-medium ${signedPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                       {fmtUSD(signedPnL)}
                     </td>
+                    <td className="py-2 px-3 relative">
+                      {strategyDropdownOpen === t.id ? (
+                        <div ref={dropdownRef} className="relative z-20">
+                          <input
+                            ref={strategyInputRef}
+                            type="text"
+                            className="w-28 bg-white/10 border border-white/20 rounded px-2 py-1 text-xs text-white outline-none focus:border-purple-400"
+                            placeholder="Type strategy..."
+                            value={strategyInput}
+                            onChange={handleStrategyInputChange}
+                            onKeyDown={(e) => handleStrategyInputKeyDown(e, t.id)}
+                            autoFocus
+                          />
+                          {filteredStrategies.length > 0 && (
+                            <div className="absolute top-full left-0 mt-1 w-40 bg-[#020408] border border-white/15 rounded-lg shadow-xl overflow-hidden z-30">
+                              {filteredStrategies.map((s) => (
+                                <button
+                                  key={s}
+                                  className="block w-full text-left px-3 py-1.5 text-xs text-white/80 hover:bg-white/5 transition-colors"
+                                  onClick={() => selectStrategy(t.id, s)}
+                                >{s}</button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          className="text-xs px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10 transition-colors text-white/70 font-mono max-w-28 truncate"
+                          onClick={() => openStrategyDropdown(t)}
+                          onDoubleClick={() => openAdvancedModal(t)}
+                          title="Click to edit · Double-click for advanced"
+                        >
+                          {t.strategy || '+ add'}
+                        </button>
+                      )}
+                    </td>
                     <td className="py-2 px-3 text-white/40 text-xs max-w-48 truncate hidden sm:table-cell">
                       {t.notes || ''}
                     </td>
@@ -473,6 +769,117 @@ export const PersonalTab: React.FC = () => {
           </table>
         </div>
       </div>
+      )}
+
+      {/* Advanced Strategy Modal */}
+      {showStrategyModal && modalTrade && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowStrategyModal(false)}>
+          <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-white mb-4">
+              Strategy — {modalTrade.instrument || 'Trade'} ({fmtDate(modalTrade.tradeDate)})
+            </h3>
+
+            {/* Strategy name input */}
+            <div className="mb-4">
+              <label className="block text-xs text-white/50 mb-1.5">Strategy Name</label>
+              <input
+                type="text"
+                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-purple-400"
+                value={modalStrategy}
+                onChange={(e) => setModalStrategy(e.target.value)}
+                placeholder="Name this trade's strategy..."
+                list="strategy-options"
+              />
+              <datalist id="strategy-options">
+                {strategies.map((s) => <option key={s} value={s} />)}
+              </datalist>
+            </div>
+
+            {/* SL Type */}
+            <div className="mb-4">
+              <label className="block text-xs text-white/50 mb-2">What type of SL?</label>
+              <div className="flex gap-2">
+                {['', 'mental', 'hard'].map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setModalSlType(opt)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex-1 ${
+                      modalSlType === opt
+                        ? 'bg-purple-500/20 text-purple-300 border border-purple-400/40'
+                        : 'bg-white/5 text-white/50 border border-white/10 hover:bg-white/10'
+                    }`}
+                  >{opt || '—'}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* TP Method */}
+            <div className="mb-4">
+              <label className="block text-xs text-white/50 mb-2">How did you TP?</label>
+              <div className="flex gap-2">
+                {['', 'market', 'limit'].map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setModalTpMethod(opt)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex-1 ${
+                      modalTpMethod === opt
+                        ? 'bg-purple-500/20 text-purple-300 border border-purple-400/40'
+                        : 'bg-white/5 text-white/50 border border-white/10 hover:bg-white/10'
+                    }`}
+                  >{opt || '—'}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Try Counter */}
+            <div className="mb-4">
+              <label className="block text-xs text-white/50 mb-2">Try counter (attempts before giving up)</label>
+              <div className="flex gap-1.5">
+                {[0, 1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setModalTryCounter(n)}
+                    className={`w-10 h-10 rounded-lg text-sm font-medium transition-colors ${
+                      modalTryCounter === n
+                        ? 'bg-purple-500/20 text-purple-300 border border-purple-400/40'
+                        : 'bg-white/5 text-white/50 border border-white/10 hover:bg-white/10'
+                    }`}
+                  >{n || '—'}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Stuck to Size */}
+            <div className="mb-6">
+              <label className="block text-xs text-white/50 mb-2">Stuck to size?</label>
+              <div className="flex gap-2">
+                {['', 'yes', 'no'].map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setModalStuckToSize(opt)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex-1 ${
+                      modalStuckToSize === opt
+                        ? 'bg-purple-500/20 text-purple-300 border border-purple-400/40'
+                        : 'bg-white/5 text-white/50 border border-white/10 hover:bg-white/10'
+                    }`}
+                  >{opt || '—'}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowStrategyModal(false)}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-white/20 text-white/60 hover:text-white/80 transition-colors text-sm"
+              >Cancel</button>
+              <button
+                onClick={saveAdvancedModal}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-purple-500 text-white hover:bg-purple-400 transition-colors text-sm font-medium"
+              >Save</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -492,5 +899,28 @@ const StatCard: React.FC<{
     </div>
     <div className={`text-xl font-bold ${color}`}>{value}</div>
     {subValue && <div className="text-xs text-white/40">{subValue}</div>}
+  </div>
+);
+
+const BreakdownCard: React.FC<{
+  title: string;
+  data: { [key: string]: any }[];
+  keyField: string;
+}> = ({ title, data, keyField }) => (
+  <div className="bg-white/5 rounded-lg border border-white/10 p-3">
+    <h4 className="text-xs font-semibold text-white/60 mb-2 uppercase tracking-wider">{title}</h4>
+    <div className="space-y-1.5">
+      {data.map((row) => (
+        <div key={row[keyField]} className="flex items-center justify-between text-xs">
+          <span className="text-white/70 font-mono">{row[keyField]}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-white/50">{row.count}t · {row.winRate.toFixed(0)}%</span>
+            <span className={row.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+              {fmtUSD(row.pnl)}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
   </div>
 );

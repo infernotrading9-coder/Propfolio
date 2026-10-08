@@ -584,6 +584,13 @@ export const personalTradeService = {
     return db.select().from(personalTrades).where(eq(personalTrades.userId, userId)).orderBy(desc(personalTrades.tradeDate));
   },
 
+  async getById(userId: string, id: string): Promise<typeof personalTrades.$inferSelect | null> {
+    const result = await db.select().from(personalTrades)
+      .where(and(eq(personalTrades.userId, userId), eq(personalTrades.id, id)))
+      .limit(1);
+    return result[0] ?? null;
+  },
+
   async getByExternalId(userId: string, externalId: string): Promise<typeof personalTrades.$inferSelect | null> {
     const result = await db.select().from(personalTrades)
       .where(and(eq(personalTrades.userId, userId), eq(personalTrades.externalId, externalId)))
@@ -592,12 +599,43 @@ export const personalTradeService = {
   },
 
   async create(userId: string, data: Omit<typeof personalTrades.$inferInsert, 'userId'>): Promise<typeof personalTrades.$inferSelect> {
+    // Accept new optional fields
     const result = await db.insert(personalTrades).values({ ...data, userId }).returning();
     return result[0];
   },
 
+  async update(id: string, userId: string, data: {
+    strategy?: string | null;
+    slType?: string | null;
+    tpMethod?: string | null;
+    tryCounter?: number | null;
+    stuckToSize?: string | null;
+    notes?: string | null;
+  }): Promise<typeof personalTrades.$inferSelect | null> {
+    const result = await db
+      .update(personalTrades)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(personalTrades.id, id), eq(personalTrades.userId, userId)))
+      .returning();
+    return result[0] ?? null;
+  },
+
   async delete(id: string): Promise<void> {
     await db.delete(personalTrades).where(eq(personalTrades.id, id));
+  },
+
+  // List distinct strategy names for autocomplete
+  async getStrategies(userId: string): Promise<string[]> {
+    const rows = await db
+      .select({ strategy: personalTrades.strategy })
+      .from(personalTrades)
+      .where(and(
+        eq(personalTrades.userId, userId),
+        sql`${personalTrades.strategy} IS NOT NULL AND ${personalTrades.strategy} != ''`
+      ))
+      .groupBy(personalTrades.strategy)
+      .orderBy(sql`COUNT(*) DESC`);
+    return rows.map(r => r.strategy).filter(Boolean) as string[];
   },
 
   async getBalance(userId: string): Promise<number | null> {
@@ -613,6 +651,16 @@ export const personalTradeService = {
         set: { balance, updatedAt: new Date() },
       })
       .returning();
+  },
+
+  /** Normalize instrument names to strip contract month/year suffixes */
+  _normalizeInstr(instr: string | null): string {
+    if (!instr) return 'Unknown';
+    // "MNQ SEP 2026" → "MNQ", "NQZ24" → "NQ", "MES DEC 2026" → "MES"
+    return instr
+      .replace(/\s+(MAR|JUN|SEP|DEC|H\d{2}|M\d{2}|U\d{2}|Z\d{2})\s*\d*\s*$/i, '')
+      .replace(/[HMUZ]\d{2}$/i, '')
+      .trim() || instr;
   },
 
   async getStats(userId: string): Promise<{
@@ -632,7 +680,13 @@ export const personalTradeService = {
     marginCallCount: number;
     totalMarginCallFees: number;
     byInstrument: { instrument: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
+    byInstrumentRaw: { instrument: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
     dailyPnL: { date: string; pnl: number; cumulative: number }[];
+    byStrategy: { strategy: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
+    bySlType: { slType: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
+    byTpMethod: { tpMethod: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
+    byTryCounter: { tryCounter: number; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
+    byStuckToSize: { stuckToSize: string; count: number; wins: number; losses: number; winRate: number; pnl: number }[];
   }> {
     const allTrades = await db.select().from(personalTrades).where(eq(personalTrades.userId, userId));
     const balanceRows = await db.select().from(personalAccountBalance).where(eq(personalAccountBalance.userId, userId)).limit(1);
@@ -659,20 +713,73 @@ export const personalTradeService = {
     const rrValues = allTrades.filter(t => t.riskReward != null).map(t => parseFloat(String(t.riskReward)));
     const avgRR = rrValues.length > 0 ? rrValues.reduce((a, b) => a + b, 0) / rrValues.length : 0;
 
-    // By instrument
-    const instrMap = new Map<string, { count: number; wins: number; losses: number; pnl: number }>();
-    for (const t of allTrades) {
-      const key = t.instrument || 'Unknown';
-      if (!instrMap.has(key)) instrMap.set(key, { count: 0, wins: 0, losses: 0, pnl: 0 });
-      const s = instrMap.get(key)!;
-      s.count++;
-      if (t.result === 'win') s.wins++; else s.losses++;
+    // By instrument (LUMPED — contract months merged)
+    const lumpByInstrument = (t: typeof personalTrades.$inferSelect) => personalTradeService._normalizeInstr(t.instrument);
+    const byInstrument = allTrades.reduce((map, t) => {
+      const key = lumpByInstrument(t);
+      if (!map.has(key)) map.set(key, { count: 0, wins: 0, losses: 0, pnl: 0 });
+      const s = map.get(key)!;
+      s.count++; if (t.result === 'win') s.wins++; else s.losses++;
       s.pnl += signed(t);
-    }
-    const byInstrument = Array.from(instrMap.entries()).map(([instrument, s]) => ({
+      return map;
+    }, new Map<string, { count: number; wins: number; losses: number; pnl: number }>());
+    const byInstrumentArr = Array.from(byInstrument.entries()).map(([instrument, s]) => ({
       instrument, count: s.count, wins: s.wins, losses: s.losses,
       winRate: s.count > 0 ? (s.wins / s.count) * 100 : 0, pnl: s.pnl,
     })).sort((a, b) => b.count - a.count);
+
+    // By instrument (RAW — includes contract months)
+    const rawByInstrument = allTrades.reduce((map, t) => {
+      const key = t.instrument || 'Unknown';
+      if (!map.has(key)) map.set(key, { count: 0, wins: 0, losses: 0, pnl: 0 });
+      const s = map.get(key)!;
+      s.count++; if (t.result === 'win') s.wins++; else s.losses++;
+      s.pnl += signed(t);
+      return map;
+    }, new Map<string, { count: number; wins: number; losses: number; pnl: number }>());
+    const byInstrumentRaw = Array.from(rawByInstrument.entries()).map(([instrument, s]) => ({
+      instrument, count: s.count, wins: s.wins, losses: s.losses,
+      winRate: s.count > 0 ? (s.wins / s.count) * 100 : 0, pnl: s.pnl,
+    })).sort((a, b) => b.count - a.count);
+
+    // By strategy
+    const byStrategy = allTrades.reduce((map, t) => {
+      const key = t.strategy || '(none)';
+      if (!map.has(key)) map.set(key, { count: 0, wins: 0, losses: 0, pnl: 0 });
+      const s = map.get(key)!;
+      s.count++; if (t.result === 'win') s.wins++; else s.losses++;
+      s.pnl += signed(t);
+      return map;
+    }, new Map<string, { count: number; wins: number; losses: number; pnl: number }>());
+    const byStrategyArr = Array.from(byStrategy.entries()).map(([strategy, s]) => ({
+      strategy, count: s.count, wins: s.wins, losses: s.losses,
+      winRate: s.count > 0 ? (s.wins / s.count) * 100 : 0, pnl: s.pnl,
+    })).sort((a, b) => b.count - a.count);
+
+    // By checkbox fields
+    const groupSimple = <T extends string>(keyField: string, extractor: (t: typeof personalTrades.$inferSelect) => T) => {
+      const map = new Map<T, { count: number; wins: number; losses: number; pnl: number }>();
+      for (const t of allTrades) {
+        const key = extractor(t);
+        if (!map.has(key)) map.set(key, { count: 0, wins: 0, losses: 0, pnl: 0 });
+        const s = map.get(key)!;
+        s.count++; if (t.result === 'win') s.wins++; else s.losses++;
+        s.pnl += signed(t);
+      }
+      return Array.from(map.entries())
+        .filter(([k]) => k !== '' && k !== null && k !== undefined)
+        .map(([key, s]) => ({
+          [keyField]: key,
+          count: s.count, wins: s.wins, losses: s.losses,
+          winRate: s.count > 0 ? (s.wins / s.count) * 100 : 0, pnl: s.pnl,
+        }))
+        .sort((a: any, b: any) => b.count - a.count);
+    };
+
+    const bySlType = groupSimple('slType', t => (t.slType || '(unset)') as string);
+    const byTpMethod = groupSimple('tpMethod', t => (t.tpMethod || '(unset)') as string);
+    const byTryCounter = groupSimple('tryCounter', t => String(t.tryCounter ?? '(unset)'));
+    const byStuckToSize = groupSimple('stuckToSize', t => (t.stuckToSize || '(unset)') as string);
 
     // Daily P&L (cumulative equity curve)
     const dayMap = new Map<string, number>();
@@ -703,8 +810,14 @@ export const personalTradeService = {
       avgRR,
       marginCallCount,
       totalMarginCallFees,
-      byInstrument,
+      byInstrument: byInstrumentArr,
+      byInstrumentRaw,
       dailyPnL,
+      byStrategy: byStrategyArr,
+      bySlType,
+      byTpMethod,
+      byTryCounter,
+      byStuckToSize,
     };
   },
 };
