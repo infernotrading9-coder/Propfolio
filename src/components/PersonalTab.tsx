@@ -76,7 +76,6 @@ export const PersonalTab: React.FC = () => {
   const [showLumped, setShowLumped] = useState(true);
 
   // Strategy dropdown state
-  const [editingTxnId, setEditingTxnId] = useState<string | null>(null);
   const [strategyInput, setStrategyInput] = useState('');
   const [strategyDropdownOpen, setStrategyDropdownOpen] = useState<string | null>(null);
   const [filteredStrategies, setFilteredStrategies] = useState<string[]>([]);
@@ -145,12 +144,18 @@ export const PersonalTab: React.FC = () => {
 
   // Save trade metadata via API
   const saveTradeMeta = useCallback(async (tradeId: string, meta: {
-    strategy?: string; slType?: string; tpMethod?: string; tryCounter?: number; stuckToSize?: string; notes?: string;
+    strategy?: string | null; slType?: string | null; tpMethod?: string | null; tryCounter?: number | null; stuckToSize?: string | null; notes?: string | null;
   }) => {
+    // Build payload — only send non-undefined fields (null = clear the DB column)
+    const body: any = { action: 'update-trade', id: tradeId };
+    ['strategy','slType','tpMethod','stuckToSize','notes'].forEach(k => {
+      if ((meta as any)[k] !== undefined) body[k] = (meta as any)[k];
+    });
+    if (meta.tryCounter !== undefined) body.tryCounter = meta.tryCounter;
     const res = await fetch('/.netlify/functions/db-personal-trades', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ action: 'update-trade', id: tradeId, ...meta }),
+      body: JSON.stringify(body),
     });
     if (res.ok) {
       const data = await res.json();
@@ -180,13 +185,11 @@ export const PersonalTab: React.FC = () => {
     setStrategyDropdownOpen(trade.id);
     setStrategyInput(trade.strategy || '');
     setFilteredStrategies(strategies.filter(s => !trade.strategy || s !== trade.strategy));
-    setEditingTxnId(trade.id);
   }, [strategies]);
 
   const closeStrategyDropdown = useCallback(() => {
     setStrategyDropdownOpen(null);
     setStrategyInput('');
-    setEditingTxnId(null);
     setFilteredStrategies([]);
   }, []);
 
@@ -301,29 +304,6 @@ export const PersonalTab: React.FC = () => {
   const balance = stats.balance ?? 0;
 
   // Build equity curve data: cumulative P&L or balance view
-  const equityData = useMemo(() => {
-    if (!stats?.dailyPnL) return [];
-    if (showBalanceCurve && balance !== 0) {
-      // Show balance trend — start from current balance, subtract daily PnL backwards
-      const reversed = [...stats.dailyPnL].reverse();
-      let runningBalance = balance;
-      const result = [];
-      for (let i = reversed.length - 1; i >= 0; i--) {
-        // This is tricky without a starting balance snapshot
-      }
-      // Simpler: just show daily PnL as equity, labeled differently
-      return stats.dailyPnL.map(d => ({
-        ...d,
-        displayKey: d.cumulative,
-        label: 'Cumulative P&L',
-      }));
-    }
-    return stats.dailyPnL.map(d => ({
-      ...d,
-      displayKey: d.cumulative,
-      label: 'Cumulative P&L',
-    }));
-  }, [stats, showBalanceCurve, balance]);
 
   return (
     <div className="space-y-6">
