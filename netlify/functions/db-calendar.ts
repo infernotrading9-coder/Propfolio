@@ -61,7 +61,7 @@ export const handler: Handler = async (event) => {
 
       // Upsert a calendar entry (create or update by date)
       if (input.action === 'upsert-entry') {
-        const { calendarAccountId, date, followedRules, ruleCompliance, notes } = input
+        const { calendarAccountId, date, followedRules, ruleCompliance, balanceSnapshot, pnlSnapshot, notes } = input
         if (!calendarAccountId || !date) {
           return json(400, { error: 'calendarAccountId and date are required' })
         }
@@ -74,6 +74,8 @@ export const handler: Handler = async (event) => {
           date,
           followedRules: followedRules ?? null,
           ruleCompliance: ruleCompliance || null,
+          balanceSnapshot: balanceSnapshot ?? null,
+          pnlSnapshot: pnlSnapshot ?? null,
           notes: notes || null,
         })
         return json(200, { entry: {
@@ -81,6 +83,8 @@ export const handler: Handler = async (event) => {
           date: entry.date,
           followedRules: entry.followedRules,
           ruleCompliance: entry.ruleCompliance ? JSON.parse(entry.ruleCompliance) : null,
+          balanceSnapshot: entry.balanceSnapshot ? parseFloat(String(entry.balanceSnapshot)) : null,
+          pnlSnapshot: entry.pnlSnapshot ? parseFloat(String(entry.pnlSnapshot)) : null,
           notes: entry.notes,
         } })
       }

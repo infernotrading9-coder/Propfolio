@@ -168,6 +168,17 @@ export const GoalsTab: React.FC = () => {
     return { done: kids.filter((k) => effectiveDone(k.id)).length, total: kids.length };
   }, [childrenOf, effectiveDone]);
 
+  const requestBreakdown = useCallback(async (note: PlanNote) => {
+    try {
+      const h = getAuthHeaders();
+      await fetch(API, {
+        method: 'POST',
+        headers: h,
+        body: JSON.stringify({ action: 'request-breakdown', noteId: note.id, title: note.title, body: note.body }),
+      });
+    } catch {}
+  }, []);
+
   const columnOf = useCallback((h: Horizon) => {
     return notes
       .filter((n) => (n.horizon === h ? true : false))
@@ -334,6 +345,7 @@ export const GoalsTab: React.FC = () => {
                       onEdit={() => openEdit(n)}
                       onDelete={() => remove(n)}
                       onAddStep={() => openCreate(nextHorizonBelow(n.horizon), n.id)}
+                    onBreakdown={() => requestBreakdown(n)}
                       progressOf={progressOf}
                       effectiveDone={effectiveDone}
                     />
@@ -376,6 +388,7 @@ const NoteCard: React.FC<{
   onEdit: () => void;
   onDelete: () => void;
   onAddStep: () => void;
+  onBreakdown?: (note: PlanNote) => void;
   progressOf: (id: string) => { done: number; total: number } | null;
   effectiveDone: (id: string, seen?: Set<string>) => boolean;
 }> = ({

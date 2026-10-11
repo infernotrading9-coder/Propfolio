@@ -824,6 +824,8 @@ export const handler: Handler = async (event) => {
       if (updates.platform !== undefined) dbUpdates.platform = updates.platform
       if (updates.copyTradeGroup !== undefined) dbUpdates.copyTradeGroup = updates.copyTradeGroup;
     if (updates.groupName !== undefined) dbUpdates.groupName = updates.groupName
+      if (updates.nickname !== undefined) dbUpdates.nickname = updates.nickname || null
+      if (updates.displayLabel !== undefined) dbUpdates.displayLabel = updates.displayLabel || null
 
       const updated = await tradingAccountService.update(id, dbUpdates)
       return json(200, { account: updated })

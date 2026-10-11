@@ -10,6 +10,7 @@ interface TradingAccount {
   firm: string;
   accountNumberLast4?: string | null;
   displayLabel?: string | null;
+  accountFirst4?: string | null;
   accountSize: string;
   balance: string;
   drawdownUsed: string;
@@ -74,6 +75,8 @@ interface CalEntry {
   date: string;
   followedRules: boolean | null;
   ruleCompliance?: Record<string, boolean> | null;
+  balanceSnapshot?: number | null;
+  pnlSnapshot?: number | null;
   notes?: string;
 }
 
@@ -195,7 +198,7 @@ const HolographicAccountCard: React.FC<{
                   {acct.name}
                 </h4>
                 <p className="text-sm text-white/50 truncate">
-                  {acct.firm}{(acct.displayLabel || acct.accountNumberLast4) ? ` · ...${acct.displayLabel || acct.accountNumberLast4}` : ''} · {sizeLabel}
+                  {acct.firm}{acct.accountFirst4 || acct.accountNumberLast4 ? ` · ${acct.accountFirst4 || '?'}${acct.accountNumberLast4 || ''}` : ''} · {sizeLabel}
                   {acct.evalType ? <span className="ml-1 text-cyan-300/70">· {acct.evalType}</span> : null}
                 </p>
               </div>
@@ -600,7 +603,13 @@ const CombinedRuleCalendar: React.FC<{
                 </div>
                 {hasData && isCurrentMonth && (
                   <div className="space-y-0.5">
-                    <div className="flex justify-center gap-1">
+                    <div className="text-center text-lg font-bold text-white/90">
+                      {summary.followed}/{summary.total}
+                    </div>
+                    <div className="text-xs text-white/50">
+                      {summary.total > 0 ? Math.round((summary.followed / summary.total) * 100) : 0}%
+                    </div>
+                    <div className="flex justify-center gap-1 mt-0.5">
                       {summary.followed > 0 && (
                         <span className="inline-flex items-center gap-0.5 text-xs bg-emerald-500/20 text-emerald-200 px-1.5 py-0.5 rounded-full">
                           <CheckCircle2 className="w-2.5 h-2.5" />{summary.followed}
@@ -612,7 +621,6 @@ const CombinedRuleCalendar: React.FC<{
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-white/50">{summary.total} account{summary.total !== 1 ? 's' : ''}</div>
                   </div>
                 )}
                 {!hasData && isCurrentMonth && (
@@ -658,6 +666,27 @@ const CombinedRuleCalendar: React.FC<{
                     </span>
                   )}
                 </div>
+                {/* Balance / P&L snapshot */}
+                {selectedAccountEntryForDate && (
+                  <div className="flex gap-4 mb-3">
+                    {selectedAccountEntryForDate.balanceSnapshot != null && (
+                      <div>
+                        <div className="text-xs text-white/40">Balance</div>
+                        <div className={`text-lg font-bold ${selectedAccountEntryForDate.balanceSnapshot >= 0 ? 'text-cyan-400' : 'text-red-400'}`}>
+                          ${(selectedAccountEntryForDate.balanceSnapshot).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                    )}
+                    {selectedAccountEntryForDate.pnlSnapshot != null && (
+                      <div>
+                        <div className="text-xs text-white/40">Day P&amp;L</div>
+                        <div className={`text-lg font-bold ${selectedAccountEntryForDate.pnlSnapshot >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {selectedAccountEntryForDate.pnlSnapshot >= 0 ? '+' : ''}{(selectedAccountEntryForDate.pnlSnapshot).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {selectedAccountEntryForDate?.ruleCompliance && Object.keys(selectedAccountEntryForDate.ruleCompliance).length > 0 && (
                   <div className="space-y-1">
                     {Object.entries(selectedAccountEntryForDate.ruleCompliance).map(([ruleId, followed]) => (

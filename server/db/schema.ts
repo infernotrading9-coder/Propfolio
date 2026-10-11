@@ -140,6 +140,68 @@ export const tradingModeState = pgTable('trading_mode_state', {
   maxFundedLoss: integer('max_funded_loss').default(1),
   maxLiveLoss: integer('max_live_loss').default(0),
   notes: text('notes'),
+  // Cockpit-specific state
+  cockpitState: text('cockpit_state').default('pre_trade'),
+  currentStrategy: text('current_strategy'),
+  strategyAttempts: integer('strategy_attempts').default(0),
+  lastStrategyTime: timestamp('last_strategy_time'),
+  freshSetup: boolean('fresh_setup').default(true),
+  lastVoiceKey: text('last_voice_key'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// ─── Strategy press log (Group Leader bot reads this to link trades) ──────
+export const strategyLog = pgTable('strategy_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(),
+  strategy: text('strategy').notNull(),
+  attempt: integer('attempt').default(1),
+  setupTf: text('setup_tf'), // e.g. "1m", "15m"
+  entryTf: text('entry_tf'),
+  slPlacement: text('sl_placement'), // "below_entry", "below_setup", "wide", "hard", "mental"
+  variant: text('variant'), // free-text variant notes
+  result: text('result').default('pending'), // "win" | "loss" | "even" | "pending"
+  state: text('state').default('pre_trade'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// ─── Strategy prompt options (Ticksensei manages this, cockpit reads it) ──
+export const strategyPromptOptions = pgTable('strategy_prompt_options', {
+  id: serial('id').primaryKey(),
+  field: text('field').notNull(), // "setup_tf" | "entry_tf" | "sl_placement"
+  value: text('value').notNull(),
+  label: text('label'),
+  sortOrder: integer('sort_order').default(0),
+});
+
+// ─── Prop firm trades (linked to trading accounts / copy groups) ─────────
+export const propTrades = pgTable('prop_trades', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  accountId: text('account_id'), // linked trading account
+  groupId: text('group_id'),     // copy trade group
+  phase: text('phase').default('eval'), // 'eval' | 'funded' | 'live'
+  broker: text('broker').default('NinjaTrader'),
+  instrument: text('instrument').notNull(),
+  action: text('action').notNull(), // 'buy' | 'sell'
+  quantity: integer('quantity').notNull(),
+  entryPrice: decimal('entry_price', { precision: 12, scale: 2 }),
+  exitPrice: decimal('exit_price', { precision: 12, scale: 2 }),
+  pnl: decimal('pnl', { precision: 12, scale: 2 }),
+  riskReward: decimal('risk_reward', { precision: 5, scale: 2 }),
+  entryDate: timestamp('entry_date').defaultNow(),
+  exitDate: timestamp('exit_date'),
+  strategy: text('strategy'),
+  setupTf: text('setup_tf'),
+  entryTf: text('entry_tf'),
+  slPlacement: text('sl_placement'),
+  variant: text('variant'),
+  slType: text('sl_type'),
+  tpMethod: text('tp_method'),
+  tryCounter: integer('try_counter'),
+  stuckToSize: text('stuck_to_size').default('yes'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
@@ -243,6 +305,8 @@ export const calendarEntries = pgTable('calendar_entries', {
   date: text('date').notNull(), // YYYY-MM-DD
   followedRules: boolean('followed_rules'), // true = followed, false = broken, null = no trade
   ruleCompliance: text('rule_compliance'), // JSON string: { ruleId: true/false }
+  balanceSnapshot: decimal('balance_snapshot', { precision: 12, scale: 2 }), // account balance at end of session
+  pnlSnapshot: decimal('pnl_snapshot', { precision: 12, scale: 2 }), // day P&L at end of session
   notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -383,6 +447,16 @@ export const personalAccountBalance = pgTable('personal_account_balance', {
 // so a long-term goal holds mid-term steps which hold daily tasks — ticking a
 // step rolls progress up the chain.
 //
+// ─── Daily agenda — Whispersonalbot pushes this from Obsidian ──────────
+export const dailyAgenda = pgTable('daily_agenda', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(),
+  date: text('date').notNull(), // YYYY-MM-DD
+  entries: text('entries').notNull(), // JSON array: [{title, startTime, endTime, category, icon}]
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 // Deliberately NOT linked to accounts or challenges: a note survives an account
 // being archived or failed.
 export const planNotes = pgTable('plan_notes', {

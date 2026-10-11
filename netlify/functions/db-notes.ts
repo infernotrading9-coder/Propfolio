@@ -132,8 +132,22 @@ export const handler: Handler = async (event) => {
         return json(200, { deleted: true, id: String(input.id) });
       }
 
+      // ── request-breakdown (Ticksensei picks these up) ──────────────────
+      if (input.action === 'request-breakdown') {
+        const { noteId, title, body } = input;
+        if (!noteId) return json(400, { error: 'noteId required' });
+        // Create a note in long_term with a special prefix for Ticksensei to find
+        const [row] = await planNoteService.create(user.id, {
+          horizon: 'long_term',
+          title: title || 'Untitled',
+          body: (body || '') + '\n\n<!-- BREAKDOWN-REQUEST: ' + noteId + ' -->',
+          priority: 99,
+        });
+        return json(200, { ok: true, breakdownId: row.id });
+      }
+
       return json(400, {
-        error: 'Invalid action. Use: create-note, update-note, delete-note',
+        error: 'Invalid action. Use: create-note, update-note, delete-note, request-breakdown',
       });
     }
 

@@ -318,7 +318,7 @@ class ApiClient {
   // Calendar accounts + entries (server-backed)
   async loadCalendarAccounts(): Promise<{
     accounts: Array<{ id: string; name: string; challengeId?: string; isActive: boolean; createdAt: string }>;
-    entries: Record<string, Array<{ id: string; date: string; followedRules: boolean | null; ruleCompliance: Record<string, boolean> | null; notes?: string }>>;
+    entries: Record<string, Array<{ id: string; date: string; followedRules: boolean | null; ruleCompliance: Record<string, boolean> | null; balanceSnapshot?: number | null; pnlSnapshot?: number | null; notes?: string }>>;
   } | null> {
     if (this.useLocal()) return null;
     try {

@@ -1,6 +1,7 @@
 import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import { db } from './connection';
-import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, tradingSessionLimits, tradingModeState, tradingModeRules, personalTrades, personalAccountBalance, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState, planNotes } from './schema';
+import { users, subscriptions, firms, challenges, userState, payouts, sessions, tradingAccounts, tradingSessionLimits, tradingModeState, tradingModeRules, personalTrades, personalAccountBalance, accountDailyOrder, calendarAccounts, calendarEntries, budgetTransactions, budgetAccounts, budgetState, planNotes, strategyLog, strategyPromptOptions, dailyAgenda } from './schema';
+export { strategyLog, strategyPromptOptions, dailyAgenda };
 
 // Type aliases for the original schema
 type User = typeof users.$inferSelect;
@@ -291,7 +292,7 @@ export const tradingModeStateService = {
     const existing = await db.select().from(tradingModeState).where(eq(tradingModeState.userId, userId)).limit(1);
     if (existing.length > 0) {
       const updates: Record<string, any> = { updatedAt: new Date() };
-      for (const key of ['score', 'mode', 'evalCount', 'fundedCount', 'liveCount', 'cashOnHand', 'totalDebt', 'maxEvalLoss', 'maxFundedLoss', 'maxLiveLoss', 'notes']) {
+      for (const key of ['score', 'mode', 'evalCount', 'fundedCount', 'liveCount', 'cashOnHand', 'totalDebt', 'maxEvalLoss', 'maxFundedLoss', 'maxLiveLoss', 'notes', 'cockpitState', 'currentStrategy', 'strategyAttempts', 'lastStrategyTime', 'freshSetup', 'lastVoiceKey']) {
         if (data[key] !== undefined) updates[key] = data[key];
       }
       await db.update(tradingModeState).set(updates).where(eq(tradingModeState.userId, userId));
@@ -501,7 +502,7 @@ export const calendarEntryService = {
     return allEntries;
   },
 
-  async upsert(calendarAccountId: string, data: { date: string; followedRules: boolean | null; ruleCompliance?: Record<string, boolean> | null; notes?: string | null }): Promise<CalendarEntry> {
+  async upsert(calendarAccountId: string, data: { date: string; followedRules: boolean | null; ruleCompliance?: Record<string, boolean> | null; balanceSnapshot?: number | null; pnlSnapshot?: number | null; notes?: string | null }): Promise<CalendarEntry> {
     const existing = await db
       .select()
       .from(calendarEntries)
@@ -516,6 +517,8 @@ export const calendarEntryService = {
         .set({
           followedRules: data.followedRules,
           ruleCompliance: ruleComplianceStr,
+          balanceSnapshot: data.balanceSnapshot ? String(data.balanceSnapshot) : null,
+          pnlSnapshot: data.pnlSnapshot ? String(data.pnlSnapshot) : null,
           notes: data.notes || null,
           updatedAt: new Date(),
         })
@@ -530,6 +533,8 @@ export const calendarEntryService = {
           date: data.date,
           followedRules: data.followedRules,
           ruleCompliance: ruleComplianceStr,
+          balanceSnapshot: data.balanceSnapshot ? String(data.balanceSnapshot) : null,
+          pnlSnapshot: data.pnlSnapshot ? String(data.pnlSnapshot) : null,
           notes: data.notes || null,
         } as NewCalendarEntry)
         .returning();
@@ -604,14 +609,15 @@ export const personalTradeService = {
     return result[0];
   },
 
-  async update(id: string, userId: string, data: {
-    strategy?: string | null;
-    slType?: string | null;
-    tpMethod?: string | null;
-    tryCounter?: number | null;
-    stuckToSize?: string | null;
-    notes?: string | null;
-  }): Promise<typeof personalTrades.$inferSelect | null> {
+  async update(userId: string, id: string, data: {
+      strategy?: string | null;
+      slType?: string | null;
+      tpMethod?: string | null;
+      tryCounter?: number | null;
+      stuckToSize?: string | null;
+      fees?: string | null;
+      notes?: string | null;
+    }): Promise<typeof personalTrades.$inferSelect | null> {
     const result = await db
       .update(personalTrades)
       .set({ ...data, updatedAt: new Date() })

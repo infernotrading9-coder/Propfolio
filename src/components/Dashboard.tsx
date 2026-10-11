@@ -28,11 +28,13 @@ import { ListChecks } from 'lucide-react';
 import { AccountsView } from './AccountsView';
 import { TradingModeWidget } from './TradingModeWidget';
 import BudgetTab, { type BudgetState } from './BudgetTab';
+import TradingModeCockpit from "./TradingModeCockpit";
+import PropTradesTab from "./PropTradesTab";
 import { PersonalTab } from './PersonalTab';
 import { GoalsTab } from './GoalsTab';
 
 
-type ViewMode = 'prop' | 'accounts' | 'budget' | 'personal' | 'goals';
+type ViewMode = 'prop' | 'accounts' | 'budget' | 'personal' | 'goals' | 'cockpit' | 'prop_trades';
 
 const Dashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -167,7 +169,21 @@ const Dashboard: React.FC = () => {
   // ─── Budget tab state (BudgetFlow), persisted server-side as JSONB ─────────
   const [budgetState, setBudgetState] = React.useState<BudgetState | undefined>(undefined);
   const [budgetLoaded, setBudgetLoaded] = React.useState(false);
-
+  const [cockpitActive, setCockpitActive] = React.useState(false);
+  const [cockpitPropMode, setCockpitPropMode] = React.useState(false);
+  const [showCockpitMode, setShowCockpitMode] = React.useState(false);
+  const [showAgenda, setShowAgenda] = React.useState(false);
+  const [agendaData, setAgendaData] = React.useState<any>(null);
+  const [agendaLoading, setAgendaLoading] = React.useState(false);
+  const [agendaError, setAgendaError] = React.useState(false);
+  const formatTime12 = (t: string) => {
+    if (!t) return '';
+    const [h, m] = t.split(':').map(Number);
+    if (isNaN(h)) return t;
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `${h12}:${m?.toString().padStart(2, '0') || '00'} ${ampm}`;
+  };
   const budgetAuthHeaders = React.useCallback(() => {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -1041,6 +1057,119 @@ const Dashboard: React.FC = () => {
           />
         )}
 
+        {cockpitActive && (
+          <TradingModeCockpit key={String(cockpitPropMode)} propMode={cockpitPropMode} onExit={() => { setCockpitActive(false); setCockpitPropMode(false); }} />
+        )}
+
+        {!cockpitActive && (
+          <div className="flex fixed right-4 top-24 z-40 gap-3 lg:hidden">
+            <button onClick={async () => {
+              setShowAgenda(true); setAgendaLoading(true); setAgendaError(false);
+              try {
+                const h: Record<string, string> = {};
+                try { const u = JSON.parse(localStorage.getItem('user') || '{}'); if (u?.id) { h['X-User-Id'] = String(u.id); h['X-User-Email'] = String(u.email); } } catch {}
+                const res = await fetch('/.netlify/functions/daily-agenda', { headers: h });
+                const d = await res.json();
+                setAgendaData(d); setAgendaLoading(false);
+              } catch { 
+                // Mock data for testing
+                setAgendaData({ date: new Date().toISOString().slice(0, 10), entries: [
+                  {title: '🌬️ Light: incline walk, abs, stretching', startTime: '11:00', endTime: '12:00', category: 'light', icon: '🌬️'},
+                  {title: 'Trading Session — MNQ/NQ', startTime: '12:00', endTime: '15:00', category: 'trading', icon: '📈'},
+                  {title: '🏋️ Pull heavy: back, biceps', startTime: '15:00', endTime: '16:00', category: 'workouts', icon: '🏋️'},
+                ]}); setAgendaLoading(false); }
+            }}
+              className="w-14 h-14 rounded-full flex items-center justify-center select-none active:scale-95 transition-all duration-200 hover:scale-105"
+              style={{
+                background: 'radial-gradient(circle at 40% 35%, #60a5fa, #3b82f6 55%, #1d4ed8 100%)',
+                borderRadius: '50%',
+                boxShadow: '0 3px 0 #1e3a8a, 0 5px 12px rgba(59,130,246,0.35), inset 0 -2px 4px rgba(0,0,0,0.2), inset 0 2px 4px rgba(255,255,255,0.15)',
+                transform: 'perspective(300px) rotateX(15deg)',
+                border: '3px solid #1e3a8a',
+              }}
+              title="Daily Agenda"
+            >
+              <div className="absolute inset-0 pointer-events-none rounded-full" style={{ background: 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 55%)' }} />
+              
+            </button>
+          
+            <button
+              onClick={() => setShowCockpitMode(true)}
+              className="relative w-20 h-20 transition-all duration-200 hover:scale-105
+                flex items-center justify-center select-none active:scale-95"
+              style={{
+                background: 'radial-gradient(circle at 40% 35%, #ff6b6b, #dc2626 55%, #b91c1c 100%)',
+                borderRadius: '50%',
+                boxShadow: '0 4px 0 #7f1d1d, 0 6px 15px rgba(220,38,38,0.35), inset 0 -2px 4px rgba(0,0,0,0.2), inset 0 2px 4px rgba(255,255,255,0.15)',
+                transform: 'perspective(300px) rotateX(15deg)',
+                border: '4px solid #450a0a',
+              }}
+            >
+              {/* Glossy highlight */}
+              <div className="absolute inset-0 pointer-events-none rounded-full"
+                style={{
+                  background: 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 55%)',
+                }}
+              />
+            </button>
+          </div>
+        )}
+
+        {/* Cockpit mode selector */}
+        {/* Agenda Modal */}
+        {showAgenda && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="bg-[#020408] border border-white/15 rounded-2xl p-5 w-full max-w-md mx-4 shadow-2xl" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-white">📋 <span className="text-sm font-normal text-white/40">Today's Agenda</span></h3>
+                <button onClick={() => setShowAgenda(false)} className="text-white/30 hover:text-white/60 text-sm">✕</button>
+              </div>
+              {agendaLoading ? (
+                <div className="text-center text-white/30 py-8">Loading...</div>
+              ) : agendaError ? (
+                <div className="text-center text-white/30 py-8">Could not load agenda</div>
+              ) : agendaData?.entries?.length > 0 ? (
+                agendaData.entries.map((e: any, i: number) => (
+                  <div key={i} className="flex items-start gap-3 p-4 rounded-xl border border-white/10 bg-white/5 mb-2">
+                    <span className="text-2xl">{e.icon || '📌'}</span>
+                    <div className="flex-1">
+                      <div className="text-base font-bold text-white">{e.title}</div>
+                      <div className="text-sm text-white/40 mt-1">{e.startTime ? `${formatTime12(e.startTime)} - ${formatTime12(e.endTime) || '?'}` : 'All day'}</div>
+                      <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full ${e.category === 'workouts' || e.category === 'push' || e.category === 'pull' || e.category === 'legs' ? 'bg-cyan-500/20 text-cyan-200' : e.category === 'light' ? 'bg-emerald-500/20 text-emerald-200' : 'bg-purple-500/20 text-purple-200'}`}>{e.category}</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center text-white/30 py-8">Nothing scheduled today</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {showCockpitMode && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm">
+            <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl text-center">
+              <h3 className="text-lg font-bold text-white mb-6">What are you trading?</h3>
+              <div className="flex flex-col gap-4">
+                <button onClick={() => { setCockpitPropMode(false); setCockpitActive(true); setShowCockpitMode(false); }}
+                  className="w-full px-6 py-5 rounded-2xl border-2 text-base font-bold transition-all hover:scale-105"
+                  style={{ background: '#10b98115', color: '#10b981', borderColor: '#10b98150' }}
+                >💰 Personal Account</button>
+                <button onClick={async () => {
+                  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                  try { const u = JSON.parse(localStorage.getItem('user') || '{}'); if (u?.id) { headers['X-User-Id'] = String(u.id); headers['X-User-Email'] = String(u.email); } } catch {}
+                  await fetch('/.netlify/functions/trading-mode', { method: 'POST', headers, body: JSON.stringify({ action: 'enter_cockpit' }) });
+                  setCockpitPropMode(true); setCockpitActive(true); setShowCockpitMode(false);
+                }}
+                  className="w-full px-6 py-5 rounded-2xl border-2 text-base font-bold transition-all hover:scale-105"
+                  style={{ background: '#a855f715', color: '#a855f7', borderColor: '#a855f750' }}
+                >🏢 Prop Firm Account</button>
+              </div>
+              <button onClick={() => setShowCockpitMode(false)} className="mt-4 text-sm text-white/40 hover:text-white/60">Cancel</button>
+            </div>
+          </div>
+        )}
+
         <div className="space-y-6">
           {view === 'budget' && (
             <BudgetTab state={budgetState} onChange={handleBudgetChange} />
@@ -1051,6 +1180,10 @@ const Dashboard: React.FC = () => {
           {view === 'goals' && (
             <GoalsTab />
           )}
+          {view === 'prop_trades' && (
+            <PropTradesTab />
+          )}
+{/* cockpit is now a fixed overlay, triggered by the arcade button */}
           {view === 'accounts' && (
             <>
             <AccountsView

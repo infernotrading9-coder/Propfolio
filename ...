@@ -1,0 +1,516 @@
+---
+name: propfolio-maintenance
+description: Use when working on Propfolio, Daniel's prop-firm dashboard.
+---
+
+# Propfolio Maintenance
+
+## What it is
+
+
+**Propfolio** — Daniel's prop-firm trading + personal finance dashboard.
+- **Repo:** `/root/Propfolio` (branch `master`, remote `origin` on GitHub)
+- **Live site:** https://silly-gaufre-f1dd14.netlify.app
+- **Stack:** React + TypeScript + Vite frontend, Netlify Functions backend, Neon PostgreSQL
+- **Deploy:** `npm run build` → `git add -A && git commit -m "..." && git push origin master` → Netlify auto-deploys → verify with `bash migration/scripts/verify-deploy.sh`
+
+## The core architecture
+
+
+Every prop-firm life event goes through a **cascade service** in `server/db/cascadeService.ts`. One call = one transaction = every surface updated:
+
+| Cascade | What it does |
+|---|---|
+| `buyEval` | challenge + account card + budget expense + calendar row, all linked |
+| `buyEvalBatch` | N accounts in one transaction with `accounts[]` array |
+| `passEval` | retires eval card, creates funded card + challenge, links them |
+| `failAccount` | marks card lost, challenge failed, calendar retired. Undoable. |
+| `logTrade` | trade row + balance + HWM + calendar entry + drawdown verdict |
+| `promoteToLive` | gated on 5+ payouts, enforced by Postgres CHECK |
+
+**NEVER call pieces separately.** The cascade IS the atomic unit. Calling three endpoints to do what one does is how surfaces drift apart.
+
+## The dead code trap
+
+
+`server/db/purchaseService.ts` is the OLD pre-rebuild service. It creates account cards WITHOUT lifecycle, WITHOUT account_id FK links, and WITHOUT transactions. **Do not import from it.** All purchases go through `cascadeService.ts` (`buyEval` / `buyEvalBatch`). The file exists but is dead code.
+
+## Cockpit (Trading Mode, Oct 10 2026)
+
+**Architecture:**
+- `TradingModeCockpit.tsx` — full-screen **fixed overlay** (no dashboard chrome), triggered by a right-aligned red arcade button on the dashboard
+- `netlify/functions/trading-mode.ts` — state machine + strategy logging endpoint
+- `server/db/schema.ts` — `trading_mode_state` has cockpit columns (cockpitState, currentStrategy, strategyAttempts, freshSetup, lastVoiceKey) + `strategy_log` table (userId, strategy, attempt, state, createdAt) for Group Leader bot
+
+**Layout:** Left: TradingModeWidget (risk gauge). Center: NeonCard account card (matching AccountsView style) + Done Trading button below it (cycles to next active account). Right: vibrant rules for current mode. Bottom: fixed bar with state control buttons + strategy buttons.
+
+**State machine:** `pre_trade → in_trade` (also auto-set by any strategy press) `→ out_trade | sl_hit | tp_hit | ddl | breach → auto-resets to pre_trade`
+
+**Strategy tracking:** same strategy within 5 minutes = same setup (increment attempt). Different strategy = new setup. Fresh button resets. **Counter fix:** mock fallback must use `prev` from `setState((prev) => ...)` functional updater, NOT `state` from the closure — closure `state` is stale on re-entry, causing the counter to stay at 1.
+
+**Done Trading / rules followed prompt:** One "Done Trading" button below the account card. Clicking it shows a modal: "Rules followed?" with green ✅ / red ❌ buttons. Hitting SL enough times (based on Max Loss rule parsed from mode rules, regex `/^(\d+)\s*Max Loss/i`) auto-triggers the same prompt. On answer, advances to next active account, resets SL count, and POSTs to `db-calendar { action: 'upsert-entry', date, followedRules, balanceSnapshot, pnlSnapshot }` — so the rule calendar gets a daily record with the account's balance and day P&L at session end.
+
+**Trades left counter:** Parses "4 Max Loss" from the current mode's rules. Displays remaining trades under the rules panel. Turns red when 1 or fewer left. Tracked via `state.slHitCount` — incremented on each `sl_hit` action.
+
+**Strategy auto-enters in_trade:** Pressing any strategy button also sets `cockpitState: 'in_trade'` simultaneously — you pick a strategy and you're already in the trade.
+
+**Mock data fallback:** when APIs aren't deployed, realistic mock data (4 accounts with distinct nicknames, balances, phases; all 6 rule modes; $184.50 day P&L) kicks in so the cockpit is fully playable before backend deployment.
+
+**Daily tracking (by date, not session):** `state.dailyDate` stores today's `YYYY-MM-DD`. `ensureDailyReset()` checks on every action — resets `dailyWins`, `dailyLosses`, `streak`, `strategyStats` if date changed. Wins from `tp_hit`, losses from `sl_hit`. Streak: consecutive same-direction trades, 🔥 for >2, 💀 for < -1.
+
+**Per-strategy win rate:** `state.strategyStats[strategy] = { wins, losses }`. Updated on each tp_hit/sl_hit. Displayed as `(67%)` next to each button. Green ≥50%, red <50%.
+
+**Undo button (↩):** `actionHistory` array (last 10 actions). Reverses tp_hit (decrements dailyWins + strat wins), sl_hit (decrements dailyLosses + slHitCount), strategy (reverts currentStrategy + attempt). Restores prior cockpitState. Must use `setState((prev) => ...)` — closure `state` is stale.
+
+**Cooldown:** After SL hit, `state.cooldown = true`. `setTimeout(20000)` clears it. 🕐 COOLDOWN indicator pulses red. ⏱ timer shows seconds since last action.
+
+**Daily DD remaining:** `dailyDrawdown - (dayStartBalance - currentBalance)`. Big on card. Green >$500, amber ≤$500, red ≤$200.
+
+**Payout progress:** `totalProfit / trueProfitTarget` as a percentage bar under drawdown bar.
+
+**Next account preview:** "Next: TF1" on card header + in the Done Trading prompt alongside W/L and streak.
+
+**React hooks ordering (error #310):** ALL hooks must be before early returns. Every useState/useMemo/useCallback/useRef/useEffect on every render, THEN early returns. Violation = error #310.
+
+**Mock action uses `prev` not `state`:** The counter stayed at 1 because `state.currentStrategy` from the closure was undefined on re-entry. Fix: `setState((prev) => { ... prev.currentStrategy ... })` — `prev` is always fresh even when React batches.
+
+**Stream Deck buttons** fire POST to `.netlify/functions/trading-mode` with `{action}`. Same auth headers as other endpoints. **Strategy buttons** exist both as Stream Deck URLs AND virtual buttons on the cockpit UI.
+
+**Cockpit entry mode selector:** Hitting the arcade button on the Dashboard opens a modal: "What are you trading?" — **💰 Personal Account** or **🏢 Prop Firm Account**. Personal mode uses the existing personal_trades/strategy_log flow. Prop mode triggers an **account picker** (choosing a trading account from the active list) then an **order arranger** (▲▼ reorder, locked for the session, Done Trading cycles in this order). State variables: `cockpitPropMode`, `showCockpitMode`, `selectedAccountId`, `pendingAccountOrder[]`. Modal closes and sets `cockpitActive=true` to enter the full-screen cockpit.
+
+**Personal mode also requires account selection — "None" is NOT an option.** Daniel explicitly: "if I'm in prop mode I have to be trading a prop account" — same for personal. Both modes require picking an account. The `selectedAccountId` badge shows as 👤 (personal) or 🏢 (prop) in the cockpit's top bar.
+
+- `references/2026-10-10-cockpit-voice-and-personal-selector.md` — Voice file system, personal account selector rules, Ticksensei management actions
+
+**Voice files:** Audio clips go in `public/cockpit-voice/{key}.mp3`. The cockpit's `playVoice` tries the mp3 first; falls back to browser TTS. 14 keys: pre_trade, in_trade, tp_hit, sl_hit, out_trade_win, out_trade_loss, out_trade_even, ddl, breach, fresh_trade, strategy_set, strategy_reattempt, rules_followed, rules_broken. See `COCKPIT-VOICE-SCRIPTS.md` for exact quote-text (4+ variations per key).
+
+**Strategy prompt modal** (appears after pressing any strategy button): Setup TF (15s-1h from `strategy_prompt_options` table), Entry TF (same), SL Placement (Below Entry / Below Setup / Wide / Hard / Mental from table), Variant (free text + autocomplete from history). **confirmStrategy** checks `propMode` to decide the endpoint:
+- Personal mode → POST `db-personal-trades { action: 'log-strategy', strategy, setupTf, entryTf, slPlacement, variant }`
+- Prop mode → POST `db-prop-trades { action: 'create', instrument, side, quantity, strategy, setupTf, entryTf, slPlacement, variant, accountId, phase }` — creates a prop_trade row linked to the selected account
+
+The `strategy_prompt_options` table holds available choices. Ticksensei can INSERT/UPDATE/DELETE rows here without code changes.
+
+**prop_trades table** (`server/db/schema.ts`): mirrors personal_trades structure but adds `accountId`, `groupId`, `phase` (eval/funded/live), and a `side` field instead of `action` (avoiding the prop's second `action` used for the cascade). Created fresh (no migration from old dropped `trades` table). API at `netlify/functions/db-prop-trades.ts` with CRUD + stats. Stats returns `byPhase` breakdown (eval/funded/live totals).
+
+**PropTradesTab** (`src/components/PropTradesTab.tsx`): Three phase-summary cards (Eval/Funded/Live totals with P&L + W/L), overall stats row, collapsible trades list. Dashboard nav button `📊 Prop Trades`, `ViewMode = 'prop_trades'`.
+
+**Arcade entry button:** Right-aligned fixed position (`fixed right-4 top-24 z-40`). Styled with `radial-gradient(circle at 40% 35%, ...)` for the glossy dome, `boxShadow: '0 4px 0 #7f1d1d, ...inset 0 2px 4px rgba(255,255,255,0.15)'` for 3D depth, `transform: perspective(300px) rotateX(15deg)` for side tilt, and a `4px solid` dark rim. `hover:scale-105 active:scale-95` for interaction. No emoji inside — just the glossy red button.
+
+**Grid CSS rule:** put grid layouts in CSS classes, not inline styles, so media queries can override them (from Budget mobile overflow fix on Sep 26, but applies to the cockpit's layout grids too).
+
+**Strategy logging:** each press is logged to `strategy_log` (schema has `strategy_log` table: id, userId, strategy, attempt, state, createdAt) so the crypto bot (Group Leader) can link trades to strategies later by querying `POST /trading-mode { action: 'strategy-logs' }`.
+
+## Key files
+
+
+| File | Purpose |
+|---|---|
+| `server/db/cascadeService.ts` | buyEval, buyEvalBatch, passEval, promoteToLive, failAccount, logExpense |
+| `server/db/tradeService.ts` | logTrade, correctTrade, recordPayout, plan_rules |
+| `server/db/stateService.ts` | getFullState, undoAction, idempotency |
+| `server/db/purchaseService.ts` | DEAD CODE — do not import |
+| `netlify/functions/db-challenges.ts` | API: buy-eval, pass-eval, promote-to-live, fail-account |
+| `netlify/functions/db-trades.ts` | API: log-trade, correct-trade, record-payout |
+| `netlify/functions/db-accounts.ts` | API: link-copy-trade, unlink-copy-trade, done-for-day, uncollapse-all, reorder, set-account-size (Sep 29) |
+| `netlify/functions/db-budget-state.ts` | API: log-expense, log-income, transfer, add-budget-account, remove-budget-account, reconcile-balances |
+| `netlify/functions/db-state-full.ts` | API: getFullState, undo |
+| `netlify/functions/db-personal-trades.ts` | API: personal trades (log-trade, get-trades, get-stats, delete, **update-trade, strategies** — Oct 4 2026) |
+| `netlify/functions/db-notes.ts` | API: Diary — create-note, update-note, delete-note, list-notes (Sep 30) |
+| `netlify/functions/trading-mode.ts` | **NEW (Oct 10 2026)** — Cockpit state machine. POST: in_trade, out_trade, sl_hit, tp_hit, ddl, breach, fresh_trade, strategy:<name>, enter_cockpit. GET: current cockpit state + pending voice key. |
+| `PROPFOLIO-BOT-GUIDE.md` | The contract the trading bot follows |
+| `PROPFOLIO-BRIEF.md` | Full architecture brief (read at session start) |
+
+## The three stages (never conflate)
+
+
+| Stage | How reached |
+|---|---|
+| **eval** | bought a challenge, trying to pass it |
+| **funded** | passed the eval. A pass ALWAYS lands here. |
+| **live** | firm moved to real capital. Needs 5+ payouts AND firm's decision. Never automatic. |
+
+`lifecycle` is the single source of truth. Never infer from `phase1_completed`, `status`, or `live_account`.
+
+## Batch purchases
+
+
+When buying N accounts, send ONE `buy-eval` call with `accounts: [{ last4: "0048" }, { last4: "0049" }, ...]`. Never loop N separate calls — the unique index on `(user_id, upper(account_first4), account_number_last4) WHERE status='active'` blocks the 2nd insert with the same last4.
+
+## Copy-trade groups
+
+
+Daniel copy-trades multiple accounts simultaneously. They are grouped via `trading_accounts.copy_trade_group` (TEXT column, same value = same group).
+
+### API
+
+- **Link:** `POST db-accounts { action: 'link-copy-trade', accountRefs: ['0048','0049','0050'], groupLabel: 'Lucid Flex trio' }` — sets `copy_trade_group` on each named account
+- **Unlink:** `POST db-accounts { action: 'unlink-copy-trade', accountRef: '0049' }` — clears `copy_trade_group` on one account only
+- **Add to existing group:** same `link-copy-trade` action with the existing group's label
+
+### UI (AccountsView.tsx)
+
+- Copy-trade groups render as ONE standard HolographicAccountCard (identical to a regular card) using the primary account's data
+- `glowOverride="cyan"` prop tints the card cyan to distinguish groups
+- Group name badge (`🔗 GroupName`) in the corner
+- **Double-click** the card to expand → see each individual account with its own balance/P&L/size
+- Each individual account has an ✕ unlink button with a **confirm prompt** ("Unlink X? Yes/Cancel") — Daniel accidentally unlinked all 3 and had to re-link, so this is REQUIRED
+- In link mode: click accounts to select → floating panel slides up from bottom-right → choose "Add to existing group" (dropdown) or "Create new group" (label input) → confirm
+
+### Bot logging for copy-trade groups
+
+**Log EACH account separately.** Different firms have different fills and fees, so amounts may differ per account. Do NOT sum amounts into one trade. Bot guide §12 documents this. The `link-copy-trade` / `unlink-copy-trade` API is for managing group membership, NOT for logging trades — use `log-trade` per account ref.
+
+## "Done for the Day" overlay
+
+
+When Daniel is done trading an account for the day, the bot logs the session P&L via `log-trade` and then calls `POST db-accounts { action: 'done-for-day', accountRef: '...' }` — this sets `done_for_day = true` on the account, which shows a big "DONE FOR THE DAY" overlay across the card (green if profit, red if loss). The card stays the SAME SIZE with the SAME content — it's just an overlay, not a collapse.
+
+**"Reset Day" button** in the accounts header calls `POST db-accounts { action: 'uncollapse-all' }` which clears `done_for_day = false` on all accounts.
+
+### CRITICAL: do NOT use `last_settled_at` for done-for-day
+
+The `settleAccount` function in `drawdownModel.ts` runs on EVERY GET to `db-accounts` and re-sets `last_settled_at` when the 5pm EST session boundary has passed. If the overlay is based on `last_settled_at`, the Reset Day button clears it, but the next page load re-sets it and the overlay comes back. The `done_for_day` boolean column is independent and not touched by the settle logic. This was a real bug that wasted several iterations.
+
+## Trades tab removed
+
+
+The Trades tab was killed (nav now has 3 tabs: Dashboard, Accounts, Budget). The "Today's Trading Order" section was also removed from the Accounts tab. `sort_order` on `trading_accounts` is the single source of truth for ordering. The `TradesView` component still exists but is no longer rendered.
+
+## Budget account types
+
+
+| `loanKind` | What it is | Examples |
+|---|---|---|
+| `cash` | Money you have | Sofi, Cash, Atlas, One Pay |
+| `credit` | Revolving credit card — balance UP on expense, DOWN on payment | Destiny, Affirm, Klarna, Aspire, Premier, Capital One, Revel |
+| `debt` | Fixed debt / payment plan — not revolving | SplitPay (rent), Christian |
+| `borrow` | Loan | |
+
+**NEVER create budget accounts for one-time bills.** Utility bills get logged as `log-expense` against the cash account that paid. Do NOT create a new budget account for the utility company.
+
+**Budget tab mobile overflow (Sep 26 2026):** The transaction table's thead + rows used INLINE `gridTemplateColumns` (5 cols), which beats the mobile CSS media query — so on phones the table kept 5 cramped columns and amounts/names clipped off the right edge. Also the responsive rule targeted `.thead`/`.rowline` but the elements use `budget-thead`/`budget-rowline`, so it never matched. Fix: moved the 5-col grid to a `.budget-txn-row` class with a `<=768px` override (Name|Category|Amount, `.col-date` + `.col-actions` hidden). The page header was also a non-wrapping flex — added `flexWrap`. Rule: put grid layouts in CSS classes, not inline styles, so media queries can override them.
+
+**API for budget accounts:** `POST db-budget-state { action: 'add-budget-account', id, name, balance, loanKind }` and `POST db-budget-state { action: 'remove-budget-account', id }`.
+
+## Drawdown tracker
+
+
+The Combined Drawdown Tracker at the top of the Accounts tab shows:
+- **Only Max DD** (no daily DD — it doesn't scale with more accounts)
+- **Max DD includes profit**: $25K + $259 profit + $1000 max DD = $1,259 total room (not $1,000)
+- Progress bar: used / total (incl. profit), turns amber at 40%, red at 70%
+
+## Undo
+
+
+The undo system works through `action_log` entries recorded by each cascade. `undoAction` in `stateService.ts` reverses: `log-trade`, `correct-trade`, `record-payout`, `fail-account`, `log-expense`, `transfer`, `reconcile-balances`, `correct-plan`. Buy/pass-eval are NOT auto-undoable.
+
+The trading bot's `log-trade.mjs` writes raw SQL and bypasses this — trades logged that way can't be undone. The bot should call `POST db-trades { action: 'log-trade' }` instead.
+
+## DB access
+
+
+`DATABASE_URL` is in `/root/Propfolio/.env`. Use `pg` with `ssl: { rejectUnauthorized: false }`.
+Daniel's user ID: `293080f9-a395-4482-9ec2-ad31bf105848`
+
+## Pitfalls
+
+
+- **`purchaseService.ts` is dead code.** It creates cards without lifecycle or account_id links. Never import from it — use `cascadeService.ts` instead.
+- **Batch purchases must use `accounts[]`.** Looping `buy-eval` N times with the same last4 hits the unique index and produces only 1 card.
+- **`passEval` creates exactly one funded card.** The duplicate-account bug was caused by a SECOND code path (`spawnAccountAndBudget`) running after `buyEval` already created one. That dead path is now removed.
+- **A passed eval renders as a second FUNDED card unless filtered.** `passEval` sets the eval to `lifecycle='eval_passed', phase1_completed=true` AND spawns a `funded_active` challenge with `phase1_completed=true`. `isChallengeFunded()` (= `isChallengeLive`) checks `phase1_completed`, so BOTH render as FUNDED cards in `ChallengeList`. `ChallengeList.tsx` must exclude `lifecycle === 'eval_passed'` from `validChallenges` (mirrors the filter in `ChallengeCards.tsx`). The superseded eval stays in the DB for stats — only the card is hidden. Fixed Sep 26 2026.
+- **The bot's `log-trade.mjs` bypasses the undo system.** Trades logged via raw SQL can't be undone. The bot guide documents the API endpoints that do record undo data.
+- **MFFU-9060 was an orphan** (account card with no challenge row) created by the old `spawnAccountAndBudget` path. Fixed Sep 10 2026 — challenge row created and linked.
+- **`done_for_day` not `last_settled_at`.** The settle logic re-sets `last_settled_at` on every page load. Use the `done_for_day` boolean for the "Done for the Day" overlay.
+- **Accounts tab was gated behind `ruleCalendarEnabled`.** When false, clicking Accounts bounced back to Dashboard. Fixed by removing the guard.
+- **Rent pool loanKind must be `borrow`, NOT `cash`.** If `acc_rent_held` ("Rent money held") is tagged `loanKind: "cash"` in `budget_state.state.accounts[]`, its balance ($650) inflates the Trading Mode widget's `cashOnHand` counter (which should be ~$-63 actual liquid cash). `computeTradingModeCounters` in `db-accounts.ts` filters out `credit`/`debt`/`borrow` but trusts `cash`. See `references/2026-09-29-rent-pool-loankind-bug.md`.
+
+## Rules
+
+
+- **EVERY new feature gets tested before it is pushed.** Not "reads correctly" — actually exercised against the real handlers, with data added and removed. Daniel asked for this explicitly. Two rounds of testing on this session's work found four real bugs that reading had missed every time, including one that would have broken the deploy.
+- **Ongoing profile optimization.** Every time you work on Propfolio, also check if Daniel's Hermes profiles (SOUL.md, memory, skills, config) need updating based on what you learned this session. SOUL.md is the cheapest system-prompt slot, so update it first. Daniel wants this done proactively, without being asked.
+- **ASK Daniel before making code changes** (he was burned by things breaking).
+- **Always `npm run build` before committing.** A broken build breaks his live app.
+- **Never modify a field he didn't ask you to change.**
+- Don't touch `/root/trading-risk-assistant/*.mjs` without asking — those are the trading bot's live scripts.
+- Verify deploys by grepping the served bundle, not by matching hashes.
+- Read `PROPFOLIO-BRIEF.md` at the start of any Propfolio session.
+- `PROPFOLIO-BOT-GUIDE.md` is the contract the trading bot follows — update it when API endpoints change.
+
+## Payout tracker — how the account-card panel works (Sep 30 2026)
+
+
+`PayoutPanel` (bottom of `HolographicAccountCard` in `AccountsView.tsx`) is fed by `getPayoutSummaryByAccount()` in `stateService.ts`, attached to each account by `GET db-accounts` as `account.payout`.
+
+**Rule matching.** `plan_rules` is keyed `(user_id, lower(firm_name), lower(eval_type), COALESCE(account_size,0), stage)`. Specificity scores `stage <> 'any'` as +2 and `account_size IS NOT NULL` as +1, and `array_agg(... ORDER BY ord DESC)` takes the highest per field. So **most-specific wins FIELD BY FIELD** — a 50K row with `profit_split_pct=80` overrides a generic row's 90, while a field only the generic row has still reaches the 50K account. Stage comes from `trading_accounts.phase` (`'challenge'` | `'funded'`) because the raw row has no `lifecycle`.
+
+**Every null field HIDES.** `PayoutPanel` returns `null` entirely when nothing is known, and each bar is conditional. An unknown rule must never render as a zero — Daniel would read a fake 0 as a real state.
+
+**Two bars, two sources:**
+- Green days — count of days where daily P&L clears `winning_day_min`, vs `winning_days_req`
+- Toward payout — `totalProfit` (sum of the account's trades) vs `payout_target`
+
+### ⚠️ Green-day threshold is INCLUSIVE
+
+Plans read "5 green days at $100+", so a day of **exactly $100 counts**. The predicate is:
+
+```sql
+CASE WHEN r.winning_day_min IS NULL THEN d.pnl > 0 ELSE d.pnl >= r.winning_day_min END
+```
+
+Both bugs here were mine and both were caught by the harness, not by reading:
+1. Counting `pnl > 0` credited a **+$29 day** against Lucid Flex's $100 bar — reported 3/5 when the truth was 2/5, overstating how close he is to a payout.
+2. Using `>` meant an exact-threshold day silently didn't count — a 3-day run of **exactly $250 against a $250 rule scored 0/3**.
+
+The `> 0` branch (no known minimum) is deliberate: it keeps a $0 breakeven day from counting.
+
+### ⚠️ Green days are AUTOMATIC — never derive them from `trades`
+
+**Trade logging has been OFF since Sep 27 2026** (Daniel's call — the bot only updates balances). So the `trades` table stops there and anything derived from it reads a history that ends. This bit hard: LFF0-0002 showed **2/5** while Daniel was on **4/5**, because only 3 days were ever logged (Sep 18/21/23).
+
+The count now comes from **settled balance moves**, because balance is the one signal still flowing:
+
+1. `settleAccount()` rolls the 5pm-ET boundary on the first read after it
+2. The settle hook books the ended day into `account_daily_pnl`: `pnl = balance − day_start_balance_that_was_in_force`
+3. `recomputeGreenDays()` counts days where `pnl >= the plan's winning_day_min` within the current cycle, and writes `trading_accounts.green_days`
+
+```sql
+CASE WHEN threshold IS NULL THEN pnl > 0 ELSE pnl >= threshold END   -- inclusive: "$100+"
+```
+
+- `green_days` + `green_days_source` + `green_days_cycle_started_at` live on `trading_accounts`.
+- **A manual count wins while it is AHEAD** of the automatic one, then hands over when the recorded history catches up — so a confirmed correction is never stamped down to a lower auto number. `recomputeGreenDays` implements exactly this.
+- `set-green-days` (db-accounts) sets it by hand. `cycleStartedAt` resets the cycle — the requirement resets after **every** approved payout at all three firms.
+- **The rollover is lazy.** Days when nobody opens the site collapse into one row carrying the cumulative move → **under-counts**, never invents. Safe direction, but believe Daniel over the card when he has been away.
+
+### Best day + consistency also moved off `trades`
+
+`bestDay` was the last frozen number on the card, and it feeds `consistencyOk` / `trueProfitTarget` — the check that can cost a payout, not just look wrong.
+
+```
+bestDay = max(recorded daily P&L from account_daily_pnl, trade-journal daily sum)
+```
+
+**A MAX, not a preference.** The snapshot table only started recording recently, so using it alone would silently LOSE the older trade-derived best day and shrink the consistency ratio with it. A max can never regress as history fills in.
+
+`bestDaySource` (`'daily_pnl' | 'trades' | 'none'`) + `bestDaySnapshotDays` ship on **both** `db-state-full` and `db-accounts` so a reader can tell live from stale. No data at all → `null`, never a fake `0`.
+
+### ⚠️ THE TRADES TABLE IS DROPPED (Oct 2026) — nothing may read it
+
+Trade logging was retired and the table **dropped**. Any surviving SQL against it raises `relation trades does not exist`, which surfaces as an opaque **500** from the handler. Before touching anything that used to log trades, check for this.
+
+What was removed, in one pass:
+
+| Gone | Why |
+|---|---|
+| `trades` table + its Drizzle definition | Daniel does not log trades |
+| `logTrade` / `correctTrade` (tradeService) | replaced by `set-balance` |
+| `tradeService` object in service.ts (getByUserId/getByAccountId/getById/create/delete/**getStats**) | read the table |
+| `TradesView.tsx` (23KB, already unrendered) | dead |
+| `recomputeAccountFromTrades` (both copies) | see below |
+| green-day + profit + best-day fallbacks from the journal | now stored / balance / `account_daily_pnl` |
+
+`db-trades` **survives** for: `plan-rules`, `set-plan-rule`, `record-payout`, `propose-allocation`. Payouts are a separate table feeding the dashboard stats — never remove them. Every trade endpoint now answers **410** with `code: 'trade_logging_retired'` instead of throwing.
+
+**Undo:** the `log-trade` / `correct-trade` cases now THROW `CascadeError('...', 'trade_logging_retired')` rather than run SQL. The 61 pre-existing unreversed entries were stamped `undone_at` so they left the undo stack — otherwise the undo button would hit one and error forever.
+
+**Revision history check before you trust an old note:** an earlier version of this skill said "the trades table is NOT deleted — it holds 98 real trades the pass-rate and net-P&L stats use." **That was wrong on both counts.** `DashboardStats.tsx` has ZERO references to trades (it reads `challenges` + `payouts`), and the table is now gone. Backed up to `backups/trades-<date>.csv` + `.sql` first.
+
+### ⚠️ The high-water mark was a replay artifact
+
+`LFF0-0002.high_water_mark` read **$25,595** = `account_size + the logged trade sum` — a leftover of the ledger replay. It sat **below** both the current balance ($25,982.50) and `settled_high_water_mark` ($26,582.50), which is impossible for a high-water mark and would have mis-stated the drawdown floor.
+
+Fixed with `high_water_mark = GREATEST(high_water_mark, settled_high_water_mark, balance)` → **$26,582.50**, now consistent. 6 rows were affected. Worth re-checking after any bulk balance work: an HWM below equity means something recomputed it from a partial source.
+
+### ⚠️ Balance is pushed with `set-balance` — Daniel does NOT log trades
+
+For prop accounts there was **no balance-only path**: every route that moved a balance was a trade endpoint. So "I don't want to log trades" meant the balance could never move — and since green days, payout progress and best day ALL read the balance, the tracker would have sat frozen forever.
+
+`set-balance` (db-accounts) takes the figure straight off the platform, no trade involved:
+
+```json
+{ "action": "set-balance", "accountRef": "LFF0-0002", "balance": 25982.50 }
+```
+
+**`applyBalanceDelta` is the shared primitive.** Both `set-balance`, `correctTrade` and the undo paths move a balance by a **delta**, mirroring `logTrade` exactly: a fall grows `drawdown_used`, a rise pays it back and can raise the HWM, and **HWM never decreases**.
+
+### ⚠️ NEVER recompute a balance by replaying the trade ledger
+
+The old `recomputeAccountFromTrades` rebuilt `balance` from `account_size` by summing every trade row. That is only correct while **every** trade is logged — and logging stopped Sep 27 2026, so the ledger now ends there. Measured on LFF0-0002: replay yields **$25,595** against a real **$25,982.50**.
+
+So undoing any September trade would have silently destroyed **$387.50** of balance — and there were **56 undoable `log-trade` actions** plus 5 `correct-trade` on the stack, so it was one click away. Both copies of the function (stateService + tradeService) are now `applyBalanceDelta`, and undo reverses only the affected trade:
+
+- undo `log-trade` → reverse that trade's own amount (for netted rows, `merged − prior`)
+- undo `correct-trade` → reverse `restored − current`
+- undo `set-balance` → reverse the stored delta, **not** a snapshot, so anything that moved the balance meanwhile survives
+
+**Rule: a delta is correct whatever the ledger contains. A replay is not.**
+
+### History was backfilled before the journal was freed
+
+`56-backfill-daily-pnl-from-trades.mjs` copied the journal's per-day totals into `account_daily_pnl` (74 days), so best day and the day history survive independently of `trades`. After it, `bestDaySource` reads `daily_pnl` — **the journal is no longer a source for any live number.**
+
+## Where the firm rules actually live (researched Oct 2026)
+
+
+Look these up rather than guessing — all three publish policy pages:
+
+| Firm | Source |
+|---|---|
+| Lucid Flex | `support.lucidtrading.com/en/articles/12945796-lucidflex-payouts` |
+| MFF Builder | `help.myfundedfutures.com/en/articles/14290805` + `myfundedfutures.com/plans/builder` |
+| MFF Rapid | `myfundedfutures.com/plans/rapid` |
+| Tradeify | `help.tradeify.co/en/articles/12853966-select-flex-and-select-daily-payout-policies` |
+
+Findings that corrected the DB:
+
+- **Lucid Flex** — 90/10, 5 profitable days/cycle, min payout **$500**, max payout = 50% of profit capped at **$1,000 (25K) / $2,000 (50K)**, **NO buffer**. 5 payouts then live. The DB had `payout_target 4000` and `payout_min 2000` on the 50K — both wrong (4000 was the *eval* target copied in).
+- **MFF Rapid** — 90/10, **daily** payouts, min payout $500. Buffers: 25K **$1,100**, 50K **$2,100**, 100K $3,100, 150K $4,600. I had put the 25K figure ($1,100) on the 50K row.
+- **MFF Builder** — **the only 80/20**, 50% consistency, **2 qualifying days**/cycle, $500 above the $2,100 buffer for the first payout, max **$2,000**/cycle.
+- **Tradeify Select Flex** — 90/10, every **5 winning days**, threshold $150 (50K), **no buffer**, min payout **$250**. **Cap depends on PURCHASE DATE**: bought before Sep 1 2026 → $3,000 (50K); after → $2,500. Written into the notes, unresolved.
+- **"Tradify" in the DB is very likely "Tradeify"** — the plan name "Select flex" matches Tradeify's "Select Flex" exactly. Flagged, NOT renamed (firm_name is a lookup key — confirm with Daniel first).
+
+### The bar is a percentage plan, not a target
+
+`payout_target` means the dollar amount a payout **caps at** — not the profit needed to reach it. Lucid Flex and Tradeify pay **50% of profit**, so the payout Daniel can actually take is DERIVED:
+
+```
+available = min(totalProfit × payout_cap_pct/100, payout_target)
+```
+
+`PayoutPanel` shows "Payout available (50% of profit)" with a min-payout flag. Comparing raw profit against the cap read **"60% toward payout"** while he was actually under the $500 minimum and could not withdraw anything.
+
+## Testing the site (MANDATORY before pushing a new feature)
+
+
+**Two harnesses, both run before you push:**
+
+| Harness | Covers |
+|---|---|
+| `migration/scripts/test-payout-tracker.mjs` | the payout panel's SQL — rule precedence, green-day boundary, unknown threshold, no trades, no rule, negative profit, exact completion, archived accounts, rule deletion |
+| `migration/scripts/test-new-features.mts` | the real handlers end-to-end — `db-notes` (cascade, cycle guard, validation), `db-budget-state` (set-overdue, recurring CRUD), `db-accounts` counters, `db-state-full` velocity |
+| `migration/scripts/test-green-days.mts` | automatic green-day counting AND best day — threshold resolution, the "over $100 counts / under doesn't" rule, exact-$100 inclusivity, duplicate-settle idempotency, manual-override handover, cycle scoping, no-rule fallback, and best-day max-across-sources (never regresses, survives with no trades, null when empty) |
+
+| `migration/scripts/test-balance-and-undo.mts` | `set-balance` + the delta-based undo — API validation, drawdown/HWM behaviour on a rise and a fall, and the critical one: undo must reverse ONLY the affected trade instead of replaying an incomplete ledger |
+
+| `migration/scripts/test-trades-retired.mts` | the trade-table removal — no handler 500s, retired endpoints answer 410 with the right code, the SURVIVING commands (plan-rules, set-plan-rule, propose-allocation, set-balance, set-green-days) still work, undo refuses a trade action cleanly while still working for live action types, and the real account's numbers are intact |
+
+| `migration/scripts/test-diary.mts` | the Diary API against the real handler — create/validate/list, the domino model (a step points at a goal), the cycle guard, partial-update-preserves-body, and that **deleting a goal CASCADE-deletes its steps** |
+
+```bash
+node migration/scripts/test-payout-tracker.mjs                      # 17 assertions
+./node_modules/.bin/tsx migration/scripts/test-new-features.mts     # 58 assertions
+./node_modules/.bin/tsx migration/scripts/test-green-days.mts       # 29 assertions
+./node_modules/.bin/tsx migration/scripts/test-balance-and-undo.mts # 19 assertions
+./node_modules/.bin/tsx migration/scripts/test-trades-retired.mts   # 41 assertions
+./node_modules/.bin/tsx migration/scripts/test-diary.mts            # 24 assertions
+```
+
+**Drive the REAL handlers, not a copy.** `tsx` is available and `_utils.ts` has an `X-User-Id` header fallback, so a synthetic event with `{ 'x-user-id': <Daniel's id>, 'x-user-email': ... }` authenticates as him. Import the actual `handler` export. A harness that re-implements the logic tests your re-implementation, not the shipped code — and will pass while production is broken.
+
+**Budget state is ONE JSONB document shared with live data.** Snapshot it before the run and restore it byte-for-byte in a `finally`, then assert the restore matched. Never let a test account or charge survive.
+
+### Pitfalls that have actually bitten
+
+- **React hooks must ALL execute before early returns.** Every `useState`, `useMemo`, `useCallback`, `useRef`, `useEffect` must run on EVERY render. Placing a `useMemo` after `if (loading) return` causes React error #310 — hooks fire in different orders between renders. Always: state decls, refs, callbacks, effects, memos, then early returns.
+- **For futures instrument lumping, match ALL 12 CME month codes.** Instruments are `MNQM6` (no-space: base + code + year digit) or `MNQ SEP 2026` (word-month). Month codes: F G H J K M N Q U V X Z. Regex `/[FGHJKMNQUVXZ]\d{1,2}$/i` strips the code format. Both regex passes needed.
+- **The `_deleted` set is the ONLY way to remove items from budget state.** `_mergeById` merges arrays by id — omitting from incoming does NOT delete. Cascade handlers must pass `_deleted` to `upsert`. Same bug: `delete-recurring` fixed earlier, `remove-budget-account` fixed Oct 4 2026.
+- **`budgetStateService.upsert` MERGES, it does not replace.** `_merge` knows a FIXED list of top-level keys. **A new top-level key not added to `_merge` is silently dropped** — handler returns 200 with the value it just saved. Add new top-level state keys to `_merge` in the same commit.
+- **Array rows are merge-by-id, so omitting a row does NOT delete it.** A row the server has and the client doesn't see is deliberately KEPT. Deletion must be declared: `state._deleted = { ...(state._deleted||{}), <arrKey>: [id] }`.
+- **A response echo is not persistence.** Always `get` again and assert the value came back from the server.
+- **Fire-and-forget `fetch` in state handlers is a phantom bug factory.** `handleBudgetChange` in `Dashboard.tsx` was `fetch(...).catch(log)` — the PUT could fail silently, the UI showed the item removed (optimistic state update), but the server never processed `_deleted`. Next refresh: the item reappeared. Fix: `.then(res => { if (!res.ok) throw; }).catch(e => { re-fetch server state and revert; })`. Always check the response status in state-change handlers.
+- **NEVER put a backtick in a SQL comment.** One backtick terminates the template literal. `tsc` reports **clean**; esbuild rejects it — and Netlify builds functions with esbuild.
+- **Dropping a table breaks every harness that seeds it.** Update harnesses in the SAME commit as the schema change.
+- **Do NOT wrap a harness in `tx()`.** First failure aborts everything. Use a raw `pg.Client`.
+
+### Verification sweep before pushing
+
+```bash
+node ./node_modules/.bin/tsc --noEmit                       # types
+node ./node_modules/.bin/vite build                         # frontend
+for f in netlify/functions/*.ts; do                         # functions — catches
+  esbuild "$f" --bundle --platform=node --format=cjs \      # what tsc misses
+    --outfile=/dev/null --external:pg-native || echo "FAIL $f"
+done
+```
+
+The esbuild pass exists specifically because `tsc` does not catch template-literal breakage. Run all three, plus both harnesses, then report to Daniel and wait for his go before pushing.
+
+**If the build toolchain is broken** (npm/Node version mismatch, missing dependencies), **say so** rather than pushing untested code. Daniel was burned this way on Oct 4 2026 when a Node v26 / npm corruption prevented local testing, but the code was pushed anyway — it compiled fine on Netlify, but the logic still had the cascade-side bug that needed a second fix. A working build is not proof of correct logic, but a missing build is a warning flag you should report.
+
+## Money model — conventions that bite
+
+
+**Liability sign.** Every liability Daniel OWES is stored **POSITIVE** (`American Water debt +1457.20`, `Christian debt +1500`, `Rent money held borrow +650`). A *negative* liability is read as a receivable (`owedToMe`), excluded from `totalDebt`, and ADDED to net worth.
+
+**NEVER infer intent from a sign — check what the account IS.** `acc_dave` sat at −205 and I called it a receivable. Dave is a **lending app that lent Daniel $205**, so he OWED it. It was a sign error, and reading it as an asset booked $205 of phantom asset *and* hid $205 of real debt — net worth was overstated by $410. A real receivable can name the payment that caused it (Christian: pay his $1,700 card against a $1,500 debt → −200 owed back). If nothing explains the flip, it's a sign error.
+
+**Bad debt is a fact now, not a memory.** `overdue` / `overdueSince` on a budget account via `set-overdue` (rejects non-liabilities with `not_a_liability`). `overdueDebt` is the counter the score reacts to; good debt stays in `totalDebt` only.
+
+**Recurring charges** are definitions in `state.recurring[]`, not transactions — `add/update/delete-recurring`, and `{ id, active: false }` switches one off while keeping the record. An entry with no `active` flag is treated as ACTIVE (never silently drop a charge he still pays).
+
+## Pace — how fast accounts are lost
+
+
+`velocity` on `db-state-full`, and `evalFailAvgDays` / `fundedFailAvgDays` / `evalPassAvgDays` on `get-trading-mode`, each with a sample size. Per account: `lifespanDays`, `daysAlive`, `openedAt`.
+
+**`phase1_completed_at` is NOT an end-of-life date for a running account** — it marks the eval phase closing, not the account dying. Using it as one reported a funded account that passed its eval the same day it opened as a lifespan of **0 days** instead of 15. Only `*_failed` lifecycles measure to a close date; everything else measures to today.
+
+**Always ship the sample size with the average.** `failure_date` is populated on a minority of historical rows, so an average can rest on a handful. A 3-account average is not a trend.
+
+## ⚠️ Ticksensei EDITS ITS OWN SKILL — never delete what you didn't write
+
+
+**Daniel's standing instruction (Oct 2026), verbatim:**
+> *"if tick sensei updates his skill on his own dont remove that part unless it doesnt apply anymore cause of a code change... i dont want those parts deleted"*
+
+Daniel periodically tells Ticksensei to write down **better ways for it to use the site** — heuristics it
+learned in conversation, priority rules, phrasing that worked. Those live in `trading-risk-assistant` /
+`propfolio-money` alongside what the coding agent wrote. **You cannot tell them apart by looking.**
+
+**The rule:**
+- **Default to PRESERVE.** When you rewrite a trading-profile skill, carry across everything whose meaning
+  is still true — including sections that look redundant, oddly-worded, or unlike your style. They are
+  probably Daniel's or the bot's.
+- **Only remove** when a **code change** made it factually wrong (e.g. `log-trade` retired → those
+  paragraphs must go, or the bot calls a 410 endpoint).
+- **Reorganise freely, delete reluctantly.** Rewording, regrouping, tightening — fine. Dropping a whole
+  section because it seems unnecessary — not your call.
+- **When unsure, keep it.** A slightly bloated skill costs tokens; a deleted heuristic costs behaviour.
+
+**How to check before rewriting:** search the trading profile's session DB for the bot's own edits —
+
+```bash
+cd /root/.hermes/profiles/trading && python3 - <<'PY'
+import sqlite3, json
+c = sqlite3.connect('state.db'); c.row_factory = sqlite3.Row
+for r in c.execute("""SELECT id, session_id, substr(content,1,200) s FROM messages
+                       WHERE tool_name='skill_manage' ORDER BY id DESC LIMIT 40"""):
+    print(r['id'], r['session_id'], r['s'][:160].replace(chr(10),' '))
+PY
+```
+Also diff against the last full `skill_view` of the skill in that DB before overwriting.
+
+**This bit me (Oct 2026).** I rewrote `trading-risk-assistant` three times in one session (v4.2 → v5.0 →
+v5.1 → v6.0) and condensed the "Rules of engagement" list from 18 items to 10, plus dropped other prose.
+Some of that was legitimately obsolete (trade-logging rules); some may have been the bot's own additions.
+There were **no backups** — `~/.hermes` is not a git repo and I had made none. Recovery is only via the
+session DB. **Take a copy before you rewrite that skill**, e.g.
+`cp SKILL.md /root/Propfolio/backups/trading-risk-assistant-$(date +%F).md`.
+
+## Reference files
+
+**Start here for anything peripheral:** `references/propfolio-history-and-peripherals.md` — the dated
+session logs, the NinjaTrader/NT8 side, personal-trade plumbing, and profile administration that used to
+live in this SKILL.md (moved Oct 2026 to keep the skill lean; nothing was deleted).
+
+
+- `references/2026-09-10-session-5.md` — Late Sep 10 session: done-for-day bug, budget account types, drawdown tracker, card sizing struggles
+- `references/2026-09-16-trading-mode-widget.md` — Trading Mode widget initial build
+- `references/2026-09-19-trading-mode-gauge.md` — Trading Mode gauge redesign: dynamic cash threshold, tick marks as zones, resizable, debug window fix
+- `references/2026-09-29-nt8-risk-tools-and-streamdeck-icons.md` — NT8 XRiskTool/ScalpRiskSizer/SnapModeToggle build, compile errors, Stream Deck icons
+- `references/2026-09-29-xrisktool-iteration-history.md` — XRiskTool evolution, compile error patterns, design decisions, ScalpRiskSizer PushQuantityToChartTrader, SnapModeToggle
+- `references/2026-09-29-rent-pool-loankind-bug.md` — Rent pool tagged cash instead of borrow, inflated widget cashOnHand by $650, DB connection workaround
+- `references/2026-09-29-xrisktool-iteration-history.md` — XRiskTool v1-v5 evolution, compile error patterns table, ScalpRiskSizer PushQuantity mod, Stream Deck icon specs

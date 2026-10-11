@@ -11,7 +11,7 @@ const AuthDebugPanel: React.FC = () => {
   const location = useLocation();
   const { currentUser, loading, pendingVerificationEmail } = useAuth();
   const [events, setEvents] = useState<DebugEvent[]>([]);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [position, setPosition] = useState({ x: 16, y: 16 });
   const dragRef = useRef<{ dragging: boolean; offsetX: number; offsetY: number }>({
     dragging: false,

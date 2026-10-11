@@ -8,6 +8,8 @@ export interface TradingAccount {
 export interface DayEntry {
   date: string; // YYYY-MM-DD
   followedRules: boolean | null; // null = no trade (deprecated - kept for backwards compatibility)
+  balanceSnapshot?: number | null;
+  pnlSnapshot?: number | null;
   notes?: string;
   ruleCompliance?: Record<string, boolean>; // ruleId -> true/false (followed or broken)
 }
