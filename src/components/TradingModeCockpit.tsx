@@ -30,41 +30,13 @@ const STATE_BUTTONS = [
 
 const DEFAULT_STRATEGIES = ['Blue Box', 'Bread & Butter', 'EW', 'Scalp', 'Momentum'];
 
-const MOCK_ACCOUNTS = [
-  { nickname: 'LFF0', displayLabel: 'LFF0-0002', balance: '26453.50', highWaterMark: '26000.00', drawdownUsed: '423.50', maxDrawdown: '1500.00', accountSize: '25000.00', phase: 'funded', dailyDrawdown: '750.00', dayStartBalance: '26000.00', totalProfit: '453.50', winningDays: 4, trueProfitTarget: '600' },
-  { nickname: 'TF1', displayLabel: 'Tradeify-0001', balance: '50210.00', highWaterMark: '50000.00', drawdownUsed: '1250.00', maxDrawdown: '2500.00', accountSize: '50000.00', phase: 'funded', dailyDrawdown: '1250.00', dayStartBalance: '50100.00', totalProfit: '210.00', winningDays: 2, trueProfitTarget: '1200' },
-  { nickname: 'LFF1', displayLabel: 'LFF0-0003', balance: '9982.00', highWaterMark: '10200.00', drawdownUsed: '680.00', maxDrawdown: '1000.00', accountSize: '10000.00', phase: 'eval', dailyDrawdown: '500.00', dayStartBalance: '10050.00', totalProfit: '-68.00', winningDays: 1, trueProfitTarget: '1000' },
-  { nickname: 'MR01', displayLabel: 'MFF-0004', balance: '31550.00', highWaterMark: '30000.00', drawdownUsed: '800.00', maxDrawdown: '2000.00', accountSize: '30000.00', phase: 'live', dailyDrawdown: '1000.00', dayStartBalance: '31400.00', totalProfit: '1550.00', winningDays: 6, trueProfitTarget: '2000' },
-];
 
-const MOCK_PERSONAL_ACCOUNTS = [
-  { nickname: 'NT_Personal', displayLabel: 'NinjaTrader Personal', balance: '18450.00', highWaterMark: '18000.00', drawdownUsed: '200.00', maxDrawdown: '500.00', accountSize: '20000.00', phase: 'personal', dailyDrawdown: '300.00', dayStartBalance: '18300.00', totalProfit: '450.00', winningDays: 12, trueProfitTarget: '1000', linkingSupported: true },
-  { nickname: 'Crypto', displayLabel: 'Crypto Account', balance: '8500.00', highWaterMark: '8200.00', drawdownUsed: '120.00', maxDrawdown: '400.00', accountSize: '10000.00', phase: 'personal', dailyDrawdown: '200.00', dayStartBalance: '8400.00', totalProfit: '300.00', winningDays: 8, trueProfitTarget: '500', linkingSupported: false },
-];
 
-const MOCK_RULES: Record<string, string[]> = {
-  survival: ['$200 Risk', '2R Target', '4 Max Loss', 'No Friday trading', 'Wait 1 trade after loss'],
-  defensive: ['$250 Risk', '2.5R Target', '$600 Max daily loss', 'Stop at 3 losses', 'Paper hands — no scalps'],
-  cautious: ['$300 Risk', '2.5R Target', '$800 Max daily loss', '2R TP minimum', 'Hard SL required'],
-  balanced: ['$400 Risk', '3R Target', '4 Max Loss', '$1000 Max daily loss', '80% TP at 2R', 'Hard SL required'],
-  confident: ['$500 Risk', '3R Target', '$1500 Max daily loss', 'Scale to 3R', 'Limit TP preferred'],
-  aggressive: ['$750 Risk', '4R Target', '$2500 Max daily loss', 'Full port allowed', 'Runner upside acceptable'],
-};
 
-const DEFAULT_PROMPT_OPTIONS: Record<string, Array<{value: string; label: string}>> = {
-  setup_tf: [
-    {value: '15s', label: '15s'}, {value: '1m', label: '1m'}, {value: '3m', label: '3m'},
-    {value: '5m', label: '5m'}, {value: '15m', label: '15m'}, {value: '30m', label: '30m'}, {value: '1h', label: '1h'},
-  ],
-  entry_tf: [
-    {value: '15s', label: '15s'}, {value: '1m', label: '1m'}, {value: '3m', label: '3m'},
-    {value: '5m', label: '5m'}, {value: '15m', label: '15m'}, {value: '30m', label: '30m'}, {value: '1h', label: '1h'},
-  ],
-  sl_placement: [
-    {value: 'below_entry', label: 'Below Entry'}, {value: 'below_setup', label: 'Below Setup'},
-    {value: 'wide', label: 'Wide SL'}, {value: 'hard', label: 'Hard SL'}, {value: 'mental', label: 'Mental SL'},
-  ],
-};
+
+
+
+
 
 function parseMaxLoss(rules: string[]): number {
   for (const r of rules) { const m = r.match(/^(\d+)\s*(Max Loss|Max)/i); if (m) return parseInt(m[1]); }
@@ -114,7 +86,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     return prev;
   }, []);
 
-  const displayAccounts = !propMode ? MOCK_PERSONAL_ACCOUNTS : (accounts.length > 0 ? accounts : MOCK_ACCOUNTS);
+  const displayAccounts = propMode ? accounts : [];
   const renameAccount = useCallback((aid: string) => {
     const name = renameValue.trim();
     if (!name) return;
@@ -133,7 +105,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     return a.nickname || a.displayLabel || aid;
   }, []);
 
-  const acctList = propMode ? (accounts.length > 0 ? accounts : MOCK_ACCOUNTS) : MOCK_PERSONAL_ACCOUNTS;
+  const acctList = accounts;
   const account = selectedAccountId ? (acctList.find((a: any) => a.nickname === selectedAccountId || a.displayLabel === selectedAccountId || a.id === selectedAccountId) || acctList[0]) : acctList[0];
   const nextAccount = accounts.length > 1 ? accounts[(accountIdx + 1) % accounts.length] : null;
   const modeKey = state?.mode || 'balanced';
@@ -307,7 +279,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
         fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify({ action: 'strategies' }) }).catch(() => null),
       ]);
       if (fullRes?.ok) { const d = await fullRes.json(); const a = (d.accounts || []).filter((x: any) => x.status === 'active' || !x.status); if (a.length > 0) setAccounts(a); if (d.rules) setRules(d.rules); }
-      else { setAccounts(MOCK_ACCOUNTS); setRules(MOCK_RULES); }
+      else { setRules({}); }
       if (stratRes?.ok) { const d = await stratRes.json(); if (d.strategies?.length > 0) setStrategies([...DEFAULT_STRATEGIES, ...d.strategies]); }
     };
     // Load prompt options + variant history
@@ -560,7 +532,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
             <div className="mb-3">
               <div className="text-[10px] text-white/40 uppercase mb-1.5">Setup Timeframe</div>
               <div className="flex flex-wrap gap-1.5">
-                {(promptOptions.setup_tf || DEFAULT_PROMPT_OPTIONS.setup_tf).map(opt => (
+                {(promptOptions.setup_tf || [{value:'15s',label:'15s'},{value:'1m',label:'1m'},{value:'3m',label:'3m'},{value:'5m',label:'5m'},{value:'15m',label:'15m'},{value:'30m',label:'30m'},{value:'1h',label:'1h'}]).map(opt => (
                   <button key={opt.value} onClick={() => setStratSetupTf(opt.value)}
                     className={`text-sm px-3 py-1.5 rounded-lg transition-all border ${stratSetupTf === opt.value ? 'text-cyan-300 border-cyan-400/50 bg-cyan-500/15' : 'text-white/50 border-white/10 bg-white/5'}`}
                   >{opt.label}</button>
@@ -571,7 +543,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
             <div className="mb-3">
               <div className="text-[10px] text-white/40 uppercase mb-1.5">Entry Timeframe</div>
               <div className="flex flex-wrap gap-1.5">
-                {(promptOptions.entry_tf || DEFAULT_PROMPT_OPTIONS.entry_tf).map(opt => (
+                {(promptOptions.entry_tf || [{value:'15s',label:'15s'},{value:'1m',label:'1m'},{value:'3m',label:'3m'},{value:'5m',label:'5m'},{value:'15m',label:'15m'},{value:'30m',label:'30m'},{value:'1h',label:'1h'}]).map(opt => (
                   <button key={opt.value} onClick={() => setStratEntryTf(opt.value)}
                     className={`text-sm px-3 py-1.5 rounded-lg transition-all border ${stratEntryTf === opt.value ? 'text-purple-300 border-purple-400/50 bg-purple-500/15' : 'text-white/50 border-white/10 bg-white/5'}`}
                   >{opt.label}</button>
@@ -582,7 +554,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
             <div className="mb-3">
               <div className="text-[10px] text-white/40 uppercase mb-1.5">SL Placement</div>
               <div className="flex flex-wrap gap-1.5">
-                {(promptOptions.sl_placement || DEFAULT_PROMPT_OPTIONS.sl_placement).map(opt => (
+                {(promptOptions.sl_placement || [{value:'below_entry',label:'Below Entry'},{value:'below_setup',label:'Below Setup'},{value:'wide',label:'Wide SL'},{value:'hard',label:'Hard SL'},{value:'mental',label:'Mental SL'}]).map(opt => (
                   <button key={opt.value} onClick={() => setStratSlPlace(opt.value)}
                     className={`text-sm px-3 py-1.5 rounded-lg transition-all border ${stratSlPlace === opt.value ? 'text-amber-300 border-amber-400/50 bg-amber-500/15' : 'text-white/50 border-white/10 bg-white/5'}`}
                   >{opt.label}</button>
@@ -623,7 +595,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
             <p className="text-sm text-white/50 mb-4">Choose which account to trade this session</p>
             <div className="space-y-2 mb-5">
               {displayAccounts.map((a: any) => (
-                <button key={a.id || a.nickname} onClick={() => { setSelectedAccountId(a.nickname || a.displayLabel || a.id); setAccountIdx(0); setShowAccountPicker(false); if (propMode) { const items = (accounts.length > 0 ? accounts : MOCK_ACCOUNTS).map((x: any) => x.nickname || x.displayLabel || x.id); setPendingAccountOrder(items); setShowOrderArranger(true); } else { setShowLinkPrompt(true); } }}
+                <button key={a.id || a.nickname} onClick={() => { setSelectedAccountId(a.nickname || a.displayLabel || a.id); setAccountIdx(0); setShowAccountPicker(false); if (propMode) { const items = accounts.map((x: any) => x.nickname || x.displayLabel || x.id); setPendingAccountOrder(items); setShowOrderArranger(true); } else { setShowLinkPrompt(true); } }}
                   className={`w-full text-left px-4 py-3 rounded-xl border transition-all hover:scale-[1.02]`}
                   style={{ borderColor: `${a.phase === 'live' ? '#a3e635' : a.phase === 'funded' ? '#22d3ee' : a.phase === 'personal' ? '#22d3ee' : '#a855f7'}40`, background: `${a.phase === 'live' ? '#a3e635' : a.phase === 'funded' ? '#22d3ee' : a.phase === 'personal' ? '#22d3ee' : '#a855f7'}08` }}
                 >
@@ -664,8 +636,8 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
             <h3 className="text-lg font-bold text-white mb-2">Link to Prop Account</h3>
             <p className="text-sm text-white/50 mb-4">Which prop account will you copy these trades to?</p>
             <div className="space-y-2 mb-5">
-              {(accounts.length > 0 ? accounts : MOCK_ACCOUNTS).filter((a: any) => a.phase !== 'personal').map((a: any) => (
-                <button key={a.id || a.nickname} onClick={() => { setLinkedPropId(a.nickname || a.displayLabel || a.id); setShowLinkPrompt(false); const items = (accounts.length > 0 ? accounts : MOCK_ACCOUNTS).filter((x: any) => x.phase !== 'personal').map((x: any) => x.nickname || x.displayLabel || x.id); setPendingAccountOrder(items); setShowOrderArranger(true); }}
+              {accounts.filter((a: any) => a.phase !== 'personal').map((a: any) => (
+                <button key={a.id || a.nickname} onClick={() => { setLinkedPropId(a.nickname || a.displayLabel || a.id); setShowLinkPrompt(false); const items = accounts.filter((x: any) => x.phase !== 'personal').map((x: any) => x.nickname || x.displayLabel || x.id); setPendingAccountOrder(items); setShowOrderArranger(true); }}
                   className="w-full text-left px-4 py-3 rounded-xl border transition-all hover:scale-[1.02]"
                   style={{ borderColor: `${a.phase === 'live' ? '#a3e635' : a.phase === 'funded' ? '#22d3ee' : a.phase === 'personal' ? '#22d3ee' : '#a855f7'}40`, background: `${a.phase === 'live' ? '#a3e635' : a.phase === 'funded' ? '#22d3ee' : a.phase === 'personal' ? '#22d3ee' : '#a855f7'}08` }}
                 >
@@ -704,7 +676,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
                 );
               })}
             </div>
-            <button onClick={() => { setShowOrderArranger(false); if (pendingAccountOrder.length > 0) { const first = pendingAccountOrder[0]; const a = (propMode ? displayAccounts : (accounts.length > 0 ? accounts : MOCK_ACCOUNTS)).find((x: any) => (x.nickname || x.displayLabel || x.id) === first); if (a) setSelectedAccountId(a.nickname || a.displayLabel || a.id); } }}
+            <button onClick={() => { setShowOrderArranger(false); if (pendingAccountOrder.length > 0) { const first = pendingAccountOrder[0]; const a = (propMode ? displayAccounts : accounts).find((x: any) => (x.nickname || x.displayLabel || x.id) === first); if (a) setSelectedAccountId(a.nickname || a.displayLabel || a.id); } }}
               className="w-full px-4 py-3 rounded-xl border-2 text-sm font-bold"
               style={{ borderColor: '#a855f750', background: '#a855f715', color: '#a855f7' }}
             >✅ Lock Order & Start Trading</button>

@@ -83,6 +83,8 @@ const HORIZON_LABEL: Record<Horizon, string> = {
 
 const API = '/.netlify/functions/db-notes';
 
+
+
 export const GoalsTab: React.FC = () => {
   const [notes, setNotes] = useState<PlanNote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,22 +170,6 @@ export const GoalsTab: React.FC = () => {
     return { done: kids.filter((k) => effectiveDone(k.id)).length, total: kids.length };
   }, [childrenOf, effectiveDone]);
 
-  const requestBreakdown = useCallback(async (note: PlanNote) => {
-    try {
-      const h = getAuthHeaders();
-      await fetch(API, {
-        method: 'POST',
-        headers: h,
-        body: JSON.stringify({ action: 'request-breakdown', noteId: note.id, title: note.title, body: note.body }),
-      });
-    } catch {}
-  }, []);
-
-  const columnOf = useCallback((h: Horizon) => {
-    return notes
-      .filter((n) => (n.horizon === h ? true : false))
-      .sort(sortSiblings);
-  }, [notes]);
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const openCreate = (horizon: Horizon, parentId: string | null = null) => {
@@ -259,7 +245,18 @@ export const GoalsTab: React.FC = () => {
     });
   };
 
+    const requestBreakdown = useCallback(async (note: PlanNote) => {
+    try {
+      const h = getAuthHeaders();
+      await fetch(API, { method: 'POST', headers: h, body: JSON.stringify({ action: 'request-breakdown', noteId: note.id, title: note.title, body: note.body }) });
+    } catch {}
+  }, []);
+
   const totalOpen = notes.filter((n) => !effectiveDone(n.id)).length;
+  const rootNotes = useMemo(() => {
+    const horizonOrder: Record<string, number> = { long_term: 0, mid_term: 1, short_term: 2, daily: 3 };
+    return notes.filter(n => !n.parentId).sort((a, b) => (horizonOrder[a.horizon] ?? 99) - (horizonOrder[b.horizon] ?? 99));
+  }, [notes]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -294,44 +291,32 @@ export const GoalsTab: React.FC = () => {
           <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading plans…
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          {HORIZONS.map((h) => {
-            const list = columnOf(h.key);
-            const openCount = list.filter((n) => !effectiveDone(n.id)).length;
-            const Icon = h.icon;
-            return (
-              <div key={h.key} className={`rounded-xl border ${h.accentBorder} bg-white/[0.03] p-3`}>
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className={`flex items-center justify-center w-7 h-7 rounded-md shrink-0 ${h.accentBg}`}>
-                      <Icon className={`w-4 h-4 ${h.accentText}`} />
-                    </span>
-                    <div className="min-w-0">
-                      <h3 className={`text-sm font-bold ${h.accentText}`}>{h.label}</h3>
-                      <p className="text-[11px] text-white/40 truncate">{h.blurb} · {openCount} open</p>
+        <>
+        {rootNotes.length === 0 ? (
+          <div className="text-center py-12"><p className="text-sm text-white/30">No goals yet — click + to add one.</p></div>
+        ) : (
+          <div className="space-y-6">
+            {HORIZONS.map((h) => {
+              const horizonRoots = rootNotes.filter(n => n.horizon === h.key);
+              
+              const Icon = h.icon;
+              return (
+                <div key={h.key} className={`rounded-xl border ${h.accentBorder} bg-white/[0.03] p-3`}>
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`flex items-center justify-center w-7 h-7 rounded-md shrink-0 ${h.accentBg}`}>
+                        <Icon className={`w-4 h-4 ${h.accentText}`} />
+                      </span>
+                      <div>
+                        <h3 className={`text-sm font-bold ${h.accentText}`}>{h.label}</h3>
+                        <p className="text-[11px] text-white/40">{h.blurb} · {horizonRoots.length} open</p>
+                      </div>
                     </div>
+                    <button onClick={() => openCreate(h.key)} title={`Add ${h.label} item`} className="p-1.5 rounded-md border border-white/10 hover:bg-white/10 text-white/60 hover:text-white transition-colors shrink-0"><Plus className="w-4 h-4" /></button>
                   </div>
-                  <button
-                    onClick={() => openCreate(h.key)}
-                    title={`Add ${h.label} item`}
-                    className="p-1.5 rounded-md border border-white/10 hover:bg-white/10 text-white/60 hover:text-white transition-colors shrink-0"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="space-y-2 mt-3">
-                  {list.length === 0 && (
-                    <button
-                      onClick={() => openCreate(h.key)}
-                      className="w-full text-left text-xs text-white/30 border border-dashed border-white/10 rounded-lg px-3 py-4 hover:border-white/20 hover:text-white/50 transition-colors"
-                    >
-                      Nothing here yet — click to add.
-                    </button>
-                  )}
-
-                  {list.map((n) => (
-                    <NoteCard
+                  <div className="space-y-2">
+                    {horizonRoots.map((n) => (
+              <NoteCard
                       key={n.id}
                       note={n}
                       byId={byId}
@@ -345,17 +330,25 @@ export const GoalsTab: React.FC = () => {
                       onEdit={() => openEdit(n)}
                       onDelete={() => remove(n)}
                       onAddStep={() => openCreate(nextHorizonBelow(n.horizon), n.id)}
-                    onBreakdown={() => requestBreakdown(n)}
+                      onBreakdown={() => requestBreakdown(n)}
+                      expanded={expanded}
+                      setExpanded={setExpanded}
+                      toggleComplete={toggleComplete}
+                      openEdit={openEdit}
+                      remove={remove}
+                      openCreate={openCreate}
                       progressOf={progressOf}
                       effectiveDone={effectiveDone}
                     />
                   ))}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
+        </>)
+          }
 
       {modalOpen && (
         <NoteModal
@@ -389,11 +382,19 @@ const NoteCard: React.FC<{
   onDelete: () => void;
   onAddStep: () => void;
   onBreakdown?: (note: PlanNote) => void;
+  expanded: Record<string, boolean>;
+  setExpanded: (fn: (prev: Record<string, boolean>) => Record<string, boolean>) => void;
+  toggleComplete: (note: PlanNote) => void;
+  openEdit: (note: PlanNote) => void;
+  remove: (note: PlanNote) => void;
+  openCreate: (horizon: Horizon, parentId?: string | null) => void;
   progressOf: (id: string) => { done: number; total: number } | null;
   effectiveDone: (id: string, seen?: Set<string>) => boolean;
 }> = ({
   note, byId, childrenOf, progress, done, isBusy, isOpen,
-  onToggleExpand, onToggleComplete, onEdit, onDelete, onAddStep, progressOf, effectiveDone,
+  onToggleExpand, onToggleComplete, onEdit, onDelete, onAddStep, onBreakdown,
+  expanded, setExpanded, toggleComplete, openEdit, remove, openCreate,
+  progressOf, effectiveDone,
 }) => {
   const parent = note.parentId ? byId.get(note.parentId) : null;
   const kids = childrenOf.get(note.id) || [];
@@ -486,17 +487,32 @@ const NoteCard: React.FC<{
               {kids.map((k) => {
                 const kd = effectiveDone(k.id);
                 const kp = progressOf(k.id);
+                const isChildOpen = !!expanded[k.id];
                 return (
-                  <div key={k.id} className="flex items-center gap-1.5 text-[11px]">
-                    <span className={`w-1 h-1 rounded-full shrink-0 ${kd ? 'bg-emerald-400' : 'bg-white/30'}`} />
-                    <span className={`flex-1 truncate ${kd ? 'line-through text-white/40' : 'text-white/70'}`}>
-                      {k.title}
-                    </span>
-                    <span className="text-[9px] px-1 rounded bg-white/10 text-white/45 shrink-0">
-                      {HORIZON_LABEL[k.horizon]}
-                    </span>
-                    {kp && <span className="text-[9px] text-white/35 shrink-0">{kp.done}/{kp.total}</span>}
-                  </div>
+                  <NoteCard
+                    key={k.id}
+                    note={k}
+                    byId={byId}
+                    childrenOf={childrenOf}
+                    progress={kp}
+                    done={kd}
+                    isBusy={false}
+                    isOpen={isChildOpen}
+                    onToggleExpand={() => setExpanded((e) => ({ ...e, [k.id]: !e[k.id] }))}
+                    onToggleComplete={() => toggleComplete(k)}
+                    onEdit={() => openEdit(k)}
+                    onDelete={() => remove(k)}
+                    onAddStep={() => openCreate(nextHorizonBelow(k.horizon), k.id)}
+                    onBreakdown={onBreakdown}
+                    expanded={expanded}
+                    setExpanded={setExpanded}
+                    toggleComplete={toggleComplete}
+                    openEdit={openEdit}
+                    remove={remove}
+                    openCreate={openCreate}
+                    progressOf={progressOf}
+                    effectiveDone={effectiveDone}
+                  />
                 );
               })}
             </div>

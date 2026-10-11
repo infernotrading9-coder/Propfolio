@@ -1071,13 +1071,7 @@ const Dashboard: React.FC = () => {
                 const res = await fetch('/.netlify/functions/daily-agenda', { headers: h });
                 const d = await res.json();
                 setAgendaData(d); setAgendaLoading(false);
-              } catch { 
-                // Mock data for testing
-                setAgendaData({ date: new Date().toISOString().slice(0, 10), entries: [
-                  {title: '🌬️ Light: incline walk, abs, stretching', startTime: '11:00', endTime: '12:00', category: 'light', icon: '🌬️'},
-                  {title: 'Trading Session — MNQ/NQ', startTime: '12:00', endTime: '15:00', category: 'trading', icon: '📈'},
-                  {title: '🏋️ Pull heavy: back, biceps', startTime: '15:00', endTime: '16:00', category: 'workouts', icon: '🏋️'},
-                ]}); setAgendaLoading(false); }
+              } catch { setAgendaError(true); setAgendaLoading(false); }
             }}
               className="relative w-14 h-14 rounded-full flex items-center justify-center select-none active:scale-95 transition-all duration-200 hover:scale-105 lg:hidden"
               style={{
