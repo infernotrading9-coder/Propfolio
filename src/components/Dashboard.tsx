@@ -1062,8 +1062,8 @@ const Dashboard: React.FC = () => {
         )}
 
         {!cockpitActive && (
-          <div className="flex fixed right-4 top-24 z-40 gap-3 lg:hidden">
-            <button onClick={async () => {
+          <div className="flex fixed right-4 top-24 z-40 gap-3">
+            <div className="lg:hidden"><button onClick={async () => {
               setShowAgenda(true); setAgendaLoading(true); setAgendaError(false);
               try {
                 const h: Record<string, string> = {};
@@ -1079,7 +1079,7 @@ const Dashboard: React.FC = () => {
                   {title: '🏋️ Pull heavy: back, biceps', startTime: '15:00', endTime: '16:00', category: 'workouts', icon: '🏋️'},
                 ]}); setAgendaLoading(false); }
             }}
-              className="w-14 h-14 rounded-full flex items-center justify-center select-none active:scale-95 transition-all duration-200 hover:scale-105"
+              className="relative w-14 h-14 rounded-full flex items-center justify-center select-none active:scale-95 transition-all duration-200 hover:scale-105 lg:hidden"
               style={{
                 background: 'radial-gradient(circle at 40% 35%, #60a5fa, #3b82f6 55%, #1d4ed8 100%)',
                 borderRadius: '50%',
@@ -1092,10 +1092,10 @@ const Dashboard: React.FC = () => {
               <div className="absolute inset-0 pointer-events-none rounded-full" style={{ background: 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 55%)' }} />
               
             </button>
-          
+            </div>
             <button
               onClick={() => setShowCockpitMode(true)}
-              className="relative w-20 h-20 transition-all duration-200 hover:scale-105
+              className="relative w-20 h-20 transition-all duration-200 hover:scale-105 max-sm:hidden
                 flex items-center justify-center select-none active:scale-95"
               style={{
                 background: 'radial-gradient(circle at 40% 35%, #ff6b6b, #dc2626 55%, #b91c1c 100%)',
@@ -2060,7 +2060,7 @@ const Dashboard: React.FC = () => {
         )}
 
       </div>
-    </div>
+      </div>
     </>
   );
 };
