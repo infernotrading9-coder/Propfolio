@@ -50,6 +50,7 @@ export const handler: Handler = async (event) => {
           notes: input.notes || null,
           tradeDate: input.tradeDate ? new Date(input.tradeDate) : new Date(),
           externalId: input.externalId || null,
+          accountName: input.accountName || 'NinjaTrader',
         } as any);
         return json(200, { trade });
       }

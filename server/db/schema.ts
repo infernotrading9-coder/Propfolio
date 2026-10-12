@@ -429,6 +429,7 @@ export const personalTrades = pgTable('personal_trades', {
   stuckToSize: text('stuck_to_size'),      // 'yes' | 'no'
   tradeDate: timestamp('trade_date').defaultNow().notNull(),
   externalId: text('external_id'),          // NinjaTrader order ID for dedup
+  accountName: text('account_name').default('NinjaTrader'), // 'NinjaTrader' | 'Crypto' | custom
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

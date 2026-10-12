@@ -235,7 +235,8 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     }
     // Log to personal trades if personal mode (even if linked)
     if (!propMode) {
-      fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: h, body: JSON.stringify({ action: 'log-strategy', strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant }) }).catch(() => {});
+      const logBody = JSON.stringify({ action: 'log-strategy', strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant, accountName: selectedAccountId || 'NinjaTrader' });
+      fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: h, body: logBody }).catch(() => {});
     }
     setState((prev: any) => {
       const history = prev.actionHistory || [];
