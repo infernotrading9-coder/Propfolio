@@ -30,6 +30,11 @@ const STATE_BUTTONS = [
 
 const DEFAULT_STRATEGIES = ['Blue Box', 'Bread & Butter', 'EW', 'Scalp', 'Momentum'];
 
+const PERSONAL_ACCOUNTS = [
+  { nickname: 'NT_Personal', displayLabel: 'NinjaTrader', phase: 'personal' },
+  { nickname: 'Crypto', displayLabel: 'Crypto Account', phase: 'personal' },
+];
+
 
 
 
@@ -86,7 +91,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     return prev;
   }, []);
 
-  const displayAccounts = propMode ? accounts : [];
+  const displayAccounts = propMode ? accounts : PERSONAL_ACCOUNTS;
   const renameAccount = useCallback((aid: string) => {
     const name = renameValue.trim();
     if (!name) return;
@@ -105,7 +110,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     return a.nickname || a.displayLabel || aid;
   }, []);
 
-  const acctList = accounts;
+  const acctList = propMode ? accounts : PERSONAL_ACCOUNTS;
   const account = selectedAccountId ? (acctList.find((a: any) => a.nickname === selectedAccountId || a.displayLabel === selectedAccountId || a.id === selectedAccountId) || acctList[0]) : acctList[0];
   const nextAccount = accounts.length > 1 ? accounts[(accountIdx + 1) % accounts.length] : null;
   const modeKey = state?.mode || 'balanced';
