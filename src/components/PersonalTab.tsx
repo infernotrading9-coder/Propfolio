@@ -26,6 +26,7 @@ interface PersonalTrade {
   stuckToSize: string | null;
   tradeDate: string;
   externalId: string | null;
+  accountName: string | null;
   createdAt: string;
 }
 
@@ -74,6 +75,7 @@ export const PersonalTab: React.FC = () => {
   const [showNetPnL, setShowNetPnL] = useState(false);
   const [showBalanceCurve, setShowBalanceCurve] = useState(false);
   const [showLumped, setShowLumped] = useState(true);
+  const [accountFilter, setAccountFilter] = useState<string>('all');
 
   // Strategy dropdown state
   const [strategyInput, setStrategyInput] = useState('');
@@ -249,6 +251,11 @@ export const PersonalTab: React.FC = () => {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [closeStrategyDropdown]);
+
+  const filteredTrades = useMemo(() => {
+    if (accountFilter === 'all') return trades;
+    return trades.filter(t => (t.accountName || 'NinjaTrader') === accountFilter);
+  }, [trades, accountFilter]);
 
   const winLossData = useMemo(() => {
     if (!stats) return [];
@@ -670,7 +677,17 @@ export const PersonalTab: React.FC = () => {
       {/* Trades Table */}
       {hasTrades && (
       <div className="bg-white/5 rounded-xl border border-white/10 p-4 sm:p-6">
-        <h3 className="text-lg font-semibold text-white/90 mb-4">Trade History</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-white/90">Trade History</h3>
+          <select value={accountFilter} onChange={e => setAccountFilter(e.target.value)}
+            className="text-xs px-2 py-1.5 rounded-lg border border-white/10 bg-white/5 text-white/60 outline-none"
+          >
+            <option value="all">All Accounts</option>
+            {[...new Set(trades.map(t => t.accountName || 'NinjaTrader'))].sort().map(a => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -686,7 +703,7 @@ export const PersonalTab: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {trades.map((t) => {
+              {filteredTrades.map((t) => {
                 const pnl = parseFloat(String(t.amount)) || 0;
                 const signedPnL = pnl < 0 ? pnl : (t.result === 'loss' ? -Math.abs(pnl) : Math.abs(pnl));
                 return (
