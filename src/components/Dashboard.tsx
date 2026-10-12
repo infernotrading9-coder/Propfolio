@@ -1152,7 +1152,7 @@ const Dashboard: React.FC = () => {
                 <button onClick={async () => {
                   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
                   try { const u = JSON.parse(localStorage.getItem('user') || '{}'); if (u?.id) { headers['X-User-Id'] = String(u.id); headers['X-User-Email'] = String(u.email); } } catch {}
-                  await fetch('/.netlify/functions/trading-mode', { method: 'POST', headers, body: JSON.stringify({ action: 'enter_cockpit' }) });
+                  try { await fetch('/.netlify/functions/trading-mode', { method: 'POST', headers, body: JSON.stringify({ action: 'enter_cockpit' }) }); } catch {}
                   setCockpitPropMode(true); setCockpitActive(true); setShowCockpitMode(false);
                 }}
                   className="w-full px-6 py-5 rounded-2xl border-2 text-base font-bold transition-all hover:scale-105"

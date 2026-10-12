@@ -422,6 +422,11 @@ export const PersonalTab: React.FC = () => {
           <p className="text-white/45 max-w-md mx-auto text-sm">
             Your NinjaTrader trades will appear here automatically once the bot starts logging them.
           </p>
+          {trades.length === 0 && (
+            <div className="mt-4 inline-flex items-center gap-2 text-xs text-white/30 bg-white/5 rounded-lg px-3 py-1.5 border border-white/10">
+              <span>Log a trade from the cockpit or wait for Group Leader</span>
+            </div>
+          )}
         </div>
       )}
 
