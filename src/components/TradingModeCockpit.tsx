@@ -276,15 +276,28 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     setTimeout(() => setState((p: any) => ({ ...p, cockpitState: 'pre_trade' })), 1500);
   }, [ensureDailyReset]);
 
-  // Load data
+  // Load data — db-accounts for the picker (full contract: id, displayLabel,
+  // status, phase, etc.) and db-state-full for the enrichment every card
+  // shows below the picker (totalProfit, trueProfitTarget, rules, bestDay,
+  // consistencyOk). Without db-accounts the picker's `a.nickname ||
+  // a.displayLabel || a.id` keys collapsed to blanks because db-state-full
+  // omits those fields.
   useEffect(() => {
     const load = async () => {
       const h = getHeaders();
-      const [fullRes, stratRes] = await Promise.all([
+      const [accountsRes, fullRes, stratRes] = await Promise.all([
+        fetch('/.netlify/functions/db-accounts', { headers: h }).catch(() => null),
         fetch('/.netlify/functions/db-state-full', { headers: h }).catch(() => null),
         fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify({ action: 'strategies' }) }).catch(() => null),
       ]);
-      if (fullRes?.ok) { const d = await fullRes.json(); const a = (d.accounts || []).filter((x: any) => x.status === 'active' || !x.status); if (a.length > 0) setAccounts(a); if (d.rules) setRules(d.rules); }
+      // 1) Picker list — full contract from db-accounts (active rows only).
+      if (accountsRes?.ok) {
+        const d = await accountsRes.json();
+        const a = (d.accounts || []).filter((x: any) => x.status === 'active' || !x.status);
+        if (a.length > 0) setAccounts(a);
+      }
+      // 2) Enrichment (rules, totals, trueProfitTarget) from db-state-full.
+      if (fullRes?.ok) { const d = await fullRes.json(); if (d.rules) setRules(d.rules); }
       else { setRules({}); }
       if (stratRes?.ok) { const d = await stratRes.json(); if (d.strategies?.length > 0) setStrategies([...DEFAULT_STRATEGIES, ...d.strategies]); }
     };

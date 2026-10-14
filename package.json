@@ -14,7 +14,10 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
-    "db:clear": "tsx scripts/clear-challenge-data.ts"
+    "db:clear": "tsx scripts/clear-challenge-data.ts",
+    "guide:regen": "node scripts/generate-bot-guide.mjs",
+    "snapshot:live": "node migration/scripts/99-snapshot-live.mjs",
+    "dev:mirror": "npm run snapshot:live && (pkill -f dev-mock-server || true) && sleep 1 && node scripts/dev-mock-server.mjs"
   },
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.1",
