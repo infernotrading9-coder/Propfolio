@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { TradingModeWidget } from './TradingModeWidget';
 import { NeonCard } from './NeonCard';
 
@@ -50,6 +51,12 @@ function parseMaxLoss(rules: string[]): number {
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> = ({ onExit, propMode }) => {
+  // Read auth from React context (NOT localStorage). On the live site, the
+  // endpoint returns 401 if X-User-Id is missing — and the cockpit's mount
+  // useEffect used to fire before AuthContext finished populating
+  // currentUser, so the first fetch went unauthenticated. Re-read on every
+  // currentUser change so re-logins re-fire the picker fetch.
+  const { currentUser } = useAuth();
   const [state, setState] = useState<any>({
     cockpitState: 'pre_trade', mode: 'balanced', score: 67, slHitCount: 0,
     dailyDate: todayStr(), dailyWins: 0, dailyLosses: 0, streak: 0,
@@ -284,6 +291,14 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   // omits those fields.
   useEffect(() => {
     const load = async () => {
+      // Wait for auth before fetching. Without currentUser the request
+      // goes out without X-User-Id and live returns 401 — the picker
+      // would never populate. (The dev mock accepts unauthenticated
+      // requests, which is why this didn't show up in dev tests.)
+      if (!currentUser?.id) {
+        setAccounts([]);
+        return;
+      }
       const h = getHeaders();
       const [accountsRes, fullRes, stratRes, tradesRes] = await Promise.all([
         fetch('/.netlify/functions/db-accounts', { headers: h }).catch(() => null),
@@ -325,7 +340,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: { ...getHeaders() }, body: JSON.stringify({ action: 'prompt-options' }) }).then(r => r.ok && r.json()).then(d => { if (d?.options) setPromptOptions(d.options); }).catch(() => {});
     fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: { ...getHeaders() }, body: JSON.stringify({ action: 'variant-history' }) }).then(r => r.ok && r.json()).then(d => { if (d?.variants) setVariantHistory(d.variants); }).catch(() => {});
     load();
-  }, []); // eslint-disable-line
+  }, [currentUser?.id]); // eslint-disable-line
 
   // Show account picker on mount — always, no conditions
   useEffect(() => {
