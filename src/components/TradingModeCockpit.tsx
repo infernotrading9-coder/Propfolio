@@ -30,10 +30,9 @@ const STATE_BUTTONS = [
 
 const DEFAULT_STRATEGIES = ['Blue Box', 'Bread & Butter', 'EW', 'Scalp', 'Momentum'];
 
-const PERSONAL_ACCOUNTS = [
-  { nickname: 'NT_Personal', displayLabel: 'NinjaTrader', phase: 'personal' },
-  { nickname: 'Crypto', displayLabel: 'Crypto Account', phase: 'personal' },
-];
+// Personal accounts are NOT a hardcoded constant. They come from the live
+// `personal_trades` table, derived from distinct `account_name` values.
+// Empty list = empty list. The user wants what the DB says, nothing else.
 
 
 
@@ -58,6 +57,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   });
   const [accounts, setAccounts] = useState<any[]>([]);
   const [accountIdx, setAccountIdx] = useState(0);
+  const [personalAccounts, setPersonalAccounts] = useState<any[]>([]);
   const [rules, setRules] = useState<Record<string, string[]>>({});
   const [strategies, setStrategies] = useState(DEFAULT_STRATEGIES);
   const [showDonePrompt, setShowDonePrompt] = useState(false);
@@ -91,7 +91,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     return prev;
   }, []);
 
-  const displayAccounts = propMode ? accounts : PERSONAL_ACCOUNTS;
+  const displayAccounts = propMode ? accounts : personalAccounts;
   const renameAccount = useCallback((aid: string) => {
     const name = renameValue.trim();
     if (!name) return;
@@ -110,7 +110,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     return a.nickname || a.displayLabel || aid;
   }, []);
 
-  const acctList = propMode ? accounts : PERSONAL_ACCOUNTS;
+  const acctList = propMode ? accounts : personalAccounts;
   const account = selectedAccountId ? (acctList.find((a: any) => a.nickname === selectedAccountId || a.displayLabel === selectedAccountId || a.id === selectedAccountId) || acctList[0]) : acctList[0];
   const nextAccount = accounts.length > 1 ? accounts[(accountIdx + 1) % accounts.length] : null;
   const modeKey = state?.mode || 'balanced';
@@ -285,10 +285,14 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   useEffect(() => {
     const load = async () => {
       const h = getHeaders();
-      const [accountsRes, fullRes, stratRes] = await Promise.all([
+      const [accountsRes, fullRes, stratRes, tradesRes] = await Promise.all([
         fetch('/.netlify/functions/db-accounts', { headers: h }).catch(() => null),
         fetch('/.netlify/functions/db-state-full', { headers: h }).catch(() => null),
         fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify({ action: 'strategies' }) }).catch(() => null),
+        // Personal trades → derive distinct account_name values for the
+        // personal-mode picker. Read-only; the user manages add/remove/
+        // rename on the Personal tab, not here.
+        fetch('/.netlify/functions/db-personal-trades?limit=500', { headers: h }).catch(() => null),
       ]);
       // 1) Picker list — full contract from db-accounts (active rows only).
       if (accountsRes?.ok) {
@@ -300,6 +304,22 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       if (fullRes?.ok) { const d = await fullRes.json(); if (d.rules) setRules(d.rules); }
       else { setRules({}); }
       if (stratRes?.ok) { const d = await stratRes.json(); if (d.strategies?.length > 0) setStrategies([...DEFAULT_STRATEGIES, ...d.strategies]); }
+      // 3) Personal accounts — distinct `account_name` values from
+      //    personal_trades. Shape mirrors the prior hardcoded constant so
+      //    downstream code (a.nickname, a.displayLabel, a.phase) keeps working.
+      if (tradesRes?.ok) {
+        try {
+          const d = await tradesRes.json();
+          const names = Array.from(new Set(
+            (d.trades || []).map((t: any) => t.accountName || 'NinjaTrader')
+          )).sort() as string[];
+          setPersonalAccounts(names.map((n) => ({
+            nickname: n,
+            displayLabel: n,
+            phase: 'personal',
+          })));
+        } catch { /* leave empty */ }
+      }
     };
     // Load prompt options + variant history
     fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: { ...getHeaders() }, body: JSON.stringify({ action: 'prompt-options' }) }).then(r => r.ok && r.json()).then(d => { if (d?.options) setPromptOptions(d.options); }).catch(() => {});
