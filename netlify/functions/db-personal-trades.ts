@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import { and, eq, sql, desc } from 'drizzle-orm';
 import { json, getUserFromSession } from './_utils';
 import { personalTradeService, strategyLog, strategyPromptOptions } from '../../server/db/service';
 import { db } from '../../server/db/connection';
@@ -112,7 +113,7 @@ export const handler: Handler = async (event) => {
         const rows = await db.select({ variant: strategyLog.variant }).from(strategyLog)
           .where(and(eq(strategyLog.userId, user.id), sql`variant IS NOT NULL AND variant != ''`))
           .groupBy(strategyLog.variant)
-          .orderBy(desc(strategyLog.createdAt))
+          .orderBy(desc(sql`max(${strategyLog.createdAt})`))
           .limit(50);
         return json(200, { variants: rows.map(r => r.variant).filter(Boolean) as string[] });
       }
