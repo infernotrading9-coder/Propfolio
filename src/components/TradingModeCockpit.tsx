@@ -263,8 +263,14 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     const s = pendingStrategy;
     if (!s) return;
     const h = { 'Content-Type': 'application/json', ...(await getAuthHeaders()) } as Record<string, string>;
+    // Prop phase comes from the account actually being copied to, not a
+    // hardcoded 'eval'. trading_accounts.phase is 'challenge'|'funded'; map it
+    // to prop_trades.phase ('eval'|'funded'|'live').
+    const targetId = propMode ? selectedAccountId : linkedPropId;
+    const targetAcct = accounts.find((a: any) => (a.nickname || a.displayLabel || a.id) === targetId);
+    const propPhase = targetAcct?.phase === 'funded' ? 'funded' : targetAcct?.phase === 'live' ? 'live' : 'eval';
     const body = (propMode || linkedPropId)
-      ? JSON.stringify({ action: 'create', instrument: '—', side: 'buy', quantity: 0, strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant, accountId: propMode ? selectedAccountId : linkedPropId, phase: 'eval' })
+      ? JSON.stringify({ action: 'create', instrument: '—', side: 'buy', quantity: 0, strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant, accountId: targetId, phase: propPhase })
       : JSON.stringify({ action: 'log-strategy', strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant });
     // Log to prop trades if linking
     if (propMode || linkedPropId) {
@@ -282,7 +288,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       const same = prev.currentStrategy === s && !prev.freshSetup;
       return { ...prev, actionHistory: history, currentStrategy: s, strategyAttempts: same ? (prev.strategyAttempts || 1) + 1 : 1, freshSetup: false, cockpitState: 'in_trade', lastAction: 'strategy', lastActionTime: Date.now(), cooldown: false };
     });
-  }, [pendingStrategy, stratSetupTf, stratEntryTf, stratSlPlace, stratVariant, getAuthHeaders]);
+  }, [pendingStrategy, stratSetupTf, stratEntryTf, stratSlPlace, stratVariant, getAuthHeaders, accounts, propMode, linkedPropId, selectedAccountId]);
 
   // Handle OUT prompt result
   const handleOutResult = useCallback((result: 'green' | 'red' | 'even') => {
@@ -391,12 +397,17 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     return () => clearTimeout(t);
   }, [state?.cooldown, state?.cockpitState]);
 
-  // Timer tick — updates every second showing time since last trade action
-  // Uses a ref to avoid stale closure issues
+  // Timer tick — counts up only while a trade is LIVE (cockpitState 'in_trade')
+  // and clears the moment the trade ends (sl_hit / tp_hit / out_trade / ddl /
+  // breach). It used to count from lastActionTime regardless of state, so an SL
+  // press kept the clock running even though the trade was over.
   const lastActionRef = useRef(state?.lastActionTime || 0);
   useEffect(() => { lastActionRef.current = state?.lastActionTime || 0; }, [state?.lastActionTime]);
+  const cockpitStateRef = useRef(state?.cockpitState);
+  useEffect(() => { cockpitStateRef.current = state?.cockpitState; }, [state?.cockpitState]);
   useEffect(() => {
     const tick = setInterval(() => {
+      if (cockpitStateRef.current !== 'in_trade') { setTimer(''); return; }
       const last = lastActionRef.current;
       if (last > 0) {
         const secs = Math.floor((Date.now() - last) / 1000);

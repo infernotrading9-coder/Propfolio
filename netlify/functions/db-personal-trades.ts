@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions';
 import { json, getUserFromSession } from './_utils';
 import { personalTradeService, strategyLog, strategyPromptOptions } from '../../server/db/service';
+import { db } from '../../server/db/connection';
 
 export const handler: Handler = async (event) => {
   try {
