@@ -146,7 +146,9 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     } catch {}
     try {
       const u = JSON.parse(localStorage.getItem('user') || '{}');
-      if (u?.id) { h['X-User-Id'] = String(u.id); h['X-User-Email'] = String(u.email); }
+      if (u?.id) h['X-User-Id'] = String(u.id);
+      if (u?.email) h['X-User-Email'] = String(u.email);
+      if (u?.name) h['X-User-Name'] = String(u.name);
     } catch {}
     return h;
   }, []);
@@ -308,8 +310,23 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     const load = async () => {
       const lines: string[] = [];
       const dbg = (s: string) => { lines.push(s); console.log('[cockpit]', s); };
+      // Auth forensics — dump exactly what identity material the browser has.
+      try {
+        const iu: any = netlifyIdentity.currentUser();
+        dbg(`identity.currentUser: ${iu ? JSON.stringify({ id: iu.id, sub: iu.sub, email: iu.email, keys: Object.keys(iu).slice(0, 20) }) : 'null'}`);
+      } catch (e) { dbg('identity.currentUser threw: ' + ((e as any)?.message || e)); }
+      dbg(`ctx currentUser: ${currentUser ? JSON.stringify({ id: currentUser.id, email: currentUser.email, name: currentUser.name }) : 'null'}`);
+      dbg(`localStorage['user']: ${JSON.stringify(localStorage.getItem('user'))}`);
+      try {
+        const authKeys = Object.keys(localStorage).filter(k => /user|gotrue|nf_|session|identity|propfolio/i.test(k));
+        dbg(`auth localStorage keys: ${JSON.stringify(authKeys)}`);
+      } catch {}
+      try {
+        const cookieNames = document.cookie.split(';').map(c => c.trim().split('=')[0]).filter(Boolean);
+        dbg(`cookie names: ${cookieNames.join(', ') || '(none)'}`);
+      } catch {}
       const h = await getAuthHeaders();
-      dbg(`auth: jwt=${h['Authorization'] ? 'SET' : 'MISSING'} uid=${h['X-User-Id'] ? 'SET' : 'MISSING'} email=${h['X-User-Email'] ? 'SET' : 'MISSING'}`);
+      dbg(`headers: jwt=${h['Authorization'] ? 'SET' : 'MISSING'} uid=${h['X-User-Id'] ? 'SET' : 'MISSING'} email=${h['X-User-Email'] ? 'SET' : 'MISSING'}`);
       const [accountsRes, fullRes, stratRes, tradesRes, statsRes] = await Promise.all([
         fetch('/.netlify/functions/db-accounts', { headers: h }).catch(() => null),
         fetch('/.netlify/functions/db-state-full', { headers: h }).catch(() => null),
