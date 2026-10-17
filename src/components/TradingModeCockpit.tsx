@@ -66,7 +66,6 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   const [accounts, setAccounts] = useState<any[]>([]);
   const [accountIdx, setAccountIdx] = useState(0);
   const [personalAccounts, setPersonalAccounts] = useState<any[]>([]);
-  const [debugInfo, setDebugInfo] = useState<string>('');
   const [rules, setRules] = useState<Record<string, string[]>>({});
   const [strategies, setStrategies] = useState(DEFAULT_STRATEGIES);
   const [showDonePrompt, setShowDonePrompt] = useState(false);
@@ -177,6 +176,15 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   }, [accounts, accountIdx, state, pendingAccountOrder, acctList, getAuthHeaders]);
 
   const sendAction = useCallback(async (action: string, extra: Record<string, any> = {}) => {
+    // Strategy presses ALWAYS open the details prompt (TF/SL/variant) — the
+    // durable write happens on Confirm. The state-machine POST is best-effort
+    // and must never gate the prompt: before the auth fix a 401 fell through to
+    // mockAction and opened it, but a successful POST skipped it entirely.
+    if (action === 'strategy') {
+      mockAction(action, extra);
+      fetch('/.netlify/functions/trading-mode', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) }, body: JSON.stringify({ action, ...extra }) }).catch(() => {});
+      return;
+    }
     const res = await fetch('/.netlify/functions/trading-mode', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) }, body: JSON.stringify({ action, ...extra }) });
     if (res.ok) { const r = await res.json(); if (r.cockpitState && action !== 'out_trade') setState((p: any) => ({ ...p, ...r })); if (action === 'out_trade') mockAction(action, extra); }
     else mockAction(action, extra);
@@ -308,25 +316,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   // omits those fields.
   useEffect(() => {
     const load = async () => {
-      const lines: string[] = [];
-      const dbg = (s: string) => { lines.push(s); console.log('[cockpit]', s); };
-      // Auth forensics — dump exactly what identity material the browser has.
-      try {
-        const iu: any = netlifyIdentity.currentUser();
-        dbg(`identity.currentUser: ${iu ? JSON.stringify({ id: iu.id, sub: iu.sub, email: iu.email, keys: Object.keys(iu).slice(0, 20) }) : 'null'}`);
-      } catch (e) { dbg('identity.currentUser threw: ' + ((e as any)?.message || e)); }
-      dbg(`ctx currentUser: ${currentUser ? JSON.stringify({ id: currentUser.id, email: currentUser.email, name: currentUser.name }) : 'null'}`);
-      dbg(`localStorage['user']: ${JSON.stringify(localStorage.getItem('user'))}`);
-      try {
-        const authKeys = Object.keys(localStorage).filter(k => /user|gotrue|nf_|session|identity|propfolio/i.test(k));
-        dbg(`auth localStorage keys: ${JSON.stringify(authKeys)}`);
-      } catch {}
-      try {
-        const cookieNames = document.cookie.split(';').map(c => c.trim().split('=')[0]).filter(Boolean);
-        dbg(`cookie names: ${cookieNames.join(', ') || '(none)'}`);
-      } catch {}
       const h = await getAuthHeaders();
-      dbg(`headers: jwt=${h['Authorization'] ? 'SET' : 'MISSING'} uid=${h['X-User-Id'] ? 'SET' : 'MISSING'} email=${h['X-User-Email'] ? 'SET' : 'MISSING'}`);
       const [accountsRes, fullRes, stratRes, tradesRes, statsRes] = await Promise.all([
         fetch('/.netlify/functions/db-accounts', { headers: h }).catch(() => null),
         fetch('/.netlify/functions/db-state-full', { headers: h }).catch(() => null),
@@ -341,16 +331,11 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
         // action on the live handler, not a POST body action.
         fetch('/.netlify/functions/db-personal-trades?action=stats', { headers: h }).catch(() => null),
       ]);
-      dbg(`statuses: accounts=${accountsRes?.status ?? 'ERR'} full=${fullRes?.status ?? 'ERR'} strat=${stratRes?.status ?? 'ERR'} trades=${tradesRes?.status ?? 'ERR'} stats=${statsRes?.status ?? 'ERR'}`);
       // 1) Picker list — full contract from db-accounts (active rows only).
       if (accountsRes?.ok) {
         const d = await accountsRes.json();
         const a = (d.accounts || []).filter((x: any) => x.status === 'active' || !x.status);
-        dbg(`accounts: raw=${(d.accounts || []).length} active=${a.length}`);
         if (a.length > 0) setAccounts(a);
-      } else {
-        dbg(`accounts fetch NOT ok: ${accountsRes?.status ?? 'null'}`);
-        if (accountsRes) { const t = await accountsRes.text().catch(() => ''); dbg('accounts body: ' + t.slice(0, 180)); }
       }
       // 2) Enrichment (rules, totals, trueProfitTarget) from db-state-full.
       if (fullRes?.ok) { const d = await fullRes.json(); if (d.rules) setRules(d.rules); }
@@ -361,7 +346,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       //    doesn't render a bare $0.
       let personalBalance: number | null = null;
       if (statsRes?.ok) {
-        try { const sd = await statsRes.json(); personalBalance = sd?.stats?.balance ?? null; dbg(`personal balance: ${personalBalance}`); } catch { dbg('stats parse error'); }
+        try { const sd = await statsRes.json(); personalBalance = sd?.stats?.balance ?? null; } catch {}
       }
       if (tradesRes?.ok) {
         try {
@@ -369,7 +354,6 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
           const names = Array.from(new Set(
             (d.trades || []).map((t: any) => t.accountName || 'NinjaTrader')
           )).sort() as string[];
-          dbg(`personal names: ${JSON.stringify(names)}`);
           setPersonalAccounts(names.map((n) => ({
             nickname: n,
             displayLabel: n,
@@ -379,12 +363,8 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
             // accounts (e.g. Crypto) carry no tracked balance yet.
             balance: String(n).toLowerCase() === 'ninjatrader' ? personalBalance : null,
           })));
-        } catch (e) { dbg('trades parse error: ' + ((e as any)?.message || e)); }
-      } else {
-        dbg(`trades fetch NOT ok: ${tradesRes?.status ?? 'null'}`);
-        if (tradesRes) { const t = await tradesRes.text().catch(() => ''); dbg('trades body: ' + t.slice(0, 180)); }
+        } catch {}
       }
-      setDebugInfo(lines.join('\n'));
     };
     // Load prompt options + variant history
     getAuthHeaders().then(h => {
@@ -463,14 +443,6 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
         .blast-in { animation: blastIn 0.5s ease-out forwards; }
       `}</style>
       <button onClick={onExit} className="fixed top-3 right-3 z-50 w-8 h-8 rounded-full bg-white/10 hover:bg-white/25 border border-white/20 flex items-center justify-center text-xs text-white/60 transition-all hover:scale-110">✕</button>
-
-      {/* TEMP debug banner — shows why the account picker is empty. Remove after fix. */}
-      {debugInfo && (
-        <div className="fixed top-3 left-3 z-[90] max-w-sm p-3 rounded-lg bg-black/90 border border-red-500/40 text-[11px] font-mono whitespace-pre-wrap text-lime-300 shadow-2xl overflow-auto" style={{ maxHeight: '70vh' }}>
-          <div className="text-red-400 font-bold mb-1">COCKPIT DEBUG (copy this)</div>
-          {debugInfo}
-        </div>
-      )}
 
       {/* Left: Widget + Buttons */}
       <div className="w-72 h-full overflow-y-auto p-3 border-r border-white/5 shrink-0 flex flex-col gap-3">
