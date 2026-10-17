@@ -291,16 +291,17 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   // omits those fields.
   useEffect(() => {
     const load = async () => {
-      // Wait for auth before fetching. Without currentUser the request
-      // goes out without X-User-Id and live returns 401 — the picker
-      // would never populate. (The dev mock accepts unauthenticated
-      // requests, which is why this didn't show up in dev tests.)
-      if (!currentUser?.id) {
+      // Wait for auth before fetching. Gate on the SAME source the request
+      // headers use (getHeaders → localStorage/currentUser). Previously this
+      // checked `currentUser?.id` while the headers read localStorage, and when
+      // the two diverged (Identity handshake timing) the picker stayed empty
+      // on live. Live returns 401 if X-User-Id is missing.
+      const h = getHeaders();
+      if (!h['X-User-Id']) {
         setAccounts([]);
         return;
       }
-      const h = getHeaders();
-      const [accountsRes, fullRes, stratRes, tradesRes] = await Promise.all([
+      const [accountsRes, fullRes, stratRes, tradesRes, statsRes] = await Promise.all([
         fetch('/.netlify/functions/db-accounts', { headers: h }).catch(() => null),
         fetch('/.netlify/functions/db-state-full', { headers: h }).catch(() => null),
         fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify({ action: 'strategies' }) }).catch(() => null),
@@ -308,6 +309,11 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
         // personal-mode picker. Read-only; the user manages add/remove/
         // rename on the Personal tab, not here.
         fetch('/.netlify/functions/db-personal-trades?limit=500', { headers: h }).catch(() => null),
+        // Personal account balance (personal_account_balance — the NinjaTrader
+        // live balance the trade-monitor bot pushes). Populates the personal
+        // card's balance instead of a bare $0. NOTE: `stats` is a GET query
+        // action on the live handler, not a POST body action.
+        fetch('/.netlify/functions/db-personal-trades?action=stats', { headers: h }).catch(() => null),
       ]);
       // 1) Picker list — full contract from db-accounts (active rows only).
       if (accountsRes?.ok) {
@@ -320,8 +326,12 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       else { setRules({}); }
       if (stratRes?.ok) { const d = await stratRes.json(); if (d.strategies?.length > 0) setStrategies([...DEFAULT_STRATEGIES, ...d.strategies]); }
       // 3) Personal accounts — distinct `account_name` values from
-      //    personal_trades. Shape mirrors the prior hardcoded constant so
-      //    downstream code (a.nickname, a.displayLabel, a.phase) keeps working.
+      //    personal_trades, plus the NinjaTrader live balance so the card
+      //    doesn't render a bare $0.
+      let personalBalance: number | null = null;
+      if (statsRes?.ok) {
+        try { const sd = await statsRes.json(); personalBalance = sd?.stats?.balance ?? null; } catch { /* leave null */ }
+      }
       if (tradesRes?.ok) {
         try {
           const d = await tradesRes.json();
@@ -332,6 +342,10 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
             nickname: n,
             displayLabel: n,
             phase: 'personal',
+            // personal_account_balance is the NinjaTrader live balance (one row
+            // per user). Attach it to the NinjaTrader account; other personal
+            // accounts (e.g. Crypto) carry no tracked balance yet.
+            balance: String(n).toLowerCase() === 'ninjatrader' ? personalBalance : null,
           })));
         } catch { /* leave empty */ }
       }
