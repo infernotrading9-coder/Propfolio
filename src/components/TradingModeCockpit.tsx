@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { TradingModeWidget } from './TradingModeWidget';
 import { NeonCard } from './NeonCard';
+import netlifyIdentity from 'netlify-identity-widget';
 
 const fmtUSD = (n: number | null | undefined) => {
   if (n == null) return '—';
@@ -128,21 +129,35 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   const streak = state?.streak || 0;
   const inCooldown = state?.cooldown && state?.cockpitState === 'pre_trade';
 
-  const getHeaders = useCallback(() => {
+  // Authenticate exactly like apiClient.makeRequest: Netlify Identity JWT
+  // (Authorization: Bearer) is the canonical live auth. The working tabs rely
+  // on the identity cookie, but a raw fetch here only ever sent X-User-Id from
+  // localStorage, which is empty on live — so every cockpit fetch 401'd or was
+  // gated off. The JWT is what reliably populates clientContext server-side.
+  // localStorage X-User-Id stays as a dev/legacy fallback.
+  const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
     const h: Record<string, string> = {};
-    try { const u = JSON.parse(localStorage.getItem('user') || '{}'); if (u?.id) { h['X-User-Id'] = String(u.id); h['X-User-Email'] = String(u.email); } } catch {}
+    try {
+      const u = netlifyIdentity.currentUser();
+      if (u && typeof u.jwt === 'function') {
+        const jwt = await u.jwt();
+        if (jwt) h['Authorization'] = `Bearer ${jwt}`;
+      }
+    } catch {}
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || '{}');
+      if (u?.id) { h['X-User-Id'] = String(u.id); h['X-User-Email'] = String(u.email); }
+    } catch {}
     return h;
   }, []);
 
-  const advanceAccount = useCallback((_rulesFollowed: boolean) => {
+  const advanceAccount = useCallback(async (_rulesFollowed: boolean) => {
     setShowDonePrompt(false);
+    const h = { 'Content-Type': 'application/json', ...(await getAuthHeaders()) };
     setTimeout(() => {
     setBlasting(true);
     setTimeout(() => {
     try {
-      const h: Record<string, string> = { 'Content-Type': 'application/json' };
-      const u = JSON.parse(localStorage.getItem('user') || '{}');
-      if (u?.id) { h['X-User-Id'] = String(u.id); h['X-User-Email'] = String(u.email); }
       fetch('/.netlify/functions/db-calendar', { method: 'POST', headers: h, body: JSON.stringify({ action: 'upsert-entry', calendarAccountId: `${acct?.nickname || acct?.displayLabel || 'account'}_cockpit`, date: todayStr(), followedRules: _rulesFollowed, balanceSnapshot: parseFloat(acct?.balance) || 0, pnlSnapshot: (parseFloat(acct?.balance) || 0) - (parseFloat(acct?.highWaterMark) || 0) }) }).catch(() => {});
     } catch {}
     if (pendingAccountOrder.length > 1) {
@@ -157,13 +172,13 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     setTimeout(() => setBlasting(false), 100);
   }, 600);
   }, 150);
-  }, [accounts, accountIdx, state, pendingAccountOrder, acctList]);
+  }, [accounts, accountIdx, state, pendingAccountOrder, acctList, getAuthHeaders]);
 
   const sendAction = useCallback(async (action: string, extra: Record<string, any> = {}) => {
-    const res = await fetch('/.netlify/functions/trading-mode', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getHeaders() }, body: JSON.stringify({ action, ...extra }) });
+    const res = await fetch('/.netlify/functions/trading-mode', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) }, body: JSON.stringify({ action, ...extra }) });
     if (res.ok) { const r = await res.json(); if (r.cockpitState && action !== 'out_trade') setState((p: any) => ({ ...p, ...r })); if (action === 'out_trade') mockAction(action, extra); }
     else mockAction(action, extra);
-  }, [getHeaders]);
+  }, [getAuthHeaders]);
 
   const mockAction = useCallback((action: string, extra: Record<string, any>) => {
     const now = Date.now();
@@ -233,12 +248,11 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   }, []);
 
   // Confirm strategy with full details
-  const confirmStrategy = useCallback(() => {
+  const confirmStrategy = useCallback(async () => {
     setShowStratPrompt(false);
     const s = pendingStrategy;
     if (!s) return;
-    const h = { 'Content-Type': 'application/json' } as Record<string, string>;
-    try { const u = JSON.parse(localStorage.getItem('user') || '{}'); if (u?.id) { h['X-User-Id'] = String(u.id); h['X-User-Email'] = String(u.email); } } catch {}
+    const h = { 'Content-Type': 'application/json', ...(await getAuthHeaders()) } as Record<string, string>;
     const body = (propMode || linkedPropId)
       ? JSON.stringify({ action: 'create', instrument: '—', side: 'buy', quantity: 0, strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant, accountId: propMode ? selectedAccountId : linkedPropId, phase: 'eval' })
       : JSON.stringify({ action: 'log-strategy', strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant });
@@ -258,7 +272,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       const same = prev.currentStrategy === s && !prev.freshSetup;
       return { ...prev, actionHistory: history, currentStrategy: s, strategyAttempts: same ? (prev.strategyAttempts || 1) + 1 : 1, freshSetup: false, cockpitState: 'in_trade', lastAction: 'strategy', lastActionTime: Date.now(), cooldown: false };
     });
-  }, [pendingStrategy, stratSetupTf, stratEntryTf, stratSlPlace, stratVariant]);
+  }, [pendingStrategy, stratSetupTf, stratEntryTf, stratSlPlace, stratVariant, getAuthHeaders]);
 
   // Handle OUT prompt result
   const handleOutResult = useCallback((result: 'green' | 'red' | 'even') => {
@@ -294,14 +308,8 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     const load = async () => {
       const lines: string[] = [];
       const dbg = (s: string) => { lines.push(s); console.log('[cockpit]', s); };
-      const h = getHeaders();
-      dbg(`auth: uid=${h['X-User-Id'] ? 'SET' : 'MISSING'} email=${h['X-User-Email'] ? 'SET' : 'MISSING'}`);
-      if (!h['X-User-Id']) {
-        dbg('BLOCKED: no X-User-Id from getHeaders()');
-        setAccounts([]);
-        setDebugInfo(lines.join('\n'));
-        return;
-      }
+      const h = await getAuthHeaders();
+      dbg(`auth: jwt=${h['Authorization'] ? 'SET' : 'MISSING'} uid=${h['X-User-Id'] ? 'SET' : 'MISSING'} email=${h['X-User-Email'] ? 'SET' : 'MISSING'}`);
       const [accountsRes, fullRes, stratRes, tradesRes, statsRes] = await Promise.all([
         fetch('/.netlify/functions/db-accounts', { headers: h }).catch(() => null),
         fetch('/.netlify/functions/db-state-full', { headers: h }).catch(() => null),
@@ -362,8 +370,10 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       setDebugInfo(lines.join('\n'));
     };
     // Load prompt options + variant history
-    fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: { ...getHeaders() }, body: JSON.stringify({ action: 'prompt-options' }) }).then(r => r.ok && r.json()).then(d => { if (d?.options) setPromptOptions(d.options); }).catch(() => {});
-    fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: { ...getHeaders() }, body: JSON.stringify({ action: 'variant-history' }) }).then(r => r.ok && r.json()).then(d => { if (d?.variants) setVariantHistory(d.variants); }).catch(() => {});
+    getAuthHeaders().then(h => {
+      fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify({ action: 'prompt-options' }) }).then(r => r.ok && r.json()).then(d => { if (d?.options) setPromptOptions(d.options); }).catch(() => {});
+      fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify({ action: 'variant-history' }) }).then(r => r.ok && r.json()).then(d => { if (d?.variants) setVariantHistory(d.variants); }).catch(() => {});
+    });
     load();
   }, [currentUser?.id]); // eslint-disable-line
 
@@ -447,7 +457,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
 
       {/* Left: Widget + Buttons */}
       <div className="w-72 h-full overflow-y-auto p-3 border-r border-white/5 shrink-0 flex flex-col gap-3">
-        <TradingModeWidget apiBase="/.netlify/functions" getAuthHeaders={getHeaders} />
+        <TradingModeWidget apiBase="/.netlify/functions" getAuthHeaders={getAuthHeaders} />
         
         <div className="text-[10px] text-white/30 uppercase tracking-widest">STATE</div>
         <div className="flex flex-col gap-1.5">

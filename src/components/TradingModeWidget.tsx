@@ -92,7 +92,7 @@ const DEFAULT_STATE: TradingModeState = {
   },
 };
 
-export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () => Record<string, string> }> = ({ apiBase, getAuthHeaders }) => {
+export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () => Record<string, string> | Promise<Record<string, string>> }> = ({ apiBase, getAuthHeaders }) => {
   const [state, setState] = useState<TradingModeState>(DEFAULT_STATE);
   const [expanded, setExpanded] = useState(false);
   const [activeMode, setActiveMode] = useState(state.mode);
@@ -102,7 +102,7 @@ export const TradingModeWidget: React.FC<{ apiBase: string; getAuthHeaders: () =
   const fetchState = async () => {
     try {
       const res = await fetch(`${apiBase}/db-accounts?action=get-trading-mode`, {
-        headers: { ...getAuthHeaders() },
+        headers: { ...(await getAuthHeaders()) },
       });
       if (res.ok) {
         const data = await res.json();
