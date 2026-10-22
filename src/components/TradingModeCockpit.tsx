@@ -10,6 +10,90 @@ const fmtUSD = (n: number | null | undefined) => {
   return `${sign}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+// --- Cockpit Voice System ---
+const VOICE_CATEGORIES: Record<string, string[]> = {
+  pre_trade: [
+    '/cockpit-voice/pretrade-waiting.mp3',
+    '/cockpit-voice/pretrade-would-do.mp3',
+    '/cockpit-voice/pretrade-let-them-trade.mp3',
+    '/cockpit-voice/pretrade-unpredictable.mp3',
+    '/cockpit-voice/pretrade-peaceful-trading.mp3',
+    '/cockpit-voice/pretrade-speech1.mp3',
+    '/cockpit-voice/pretrade-speech2.mp3',
+    '/cockpit-voice/pretrade-speech3.mp3',
+    '/cockpit-voice/pretrade-speech4.mp3',
+    '/cockpit-voice/pretrade-speech5.mp3',
+  ],
+  in_trade: [
+    '/cockpit-voice/intrade-just-as-planned.mp3',
+    '/cockpit-voice/intrade-alright.mp3',
+    '/cockpit-voice/intrade-your-job.mp3',
+    '/cockpit-voice/intrade-test.mp3',
+    '/cockpit-voice/intrade-sound-strategy.mp3',
+    '/cockpit-voice/intrade-take-it.mp3',
+    '/cockpit-voice/intrade-my-money.mp3',
+    '/cockpit-voice/intrade-chips.mp3',
+    '/cockpit-voice/intrade-relax.mp3',
+    '/cockpit-voice/intrade-respect.mp3',
+  ],
+  sl_hit: [
+    '/cockpit-voice/slhit-king-loses-pawn.mp3',
+    '/cockpit-voice/slhit-id-smile.mp3',
+    '/cockpit-voice/slhit-fool-market.mp3',
+    '/cockpit-voice/slhit-unworthy.mp3',
+    '/cockpit-voice/slhit-expected.mp3',
+    '/cockpit-voice/slhit-honest.mp3',
+    '/cockpit-voice/slhit-not-failure.mp3',
+    '/cockpit-voice/slhit-more-attempts.mp3',
+    '/cockpit-voice/slhit-tuition.mp3',
+    '/cockpit-voice/slhit-heartrate.mp3',
+  ],
+  trade_loss_limit: [
+    '/cockpit-voice/tradeloss-limit-hit.mp3',
+    '/cockpit-voice/tradeloss-session-done.mp3',
+    '/cockpit-voice/tradeloss-hardstop.mp3',
+    '/cockpit-voice/tradeloss-significant.mp3',
+    '/cockpit-voice/tradeloss-running-low.mp3',
+    '/cockpit-voice/tradeloss-career.mp3',
+    '/cockpit-voice/tradeloss-integrity.mp3',
+  ],
+  account_lost: [
+    '/cockpit-voice/accountlost-count.mp3',
+    '/cockpit-voice/accountlost-one-down.mp3',
+    '/cockpit-voice/accountlost-good-company.mp3',
+    '/cockpit-voice/accountlost-detectives.mp3',
+    '/cockpit-voice/accountlost-interested.mp3',
+    '/cockpit-voice/accountlost-another-breach.mp3',
+    '/cockpit-voice/accountlost-close-case.mp3',
+    '/cockpit-voice/accountlost-watching.mp3',
+    '/cockpit-voice/accountlost-adapt.mp3',
+  ],
+  max_accounts_lost: [
+    '/cockpit-voice/maxaccounts-done.mp3',
+    '/cockpit-voice/maxaccounts-empty.mp3',
+    '/cockpit-voice/maxaccounts-exhausted.mp3',
+    '/cockpit-voice/maxaccounts-protective.mp3',
+  ],
+};
+
+let _voiceMuted = false;
+let _voiceLastPlayMs = 0;
+
+function playRandomVoice(category: string) {
+  const files = VOICE_CATEGORIES[category];
+  if (!files || files.length === 0 || _voiceMuted) return;
+  // Min 2.5s gap between plays — prevents stacking/overlap
+  const now = Date.now();
+  if (now - _voiceLastPlayMs < 2500) return;
+  _voiceLastPlayMs = now;
+  const pick = files[Math.floor(Math.random() * files.length)];
+  // Bridge to React — the persistent DOM element handles actual playback + flash
+  (window as any).__cockpitVoice && (window as any).__cockpitVoice(pick);
+}
+
+function toggleVoiceMute() { _voiceMuted = !_voiceMuted; return _voiceMuted; }
+// --- end Voice System ---
+
 const STATE_CONFIG: Record<string, { label: string; color: string }> = {
   pre_trade:   { label: 'PRE-TRADE',   color: '#f59e0b' },
   in_trade:    { label: 'IN TRADE',    color: '#22d3ee' },
@@ -21,11 +105,9 @@ const STATE_CONFIG: Record<string, { label: string; color: string }> = {
 };
 
 const STATE_BUTTONS = [
-  { action: 'in_trade',   label: 'IN TRADE',   color: '#22d3ee', icon: '🔴' },
   { action: 'out_trade',  label: 'OUT',         color: '#10b981', icon: '✅' },
   { action: 'tp_hit',     label: 'TP HIT',      color: '#10b981', icon: '🎯' },
   { action: 'sl_hit',     label: 'SL HIT',      color: '#ef4444', icon: '🛑' },
-  { action: 'ddl',        label: 'DDL',          color: '#dc2626', icon: '🚫' },
   { action: 'breach',     label: 'BREACH',      color: '#7f1d1d', icon: '💥' },
   { action: 'fresh_trade',label: 'FRESH',        color: '#a855f7', icon: '🔄' },
 ];
@@ -61,7 +143,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   const [state, setState] = useState<any>({
     cockpitState: 'pre_trade', mode: 'balanced', score: 67, slHitCount: 0,
     dailyDate: todayStr(), dailyWins: 0, dailyLosses: 0, streak: 0,
-    strategyStats: {}, lastAction: null, lastActionTime: 0, cooldown: false,
+    strategyStats: {}, lastAction: null, lastActionTime: 0, cooldown: false, _voiceMuted: false,
   });
   const [accounts, setAccounts] = useState<any[]>([]);
   const [accountIdx, setAccountIdx] = useState(0);
@@ -89,6 +171,96 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   const [variantHistory, setVariantHistory] = useState<string[]>([]);
   const [filteredVariants, setFilteredVariants] = useState<string[]>([]);
   const [timer, setTimer] = useState('');
+
+  const [sessionStarted, setSessionStarted] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  // Audio playback bridge — module-level playRandomVoice dispatches here; the
+  // persistent DOM element plays it (iOS-safe: never display:none).
+  useEffect(() => {
+    (window as any).__cockpitVoice = (src: string) => {
+      if (audioRef.current) {
+        const el = audioRef.current;
+        el.src = src;
+        el.load();
+        el.currentTime = 0;
+        el.play().catch(() => {});
+      }
+    };
+    return () => { (window as any).__cockpitVoice = undefined; };
+  }, []);
+
+  // --- Nonstop voice loop ---
+  // While in pre_trade/in_trade, keep cycling clips: after each clip ends,
+  // wait ~3s and play the next random one. Gates on account-picker flow.
+  // For one-shot categories (sl_hit), plays up to 2 clips then transitions to
+  // the next state (pre_trade) so the loop resumes.
+  const voiceLoopCatRef = useRef<string | null>(null);
+  const voiceChainRef = useRef<{ category: string; played: number; max: number; thenState?: string } | null>(null);
+  const voiceEndGapTimer = useRef<any>(null);
+
+  // Play a clip now; if it's part of a chain, track how many remain and what
+  // state to flip to once the chain finishes.
+  const playVoiceWithChain = useCallback((category: string, max: number, thenState?: string) => {
+    voiceChainRef.current = { category, played: 1, max, thenState };
+    playRandomVoice(category);
+  }, []);
+
+  const scheduleVoiceContinuation = useCallback(() => {
+    if (voiceEndGapTimer.current) clearTimeout(voiceEndGapTimer.current);
+    voiceEndGapTimer.current = setTimeout(() => {
+      // Chain in progress (e.g. SL messages): keep going or transition state
+      const chain = voiceChainRef.current;
+      if (chain) {
+        if (chain.played < chain.max) {
+          chain.played += 1;
+          playRandomVoice(chain.category);
+        } else {
+          const then = chain.thenState;
+          voiceChainRef.current = null;
+          if (then) setState((p: any) => ({ ...p, cockpitState: then }));
+        }
+        return;
+      }
+      // Otherwise continue the idle loop if still in a looping state
+      const cat = voiceLoopCatRef.current;
+      if (cat) {
+        playRandomVoice(cat);
+      }
+    }, 2500);
+  }, []);
+
+  // When a clip finishes playing, schedule the next one (chain or loop)
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    const onEnded = () => {
+      scheduleVoiceContinuation();
+    };
+    el.addEventListener('ended', onEnded);
+    return () => el.removeEventListener('ended', onEnded);
+  }, [scheduleVoiceContinuation]);
+
+  // Loop control: pre_trade/in_trade → loop that category; anything else → stop.
+  // Skips while account picker / order arranger / link prompt are open AND until
+  // the user actually locked the account order (session started).
+  useEffect(() => {
+    if (!sessionStarted || showAccountPicker || showOrderArranger || showLinkPrompt) {
+      voiceLoopCatRef.current = null;
+      if (voiceEndGapTimer.current) { clearTimeout(voiceEndGapTimer.current); voiceEndGapTimer.current = null; }
+      return;
+    }
+    const st = state?.cockpitState;
+    if (st === 'pre_trade' || st === 'in_trade') {
+      if (voiceLoopCatRef.current !== st) {
+        voiceLoopCatRef.current = st;
+        playRandomVoice(st); // kick off immediately on state entry; 2.5s gap dedupes
+      }
+    } else {
+      voiceLoopCatRef.current = null;
+      if (voiceEndGapTimer.current) { clearTimeout(voiceEndGapTimer.current); voiceEndGapTimer.current = null; }
+    }
+  }, [state?.cockpitState, showAccountPicker, showOrderArranger, showLinkPrompt, sessionStarted]);
 
   // Daily reset check — reset counters if date changed
   const ensureDailyReset = useCallback((prev: any) => {
@@ -169,13 +341,16 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       if (next) setSelectedAccountId(next.nickname || next.displayLabel || next.id);
       else if (accounts.length > 1) setAccountIdx((accountIdx + 1) % accounts.length);
     } else if (accounts.length > 1) setAccountIdx((accountIdx + 1) % accounts.length);
-    setState({ cockpitState: 'pre_trade', mode: state?.mode || 'balanced', score: state?.score || 67, slHitCount: 0, dailyDate: todayStr(), dailyWins: state?.dailyWins || 0, dailyLosses: state?.dailyLosses || 0, streak: state?.streak || 0, strategyStats: state?.strategyStats || {}, lastAction: null, lastActionTime: 0, cooldown: false,  });
+    setState({ cockpitState: 'pre_trade', mode: state?.mode || 'balanced', score: state?.score || 67, slHitCount: 0, dailyDate: todayStr(), dailyWins: state?.dailyWins || 0, dailyLosses: state?.dailyLosses || 0, streak: state?.streak || 0, strategyStats: state?.strategyStats || {}, lastAction: null, lastActionTime: 0, cooldown: false, _voiceMuted: state?._voiceMuted || false,  });
     setTimeout(() => setBlasting(false), 100);
+    setTimeout(() => playRandomVoice('pre_trade'), 100);
   }, 600);
   }, 150);
   }, [accounts, accountIdx, state, pendingAccountOrder, acctList, getAuthHeaders]);
 
   const sendAction = useCallback(async (action: string, extra: Record<string, any> = {}) => {
+    // Voice: fire synchronously — guaranteed to be in the user-gesture chain
+    if (action === 'strategy') playRandomVoice('in_trade');
     // Strategy presses ALWAYS open the details prompt (TF/SL/variant) — the
     // durable write happens on Confirm. The state-machine POST is best-effort
     // and must never gate the prompt: before the auth fix a 401 fell through to
@@ -188,7 +363,11 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     const res = await fetch('/.netlify/functions/trading-mode', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) }, body: JSON.stringify({ action, ...extra }) });
     if (res.ok) { const r = await res.json(); if (r.cockpitState && action !== 'out_trade') setState((p: any) => ({ ...p, ...r })); if (action === 'out_trade') mockAction(action, extra); }
     else mockAction(action, extra);
-  }, [getAuthHeaders]);
+    // Voice + auto-reset for action-driven states
+    if (action === 'sl_hit') playVoiceWithChain('sl_hit', 2, 'pre_trade');
+    if (action === 'tp_hit') setTimeout(() => setState((p: any) => ({ ...p, cockpitState: 'pre_trade' })), 1400);
+    if (action === 'breach') playRandomVoice('account_lost'); /* max-accounts check handled by effect */
+  }, [getAuthHeaders, playVoiceWithChain]);
 
   const mockAction = useCallback((action: string, extra: Record<string, any>) => {
     const now = Date.now();
@@ -266,14 +445,17 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     // Prop phase comes from the account actually being copied to, not a
     // hardcoded 'eval'. trading_accounts.phase is 'challenge'|'funded'; map it
     // to prop_trades.phase ('eval'|'funded'|'live').
-    const targetId = propMode ? selectedAccountId : linkedPropId;
-    const targetAcct = accounts.find((a: any) => (a.nickname || a.displayLabel || a.id) === targetId);
+    // 'none' is the "Skip \u2014 Just Personal" sentinel \u2014 NOT a prop link, so a
+    // skipped personal session must not write a prop_trade with account id "none".
+    const propLink = propMode ? selectedAccountId : (linkedPropId && linkedPropId !== 'none' ? linkedPropId : '');
+    const hasPropLink = !!(propMode || propLink);
+    const targetAcct = accounts.find((a: any) => (a.nickname || a.displayLabel || a.id) === propLink);
     const propPhase = targetAcct?.phase === 'funded' ? 'funded' : targetAcct?.phase === 'live' ? 'live' : 'eval';
-    const body = (propMode || linkedPropId)
-      ? JSON.stringify({ action: 'create', instrument: '—', side: 'buy', quantity: 0, strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant, accountId: targetId, phase: propPhase })
+    const body = hasPropLink
+      ? JSON.stringify({ action: 'create', instrument: '\u2014', side: 'buy', quantity: 0, strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant, accountId: propLink, phase: propPhase })
       : JSON.stringify({ action: 'log-strategy', strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant });
     // Log to prop trades if linking
-    if (propMode || linkedPropId) {
+    if (hasPropLink) {
       fetch('/.netlify/functions/db-prop-trades', { method: 'POST', headers: h, body }).catch(() => {});
     }
     // Log to personal trades if personal mode (even if linked)
@@ -288,6 +470,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       const same = prev.currentStrategy === s && !prev.freshSetup;
       return { ...prev, actionHistory: history, currentStrategy: s, strategyAttempts: same ? (prev.strategyAttempts || 1) + 1 : 1, freshSetup: false, cockpitState: 'in_trade', lastAction: 'strategy', lastActionTime: Date.now(), cooldown: false };
     });
+    setTimeout(() => playRandomVoice('in_trade'), 400);
   }, [pendingStrategy, stratSetupTf, stratEntryTf, stratSlPlace, stratVariant, getAuthHeaders, accounts, propMode, linkedPropId, selectedAccountId]);
 
   // Handle OUT prompt result
@@ -312,6 +495,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     });
     setShowOutPrompt(false);
     setTimeout(() => setState((p: any) => ({ ...p, cockpitState: 'pre_trade' })), 1500);
+    setTimeout(() => playRandomVoice('pre_trade'), 1700);
   }, [ensureDailyReset]);
 
   // Load data — db-accounts for the picker (full contract: id, displayLabel,
@@ -385,9 +569,19 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     setShowAccountPicker(true);
   }, [propMode]);
 
-  // SL hit auto-prompt
+  // SL hit auto-prompt + trade loss voice
+  const prevSlHitRef = useRef(state?.slHitCount || 0);
   useEffect(() => {
-    if (maxLoss > 0 && (state?.slHitCount || 0) >= maxLoss && !showDonePrompt) setShowDonePrompt(true);
+    if (maxLoss > 0 && (state?.slHitCount || 0) >= maxLoss && !showDonePrompt) {
+      setShowDonePrompt(true);
+      playRandomVoice('trade_loss_limit');
+    }
+    // Fire a warning when halfway to the max loss (at least 2 loss minimum threshold)
+    const half = Math.floor(maxLoss / 2);
+    if (maxLoss > 0 && half >= 1 && (state?.slHitCount || 0) === half) {
+      playRandomVoice('trade_loss_limit');
+    }
+    prevSlHitRef.current = state?.slHitCount || 0;
   }, [state?.slHitCount, maxLoss, showDonePrompt]);
 
   // Cooldown timer: 20 seconds after SL hit
@@ -437,7 +631,8 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   const streakIcon = streak > 2 ? '🔥' : streak > 0 ? '✅' : streak < -1 ? '💀' : streak < 0 ? '❌' : '—';
 
   return (
-    <div className="fixed inset-0 z-50 flex overflow-hidden animate-[cockpitFadeIn_0.3s_ease-out]" style={{ background: '#020408' }}>
+    <div className="fixed inset-0 z-50 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden animate-[cockpitFadeIn_0.3s_ease-out]" style={{ background: '#020408' }}>
+      <audio ref={audioRef} preload="auto" style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }} />
       <style>{`
         @keyframes cockpitFadeIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
         @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
@@ -453,19 +648,17 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
         .blast-off { animation: blastOff 0.5s ease-in forwards; }
         .blast-in { animation: blastIn 0.5s ease-out forwards; }
       `}</style>
-      <button onClick={onExit} className="fixed top-3 right-3 z-50 w-8 h-8 rounded-full bg-white/10 hover:bg-white/25 border border-white/20 flex items-center justify-center text-xs text-white/60 transition-all hover:scale-110">✕</button>
+      <button onClick={onExit} className="fixed top-3 right-3 z-50 w-10 h-10 lg:w-8 lg:h-8 rounded-full bg-white/10 hover:bg-white/25 border border-white/20 flex items-center justify-center text-sm lg:text-xs text-white/60 transition-all hover:scale-110">✕</button>
 
       {/* Left: Widget + Buttons */}
-      <div className="w-72 h-full overflow-y-auto p-3 border-r border-white/5 shrink-0 flex flex-col gap-3">
+      <div className="w-full lg:w-72 lg:h-full overflow-y-auto p-3 border-b lg:border-r lg:border-b-0 border-white/5 shrink-0 flex flex-col gap-3">
         <TradingModeWidget apiBase="/.netlify/functions" getAuthHeaders={getAuthHeaders} />
         
         <div className="text-[10px] text-white/30 uppercase tracking-widest">STATE</div>
-        <div className="flex flex-col gap-1.5">
+        <div className="grid grid-cols-2 lg:flex lg:flex-col gap-1.5">
           {STATE_BUTTONS.map(btn => (
             <button key={btn.action} onClick={() => sendAction(btn.action)}
               className="text-sm font-bold px-4 py-2.5 rounded-xl transition-all border hover:scale-105 w-full text-left"
-              draggable
-              onDragStart={e => e.dataTransfer.setData('text/plain', btn.action)}
               style={{ background: `${btn.color}12`, color: btn.color, borderColor: `${btn.color}30` }}
               onMouseEnter={e => { e.currentTarget.style.background = `${btn.color}25`; }}
               onMouseLeave={e => { e.currentTarget.style.background = `${btn.color}12`; }}
@@ -473,8 +666,16 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
           ))}
         </div>
         
+        {/* Voice toggle */}
+        <div className="flex items-center gap-2 mt-1">
+          <button onClick={() => { const m = toggleVoiceMute(); setState((p: any) => ({ ...p, _voiceMuted: m })); }}
+            className="text-xs px-3 py-1.5 rounded-lg border transition-all hover:scale-105"
+            style={{ borderColor: state?._voiceMuted ? '#ef444450' : '#10b98150', background: state?._voiceMuted ? '#ef444412' : '#10b98112', color: state?._voiceMuted ? '#ef4444' : '#10b981' }}
+          >{state?._voiceMuted ? '🔇 Voice OFF' : '🔊 Voice ON'}</button>
+        </div>
+
         <div className="text-[10px] text-white/30 uppercase tracking-widest mt-1">STRATEGIES</div>
-        <div className="flex flex-col gap-1.5">
+        <div className="grid grid-cols-2 lg:flex lg:flex-col gap-1.5">
           {strategies.map(s => {
             const ss = state?.strategyStats?.[s];
             const sWins = ss?.wins || 0;
@@ -483,8 +684,6 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
             const sRate = sTotal > 0 ? Math.round((sWins / sTotal) * 100) : null;
             return (
               <button key={s} onClick={() => sendAction('strategy', { strategy: s })}
-                draggable
-                onDragStart={e => e.dataTransfer.setData('text/plain', s)}
                 className={`text-sm font-medium px-4 py-2.5 rounded-xl transition-all border hover:scale-105 w-full text-left ${state?.currentStrategy === s ? 'text-purple-300 border-purple-400/40' : 'text-white/70 border-white/15'}`}
                 style={{ background: state?.currentStrategy === s ? 'rgba(168,85,247,0.2)' : 'rgba(255,255,255,0.04)' }}
               >{s}{sRate != null ? <span className={`ml-1.5 text-xs ${sRate >= 50 ? 'text-emerald-400' : 'text-red-400'}`}>({sRate}%)</span> : ''}</button>
@@ -494,7 +693,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       </div>
 
       {/* Center */}
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
+      <div className="flex-1 flex flex-col items-center justify-start lg:justify-center gap-4 px-3 lg:px-6 pt-3 lg:pt-0">
         {/* Timer - centered top */}
       <div className="flex justify-center mt-2" style={{ position: 'relative', zIndex: 10 }}>
         {timer && <span className="text-3xl font-bold text-white/80 rounded-full bg-white/5 border border-white/15 flex items-center justify-center animate-[timerPulse_1s_ease-in-out_infinite]" style={{ width: 110, height: 110, boxShadow: '0 0 30px rgba(168,85,247,0.25)' }}><span className="text-xl mr-2">⏱</span>{timer}</span>}
@@ -531,7 +730,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
               <div style={{ position: 'absolute', bottom: 0, right: '30%', width: 35, height: 35, borderRadius: '50%', background: 'rgba(200,200,200,0.25)', filter: 'blur(14px)', animation: 'smokeParticle 0.75s ease-out 0.15s forwards' }} />
             </div>
           )}
-          <div className={`w-full max-w-xl ${blasting ? 'blast-off' : 'blast-in'}`}>
+          <div className="w-full max-w-md lg:max-w-xl ${blasting ? 'blast-off' : 'blast-in'}">
           <div className="group">
             <NeonCard glow={ddPct > 80 ? 'pink' : 'purple'} className="relative overflow-hidden p-6">
               <div className="absolute inset-0 opacity-0 group-hover:opacity-25 transition-opacity duration-700 pointer-events-none" style={{ background: `conic-gradient(from 0deg at 50% 50%, transparent 0deg, rgba(34,211,238,0.08) 60deg, rgba(168,85,247,0.08) 120deg, rgba(236,72,153,0.08) 180deg, rgba(34,211,238,0.08) 240deg, rgba(168,85,247,0.08) 300deg, transparent 360deg)`, filter: 'blur(2px)' }} />
@@ -592,7 +791,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       </div>
 
       {/* Right: Rules + Daily stats */}
-      <div className="w-80 h-full overflow-y-auto p-5 border-l border-white/5 shrink-0 cockpit-card">
+      <div className="w-full lg:w-80 lg:h-full overflow-y-auto p-5 border-t lg:border-l lg:border-t-0 border-white/5 shrink-0 cockpit-card">
         <h4 className="text-xs uppercase tracking-widest mb-4" style={{ color: cfg.color }}>RULES · {modeKey.toUpperCase()}</h4>
         <div className="rounded-2xl border p-5 space-y-3" style={{ borderColor: `${cfg.color}30`, background: `${cfg.color}06`, boxShadow: `0 0 30px ${cfg.color}10` }}>
           {currentRules.length > 0 ? currentRules.map((rule, i) => (
@@ -773,7 +972,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
                 );
               })}
             </div>
-            <button onClick={() => { setShowOrderArranger(false); if (pendingAccountOrder.length > 0) { const first = pendingAccountOrder[0]; const a = (propMode ? displayAccounts : accounts).find((x: any) => (x.nickname || x.displayLabel || x.id) === first); if (a) setSelectedAccountId(a.nickname || a.displayLabel || a.id); } }}
+            <button onClick={() => { setSessionStarted(true); setShowOrderArranger(false); if (pendingAccountOrder.length > 0) { const first = pendingAccountOrder[0]; const a = (propMode ? displayAccounts : accounts).find((x: any) => (x.nickname || x.displayLabel || x.id) === first); if (a) setSelectedAccountId(a.nickname || a.displayLabel || a.id); } }}
               className="w-full px-4 py-3 rounded-xl border-2 text-sm font-bold"
               style={{ borderColor: '#a855f750', background: '#a855f715', color: '#a855f7' }}
             >✅ Lock Order & Start Trading</button>
