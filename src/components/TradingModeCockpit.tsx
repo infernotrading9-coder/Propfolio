@@ -148,7 +148,6 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   const [accounts, setAccounts] = useState<any[]>([]);
   const [accountIdx, setAccountIdx] = useState(0);
   const [personalAccounts, setPersonalAccounts] = useState<any[]>([]);
-  const [rules, setRules] = useState<Record<string, string[]>>({});
   const [strategies, setStrategies] = useState(DEFAULT_STRATEGIES);
   const [showDonePrompt, setShowDonePrompt] = useState(false);
   const [showOutPrompt, setShowOutPrompt] = useState(false);
@@ -293,8 +292,9 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   const acctList = propMode ? accounts : personalAccounts;
   const account = selectedAccountId ? (acctList.find((a: any) => a.nickname === selectedAccountId || a.displayLabel === selectedAccountId || a.id === selectedAccountId) || acctList[0]) : acctList[0];
   const nextAccount = accounts.length > 1 ? accounts[(accountIdx + 1) % accounts.length] : null;
-  const modeKey = state?.mode || 'balanced';
-  const currentRules = rules[modeKey] || rules.balanced || [];
+  // Account risk rules (max loss / risk per trade) — from the selected account.
+  // These are NOT the per-mode trading rules the widget shows above.
+  const currentRules: string[] = Array.isArray((account as any)?.rules) ? (account as any).rules : [];
   const maxLoss = parseMaxLoss(currentRules);
   const tradesLeft = maxLoss > 0 ? maxLoss - (state?.slHitCount || 0) : 0;
   const streak = state?.streak || 0;
@@ -498,18 +498,18 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     setTimeout(() => playRandomVoice('pre_trade'), 1700);
   }, [ensureDailyReset]);
 
-  // Load data — db-accounts for the picker (full contract: id, displayLabel,
-  // status, phase, etc.) and db-state-full for the enrichment every card
-  // shows below the picker (totalProfit, trueProfitTarget, rules, bestDay,
-  // consistencyOk). Without db-accounts the picker's `a.nickname ||
-  // a.displayLabel || a.id` keys collapsed to blanks because db-state-full
-  // omits those fields.
+  // Load data — db-accounts carries everything the cockpit needs: the picker
+  // contract (nickname/displayLabel/id/phase), each account's `rules`, the raw
+  // drawdown figures, AND a `payout` object (totalProfit/bestDay/winningDays).
+  // The RULES box + TRADES LEFT counter read the SELECTED account's rules —
+  // NOT the per-mode trading_mode_rules (those are Ticksensei's strategy rules,
+  // shown by TradingModeWidget). Reading rules off db-state-full was a bug:
+  // that endpoint has no top-level `rules`, so the panel was always empty.
   useEffect(() => {
     const load = async () => {
       const h = await getAuthHeaders();
-      const [accountsRes, fullRes, stratRes, tradesRes, statsRes] = await Promise.all([
+      const [accountsRes, stratRes, tradesRes, statsRes] = await Promise.all([
         fetch('/.netlify/functions/db-accounts', { headers: h }).catch(() => null),
-        fetch('/.netlify/functions/db-state-full', { headers: h }).catch(() => null),
         fetch('/.netlify/functions/db-personal-trades', { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify({ action: 'strategies' }) }).catch(() => null),
         // Personal trades → derive distinct account_name values for the
         // personal-mode picker. Read-only; the user manages add/remove/
@@ -527,9 +527,6 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
         const a = (d.accounts || []).filter((x: any) => x.status === 'active' || !x.status);
         if (a.length > 0) setAccounts(a);
       }
-      // 2) Enrichment (rules, totals, trueProfitTarget) from db-state-full.
-      if (fullRes?.ok) { const d = await fullRes.json(); if (d.rules) setRules(d.rules); }
-      else { setRules({}); }
       if (stratRes?.ok) { const d = await stratRes.json(); if (d.strategies?.length > 0) setStrategies([...DEFAULT_STRATEGIES, ...d.strategies]); }
       // 3) Personal accounts — distinct `account_name` values from
       //    personal_trades, plus the NinjaTrader live balance so the card
@@ -792,11 +789,11 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
 
       {/* Right: Rules + Daily stats */}
       <div className="w-full lg:w-80 lg:h-full overflow-y-auto p-5 border-t lg:border-l lg:border-t-0 border-white/5 shrink-0 cockpit-card">
-        <h4 className="text-xs uppercase tracking-widest mb-4" style={{ color: cfg.color }}>RULES · {modeKey.toUpperCase()}</h4>
+        <h4 className="text-xs uppercase tracking-widest mb-4" style={{ color: cfg.color }}>ACCOUNT RULES</h4>
         <div className="rounded-2xl border p-5 space-y-3" style={{ borderColor: `${cfg.color}30`, background: `${cfg.color}06`, boxShadow: `0 0 30px ${cfg.color}10` }}>
           {currentRules.length > 0 ? currentRules.map((rule, i) => (
             <div key={i} className="text-xl font-bold tracking-tight leading-relaxed" style={{ color: cfg.color, textShadow: `0 0 20px ${cfg.color}40` }}>{rule}</div>
-          )) : <div className="text-white/40 text-sm">No rules set for this mode.</div>}
+          )) : <div className="text-white/40 text-sm">No rules set on this account.</div>}
         </div>
         {/* Daily trade summary */}
         <div className="mt-4 rounded-2xl border border-white/10 p-4 bg-white/5">
