@@ -4,7 +4,7 @@ import { tradingAccountService, accountDailyOrderService, sessionLimitsService, 
 import { settleAccount } from '../../server/db/drawdownModel'
 import { correctPlan } from '../../server/db/correctPlanService'
 import { buyEval, CascadeError } from '../../server/db/cascadeService'
-import { getPayoutSummaryByAccount, getGreenDayThresholds, recordDailyRollover, recomputeGreenDays, setAccountBalance } from '../../server/db/stateService'
+import { getPayoutSummaryByAccount, getGreenDayThresholds, recordDailyRollover, recomputeGreenDays, setAccountBalance, resetDrawdownState } from '../../server/db/stateService'
 
 /**
  * Compute the widget's counters from REAL data — cash/debt from the budget tab,
@@ -605,6 +605,44 @@ export const handler: Handler = async (event) => {
         }
       }
 
+      if (input.action === 'reset-drawdown-state') {
+        // Rebuild an account's stored drawdown state from its TRUE balance.
+        // Repair tool for inputs that drifted (e.g. a double-logged day that
+        // left day_start_balance above the balance, which makes the daily-DD
+        // level sit above equity and reports the account as BREACHED).
+        // Recomputes HWM + settled HWM + day start from the balance, zeroes
+        // drawdown_used, and restores floor_lock_level to size + 100.
+        const { accountRef } = input
+        if (!accountRef) return json(400, { error: 'accountRef required', code: 'no_ref' })
+
+        const allReset = await tradingAccountService.getByUserId(user.id)
+        const rMatches = allReset.filter((a: any) => a.status === 'active' && (
+          String(a.nickname || '').toLowerCase() === String(accountRef).toLowerCase() ||
+          a.displayLabel === accountRef ||
+          a.accountNumberLast4 === accountRef ||
+          String(a.accountFirst4 || '').toUpperCase() === String(accountRef).toUpperCase() ||
+          `${String(a.accountFirst4 || '').toUpperCase()}-${a.accountNumberLast4}` === String(accountRef).toUpperCase()))
+        if (rMatches.length === 0) return json(404, { error: `No active account \"${accountRef}\"`, code: 'not_found' })
+        if (rMatches.length > 1) {
+          return json(400, {
+            error: `\"${accountRef}\" matches ${rMatches.length} accounts (${rMatches.map((m: any) => m.displayLabel).join(', ')}). Say which one.`,
+            code: 'ambiguous',
+          })
+        }
+        try {
+          const res = await resetDrawdownState(user.id, rMatches[0].id)
+          return json(200, {
+            ...res,
+            message: `${res.accountRef} drawdown reset from balance $${res.balance.toFixed(2)} — ` +
+              `HWM $${(res.before.highWaterMark ?? 0).toFixed(2)} → $${res.after.highWaterMark.toFixed(2)}, ` +
+              `day start $${(res.before.dayStartBalance ?? 0).toFixed(2)} → $${res.after.dayStartBalance.toFixed(2)}, ` +
+              `floor lock $${(res.before.floorLockLevel ?? 0).toFixed(2)} → $${res.after.floorLockLevel.toFixed(2)}`,
+          })
+        } catch (e: any) {
+          return json(404, { error: e?.message || 'Could not reset drawdown state', code: 'not_found' })
+        }
+      }
+
       if (input.action === 'set-daily-order') {
         const { orderDate, orderedAccountIds, notes: orderNotes } = input
         if (!orderDate || !Array.isArray(orderedAccountIds)) {
@@ -793,7 +831,7 @@ export const handler: Handler = async (event) => {
         return json(200, { success: true })
       }
 
-      return json(400, { error: 'Invalid action. Use: create, correct-plan, set-account-number, set-nickname, set-account-size, set-green-days, set-balance, set-daily-order, done-for-day, uncollapse-all, link-copy-trade, unlink-copy-trade, get-trading-mode, update-trading-mode, reorder' })
+      return json(400, { error: 'Invalid action. Use: create, correct-plan, set-account-number, set-nickname, set-account-size, set-green-days, set-balance, reset-drawdown-state, set-daily-order, done-for-day, uncollapse-all, link-copy-trade, unlink-copy-trade, get-trading-mode, update-trading-mode, reorder' })
     }
 
     if (event.httpMethod === 'PUT') {

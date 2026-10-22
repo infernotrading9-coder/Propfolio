@@ -172,6 +172,31 @@ async function writeBalanceOnly(
 }
 
 /**
+ * Move the day's start balance by `delta` so a balance change is invisible to
+ * day P&L.
+ *
+ * The rollover books a day as `pnl = balance_at_rollover − day_start_balance`
+ * (see recordDailyRollover). So a CORRECTION that moves only `balance` would
+ * silently become day P&L at the next settle — feeding green days and best day
+ * with a number that no trade produced. Shifting the start by the same delta
+ * keeps `balance − day_start` identical, which is what "write nothing" means
+ * for a day that is still open.
+ *
+ * No-op when the account has never settled (day_start_balance IS NULL) — the
+ * computeDrawdown fallback already treats it as "day P&L = 0".
+ */
+async function shiftDayStartByDelta(
+  tx: TxClient, userId: string, accountId: string, delta: number,
+): Promise<void> {
+  if (!delta) return;
+  await tx.query(
+    `UPDATE trading_accounts
+        SET day_start_balance = day_start_balance + $2, updated_at = NOW()
+      WHERE id=$1 AND user_id=$3 AND day_start_balance IS NOT NULL`,
+    [accountId, String(round2(delta)), userId]);
+}
+
+/**
  * Overwrite the drawdown columns directly, when the caller supplies the REAL
  * figures off the platform. COALESCE keeps whatever is already stored for any
  * field that wasn't given, so a partial update never blanks the other one.
@@ -230,7 +255,7 @@ export async function setAccountBalance(
 }> {
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(
-      `SELECT id, display_label, balance, drawdown_used, max_drawdown
+      `SELECT id, display_label, balance, drawdown_used, max_drawdown, day_start_balance
          FROM trading_accounts WHERE id=$1 AND user_id=$2 FOR UPDATE`, [accountId, userId]);
     if (!rows.length) throw new Error('Account not found');
     const prev = round2(Number(rows[0].balance));
@@ -243,10 +268,15 @@ export async function setAccountBalance(
       ? null : round2(Number(maxDrawdown));
     const prevDd = rows[0].drawdown_used == null ? null : round2(Number(rows[0].drawdown_used));
     const prevMax = rows[0].max_drawdown == null ? null : round2(Number(rows[0].max_drawdown));
+    const prevDayStart = rows[0].day_start_balance == null ? null : round2(Number(rows[0].day_start_balance));
 
     if (correction) {
       // A correction is not a trade: balance only, no drawdown/HWM inference.
       await writeBalanceOnly(tx, userId, accountId, next);
+      // ...and move the day's start by the same delta, so the rollover cannot
+      // book the correction as this day's P&L. Without this the "correction"
+      // silently became day P&L at the next settle.
+      await shiftDayStartByDelta(tx, userId, accountId, delta);
     } else {
       await applyBalanceDelta(tx, userId, accountId, delta);
     }
@@ -264,6 +294,7 @@ export async function setAccountBalance(
       {
         accountId, previousBalance: prev, balance: next, note: note ?? null, correction,
         // Only recorded when actually written, so undo can put them back.
+        ...(correction && prevDayStart != null ? { priorDayStartBalance: prevDayStart } : {}),
         ...(ddNext != null ? { drawdownUsed: ddNext, priorDrawdownUsed: prevDd } : {}),
         ...(maxNext != null ? { maxDrawdown: maxNext, priorMaxDrawdown: prevMax } : {}),
       });
@@ -272,6 +303,79 @@ export async function setAccountBalance(
       previousBalance: prev, balance: next, delta, correction,
       drawdownUsed: ddNext, maxDrawdown: maxNext, actedAt,
     };
+  });
+}
+
+/**
+ * Rebuild an account's stored drawdown state from its TRUE balance.
+ *
+ * Repair tool for an account whose stored inputs drifted. The motivating case
+ * (Oct 2026, LFE0-0056/0057): a double-logged day plus undone corrections left
+ * `day_start_balance` ABOVE the balance. `stopOutLevel` is
+ * `max(maxDDLevel, dayStart − dailyDD)`, so an inflated day start put the daily
+ * level above equity → `room` went negative and `computeDrawdown` reported the
+ * account as BREACHED while nothing was actually wrong.
+ *
+ * Everything it writes is derived from the balance:
+ *   high_water_mark         = balance   the real peak now
+ *   settled_high_water_mark = balance   the max-DD floor TRAILS this, so leaving
+ *                                       an inflated value keeps the floor up
+ *   day_start_balance       = balance   day P&L restarts at 0
+ *   drawdown_used           = 0         nothing consumed against the new HWM
+ *   floor_lock_level        = account_size + 100   (house convention, 37 accounts)
+ *
+ * `stopOutLevel` and `dayPnL` are NOT stored — computeDrawdown derives them, so
+ * they follow automatically. Recorded in `action_log` with every prior value so
+ * `undoAction` can put the account back exactly.
+ */
+export async function resetDrawdownState(
+  userId: string, accountId: string,
+): Promise<{
+  accountRef: string; balance: number;
+  before: Record<string, number | null>; after: Record<string, number | null>;
+}> {
+  return withTransaction(async (tx) => {
+    const { rows } = await tx.query(
+      `SELECT id, display_label, balance, account_size, daily_drawdown,
+              high_water_mark, settled_high_water_mark, day_start_balance,
+              drawdown_used, floor_lock_level
+         FROM trading_accounts WHERE id=$1 AND user_id=$2 FOR UPDATE`,
+      [accountId, userId]);
+    if (!rows.length) throw new Error('Account not found');
+    const r = rows[0];
+    const num = (v: unknown): number | null => (v == null ? null : round2(Number(v)));
+    const balance = round2(Number(r.balance));
+    const lockLevel = round2(Number(r.account_size) + 100);
+
+    const before = {
+      highWaterMark: num(r.high_water_mark),
+      settledHighWaterMark: num(r.settled_high_water_mark),
+      dayStartBalance: num(r.day_start_balance),
+      drawdownUsed: num(r.drawdown_used),
+      floorLockLevel: num(r.floor_lock_level),
+    };
+    const after = {
+      highWaterMark: balance,
+      settledHighWaterMark: balance,
+      dayStartBalance: balance,
+      drawdownUsed: 0,
+      floorLockLevel: lockLevel,
+    };
+
+    await tx.query(
+      `UPDATE trading_accounts
+          SET high_water_mark=$2, settled_high_water_mark=$2, day_start_balance=$2,
+              drawdown_used=0, floor_lock_level=$3, updated_at=NOW()
+        WHERE id=$1 AND user_id=$4`,
+      [accountId, String(balance), String(lockLevel), userId]);
+
+    await logAction(tx, userId, 'reset-drawdown-state',
+      `Reset ${r.display_label} drawdown from balance $${balance.toFixed(2)} — ` +
+      `HWM $${(before.highWaterMark ?? 0).toFixed(2)} → $${balance.toFixed(2)}, ` +
+      `floor lock $${(before.floorLockLevel ?? 0).toFixed(2)} → $${lockLevel.toFixed(2)}`,
+      { accountId, accountRef: r.display_label, balance, before, after });
+
+    return { accountRef: String(r.display_label), balance, before, after };
   });
 }
 
@@ -321,6 +425,12 @@ export async function undoAction(
           // A correction never touched the drawdown or the HWM, so the undo must
           // not either — restore the balance alone.
           await writeBalanceOnly(tx, userId, d.accountId, Number(d.previousBalance ?? 0));
+          // ...plus the day start it shifted (so day P&L is restored exactly).
+          if (d.priorDayStartBalance !== undefined) {
+            await tx.query(
+              `UPDATE trading_accounts SET day_start_balance=$2, updated_at=NOW() WHERE id=$1 AND user_id=$3`,
+              [d.accountId, d.priorDayStartBalance == null ? null : String(d.priorDayStartBalance), userId]);
+          }
         } else {
           // Undo by applying the INVERSE DELTA, not by writing the stored
           // previous value back. Anything else that moved the balance in the
@@ -340,6 +450,24 @@ export async function undoAction(
             `UPDATE trading_accounts SET max_drawdown=$2, updated_at=NOW() WHERE id=$1 AND user_id=$3`,
             [d.accountId, d.priorMaxDrawdown == null ? null : String(d.priorMaxDrawdown), userId]);
         }
+        break;
+      }
+
+      case 'reset-drawdown-state': {
+        // Put every recomputed field back exactly as it was.
+        const b = d.before || {};
+        await tx.query(
+          `UPDATE trading_accounts
+              SET high_water_mark=$2, settled_high_water_mark=$3, day_start_balance=$4,
+                  drawdown_used=$5, floor_lock_level=$6, updated_at=NOW()
+            WHERE id=$1 AND user_id=$7`,
+          [d.accountId,
+           b.highWaterMark == null ? null : String(b.highWaterMark),
+           b.settledHighWaterMark == null ? null : String(b.settledHighWaterMark),
+           b.dayStartBalance == null ? null : String(b.dayStartBalance),
+           b.drawdownUsed == null ? null : String(b.drawdownUsed),
+           b.floorLockLevel == null ? null : String(b.floorLockLevel),
+           userId]);
         break;
       }
 
