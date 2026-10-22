@@ -399,15 +399,51 @@ Inclusive, because the firms write "$100+". A day of exactly $100 counts; $99 do
 | | What it does | Use when |
 |---|---|---|
 | default | Real P&L move. Drawdown absorbs it; HWM can rise. | *"I made $400 today."* |
-| **`"correction": true`** | Writes the balance **only**. Drawdown and HWM untouched. | *"The balance is off by a couple of dollars — fix it."* |
+| **`"correction": true`** | Writes the balance **only**. Drawdown, HWM **and day P&L** all untouched. | *"The balance is off by a couple of dollars — fix it."* |
 
 ```json
 { "action": "set-balance", "accountRef": "LFF0-0002", "balance": 25980.50, "correction": true }
 ```
 
-Use `correction: true` whenever the number was simply **wrong** (drift, a bad sync, a typo). A correction is not a trade, so it must not move the drawdown — otherwise fixing $2 of drift silently adds $2 to the drawdown used. Corrections are undoable too, and the undo restores the balance without touching the drawdown or HWM.
+Use `correction: true` whenever the number was simply **wrong** (drift, a bad sync, a typo). A correction is not a trade, so it must not move the drawdown — otherwise fixing $2 of drift silently adds $2 to the drawdown used.
+
+It must not move the **day's P&L** either, and that part is subtle: the daily rollover books `pnl = balance_at_rollover − day_start_balance`, so a balance-only write would have that correction silently *become* the day's profit. `correction: true` therefore also shifts `day_start_balance` by the **same delta**, leaving `balance − day_start` exactly as it was. Day P&L is untouched, and the rollover books what the day really did.
+
+Corrections are undoable too, and the undo restores the balance **and** the day start without touching the drawdown or HWM.
 
 **Never fix a balance with `set-account-size`** — that one also resets `maxDrawdown` and `floorLockLevel` and would wipe more than you intend.
+
+### 5.11b Repairing corrupted drawdown state → `reset-drawdown-state`
+
+A **repair tool, not a normal write path.** Reach for it only when an account's stored drawdown *inputs* are provably wrong, and `set-balance` cannot fix them.
+
+```json
+{ "action": "reset-drawdown-state", "accountRef": "LFE0-0056" }
+```
+
+**The failure mode it exists for:** a day gets logged twice (or a correction lands badly) and `day_start_balance` ends up **above** the balance. Because `stopOutLevel = max(maxDDLevel, dayStart − dailyDrawdown)`, an inflated day start puts the **daily** level above equity — so the account computes as `breached: true` with **negative** `roomToStopOut`, even though the equity is completely intact. It also tends to leave `settled_high_water_mark` inflated, which holds the trailing floor up with it.
+
+**What it recomputes, from the account's true balance:**
+
+| Field | Set to | Why |
+|---|---|---|
+| `high_water_mark` | balance | the real peak *now* |
+| `settled_high_water_mark` | balance | the max-DD floor **trails** this — leaving it inflated keeps the floor up |
+| `day_start_balance` | balance | day P&L restarts at 0 |
+| `drawdown_used` | 0 | nothing consumed relative to the new HWM |
+| `floor_lock_level` | `account_size + 100` | the house convention (25K→25100, 50K→50100, 150K→150100) |
+
+`stopOutLevel` and `dayPnL` are **derived** by `computeDrawdown`, so they follow — they are not stored.
+
+Returns `before` and `after` for every field, plus a `message`, so you can show Daniel exactly what moved and confirm the direction.
+
+**Before you use it — say this out loud to him:**
+
+- It takes **the current balance as the truth.** If the balance itself is the thing that's wrong, fix that with `set-balance` **first**, then reset.
+- Resetting the HWM **downward hands back drawdown room.** That is correct when the peak was fake (a double-log), and dangerous when it was real — you would be giving back room that was genuinely spent. Confirm which it is before calling it.
+- It is **undoable** (every prior value is recorded), but do not treat that as licence to fire it off and ask later.
+
+**Do not** use it as a shortcut for "the drawdown looks harsh, give me room back." That is not a repair, it is a rule change.
 
 ### Asking for the drawdown figures — and when NOT to
 
@@ -933,7 +969,7 @@ This clears `done_for_day` on all accounts so the "DONE FOR THE DAY" overlay dis
 
 Reverses the last action. Pass `actionId` to target a specific one; `GET db-state-full?action=history` lists them.
 
-Reversible: `set-balance`, `record-payout` (including every budget slice), `fail-account`, `log-expense`, `transfer`, `reconcile-balances`, `correct-plan`. Trade actions were retired with the table and now refuse with `trade_logging_retired`. Buying and passing an eval are **not** auto-reversible — they create accounts that may have been traded on since; you'll get `not_undoable` and should ask Daniel exactly what to unwind.
+Reversible: `set-balance`, `reset-drawdown-state`, `record-payout` (including every budget slice), `fail-account`, `log-expense`, `transfer`, `reconcile-balances`, `correct-plan`. Trade actions were retired with the table and now refuse with `trade_logging_retired`. Buying and passing an eval are **not** auto-reversible — they create accounts that may have been traded on since; you'll get `not_undoable` and should ask Daniel exactly what to unwind.
 
 **Confirm before undoing.** Read the summary back to him first: *"Last action was 'Win of $800.00 on 0857' — undo that?"*
 

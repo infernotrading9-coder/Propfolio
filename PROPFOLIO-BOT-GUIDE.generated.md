@@ -18,7 +18,7 @@ POST /.netlify/functions/db-accounts
 
 ### `add-trading-mode-rule`
 
-* style: `if` · source: `db-accounts.ts:731`
+* style: `if` · source: `db-accounts.ts:769`
 
 _No description in code — read the source at the line above._
 
@@ -48,13 +48,13 @@ Get all daily orders
 
 ### `done-for-day`
 
-* style: `if` · source: `db-accounts.ts:666`
+* style: `if` · source: `db-accounts.ts:704`
 
 Mark account as done for the day
 
 ### `edit-trading-mode`
 
-* style: `if` · source: `db-accounts.ts:779`
+* style: `if` · source: `db-accounts.ts:817`
 
 _No description in code — read the source at the line above._
 
@@ -72,33 +72,39 @@ Personal-account risk per trade. Fixed-dollar floor by mode, with 1% of the pers
 
 ### `link-copy-trade`
 
-* style: `if` · source: `db-accounts.ts:622`
+* style: `if` · source: `db-accounts.ts:660`
 
 Link accounts as copy-trades (group them under one label)
 
 ### `list-trading-mode-rules`
 
-* style: `if` · source: `db-accounts.ts:719`
+* style: `if` · source: `db-accounts.ts:757`
 
 Trading Mode rules — managed by bot, read by widget
 
 ### `list-trading-modes`
 
-* style: `if` · source: `db-accounts.ts:762`
+* style: `if` · source: `db-accounts.ts:800`
 
 Trading Mode rules — list from DB (bot-managed)
 
 ### `remove-trading-mode-rule`
 
-* style: `if` · source: `db-accounts.ts:738`
+* style: `if` · source: `db-accounts.ts:776`
 
 _No description in code — read the source at the line above._
 
 ### `reorder`
 
-* style: `if` · source: `db-accounts.ts:787`
+* style: `if` · source: `db-accounts.ts:825`
 
 Reorder accounts
+
+### `reset-drawdown-state`
+
+* style: `if` · source: `db-accounts.ts:608`
+
+_No description in code — read the source at the line above._
 
 ### `set-account-number`
 
@@ -120,7 +126,7 @@ _No description in code — read the source at the line above._
 
 ### `set-daily-order`
 
-* style: `if` · source: `db-accounts.ts:608`
+* style: `if` · source: `db-accounts.ts:646`
 
 _No description in code — read the source at the line above._
 
@@ -138,31 +144,31 @@ _No description in code — read the source at the line above._
 
 ### `set-session-limits`
 
-* style: `if` · source: `db-accounts.ts:751`
+* style: `if` · source: `db-accounts.ts:789`
 
 _No description in code — read the source at the line above._
 
 ### `set-trading-mode-rules`
 
-* style: `if` · source: `db-accounts.ts:724`
+* style: `if` · source: `db-accounts.ts:762`
 
 _No description in code — read the source at the line above._
 
 ### `uncollapse-all`
 
-* style: `if` · source: `db-accounts.ts:681`
+* style: `if` · source: `db-accounts.ts:719`
 
 _No description in code — read the source at the line above._
 
 ### `unlink-copy-trade`
 
-* style: `if` · source: `db-accounts.ts:650`
+* style: `if` · source: `db-accounts.ts:688`
 
 _No description in code — read the source at the line above._
 
 ### `update-trading-mode`
 
-* style: `if` · source: `db-accounts.ts:700`
+* style: `if` · source: `db-accounts.ts:738`
 
 _No description in code — read the source at the line above._
 
@@ -359,73 +365,73 @@ POST /.netlify/functions/db-personal-trades
 
 ### `add-prompt-option`
 
-* style: `if` · source: `db-personal-trades.ts:130`
+* style: `if` · source: `db-personal-trades.ts:132`
 
 Add a new prompt option
 
 ### `delete-trade`
 
-* style: `if` · source: `db-personal-trades.ts:59`
+* style: `if` · source: `db-personal-trades.ts:61`
 
 Delete a trade
 
 ### `log-strategy`
 
-* style: `if` · source: `db-personal-trades.ts:120`
+* style: `if` · source: `db-personal-trades.ts:122`
 
 Log a strategy press with full details (from cockpit)
 
 ### `log-trade`
 
-* style: `if` · source: `db-personal-trades.ts:29`
+* style: `if` · source: `db-personal-trades.ts:31`
 
 Log a trade
 
 ### `prompt-options`
 
-* style: `if` · source: `db-personal-trades.ts:99`
+* style: `if` · source: `db-personal-trades.ts:101`
 
 Get prompt options for cockpit
 
 ### `remove-prompt-option`
 
-* style: `if` · source: `db-personal-trades.ts:138`
+* style: `if` · source: `db-personal-trades.ts:140`
 
 Remove a prompt option
 
 ### `stats`
 
-* style: `if` · source: `db-personal-trades.ts:14`
+* style: `if` · source: `db-personal-trades.ts:16`
 
 Get stats
 
 ### `strategies`
 
-* style: `if` · source: `db-personal-trades.ts:83`
+* style: `if` · source: `db-personal-trades.ts:85`
 
 List distinct strategies for autocomplete
 
 ### `strategy-stats`
 
-* style: `if` · source: `db-personal-trades.ts:146`
+* style: `if` · source: `db-personal-trades.ts:148`
 
 Get strategy stats (for Ticksensei analysis)
 
 ### `update-balance`
 
-* style: `if` · source: `db-personal-trades.ts:89`
+* style: `if` · source: `db-personal-trades.ts:91`
 
 Update the live account balance (trade monitor bot pushes from Tradovate)
 
 ### `update-trade`
 
-* style: `if` · source: `db-personal-trades.ts:66`
+* style: `if` · source: `db-personal-trades.ts:68`
 
 Update trade metadata (strategy, SL type, TP method, etc.)
 
 ### `variant-history`
 
-* style: `if` · source: `db-personal-trades.ts:110`
+* style: `if` · source: `db-personal-trades.ts:112`
 
 Get variant history for autocomplete
 
