@@ -73,8 +73,54 @@ const VOICE_CATEGORIES: Record<string, string[]> = {
     '/cockpit-voice/maxaccounts-empty.mp3',
     '/cockpit-voice/maxaccounts-exhausted.mp3',
     '/cockpit-voice/maxaccounts-protective.mp3',
+    '/cockpit-voice/maxaccounts-data.mp3',
+    '/cockpit-voice/maxaccounts-experiment.mp3',
+  ],
+  // PERSONAL — not tied to a cockpit state. These apply whatever he's doing,
+  // so they are mixed into the looping modes instead of firing on a transition.
+  // See UNIVERSAL_CATEGORIES / pickLoopCategory below.
+  personal: [
+    '/cockpit-voice/personal-easy.mp3',
+    '/cockpit-voice/personal-seventeen.mp3',
+    '/cockpit-voice/personal-fascinating.mp3',
+    '/cockpit-voice/personal-biz-business.mp3',
+    '/cockpit-voice/personal-biz-fired.mp3',
+    '/cockpit-voice/personal-biz-shopkeeper.mp3',
+    '/cockpit-voice/personal-biz-quiet.mp3',
+    '/cockpit-voice/personal-biz-payroll.mp3',
   ],
 };
+
+/**
+ * Categories that apply in ANY situation. Daniel's personal clips aren't about
+ * being in a trade or waiting — they're about him — so rather than hang them off
+ * one state, they ride along with whichever mode is looping.
+ */
+const UNIVERSAL_CATEGORIES = ['personal'];
+/** Chance that a looped clip is drawn from the universal pool (~1 in 3). */
+const UNIVERSAL_SHARE = 0.35;
+
+/**
+ * Touch device? The order-arranger rows are HTML5-draggable, which on iOS/Android
+ * can hijack a vertical swipe — the list then fights you instead of scrolling.
+ * Touch devices get the ▲▼ buttons (and clean scrolling) instead.
+ */
+const IS_TOUCH = typeof window !== 'undefined'
+  && (('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0);
+
+/**
+ * Resolve which category the idle loop should play next. Only the looping modes
+ * (pre_trade / in_trade) pick up universal clips — transition categories
+ * (sl_hit, breach, …) still fire exactly the lines written for them.
+ */
+/** Exported for tests — see migration/scripts/test-personal-voice.mts */
+export function pickLoopCategory(stateCategory: string): string {
+  if (stateCategory !== 'pre_trade' && stateCategory !== 'in_trade') return stateCategory;
+  const universal = UNIVERSAL_CATEGORIES.filter((c) => (VOICE_CATEGORIES[c] || []).length > 0);
+  if (universal.length === 0) return stateCategory;
+  if (Math.random() >= UNIVERSAL_SHARE) return stateCategory;
+  return universal[Math.floor(Math.random() * universal.length)];
+}
 
 let _voiceMuted = false;
 let _voiceLastPlayMs = 0;
@@ -166,6 +212,8 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   const [stratEntryTf, setStratEntryTf] = useState('');
   const [stratSlPlace, setStratSlPlace] = useState('');
   const [stratVariant, setStratVariant] = useState('');
+  /** Planned R target for this trade — the log's analysis axis (R, not $). */
+  const [stratRTarget, setStratRTarget] = useState(2);
   const [promptOptions, setPromptOptions] = useState<Record<string, Array<{value:string;label:string}>>>({});
   const [variantHistory, setVariantHistory] = useState<string[]>([]);
   const [filteredVariants, setFilteredVariants] = useState<string[]>([]);
@@ -221,10 +269,11 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
         }
         return;
       }
-      // Otherwise continue the idle loop if still in a looping state
+      // Otherwise continue the idle loop if still in a looping state.
+      // pickLoopCategory lets universal (personal) clips ride along here.
       const cat = voiceLoopCatRef.current;
       if (cat) {
-        playRandomVoice(cat);
+        playRandomVoice(pickLoopCategory(cat));
       }
     }, 2500);
   }, []);
@@ -253,7 +302,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     if (st === 'pre_trade' || st === 'in_trade') {
       if (voiceLoopCatRef.current !== st) {
         voiceLoopCatRef.current = st;
-        playRandomVoice(st); // kick off immediately on state entry; 2.5s gap dedupes
+        playRandomVoice(pickLoopCategory(st)); // kick off on entry; 2.5s gap dedupes
       }
     } else {
       voiceLoopCatRef.current = null;
@@ -348,6 +397,25 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
   }, 150);
   }, [accounts, accountIdx, state, pendingAccountOrder, acctList, getAuthHeaders]);
 
+  // ── Prop-trade log lifecycle ──────────────────────────────────────────────
+  // Open a row on entry, close THAT row on the exit, so the log is analysable.
+  const openTradeIdRef = useRef<string | null>(null);
+
+  /** Close the open row in R terms — the log's unit is R, not dollars.
+   *  R is the realized multiple: SL is always -1R, a win is whatever he got
+   *  (2.2 for "80% at 2R, 20% at 3R"). `pnl` is deliberately NOT written; real
+   *  dollars come from the account/payout side, or the bot backfills later. */
+  const closePropTrade = useCallback(async (outcome: 'win' | 'loss' | 'even', r: number) => {
+    const id = openTradeIdRef.current;
+    if (!id) return;
+    openTradeIdRef.current = null;
+    const h = { 'Content-Type': 'application/json', ...(await getAuthHeaders()) };
+    fetch('/.netlify/functions/db-prop-trades', {
+      method: 'POST', headers: h,
+      body: JSON.stringify({ action: 'update', id, outcome, riskReward: r, exitDate: new Date().toISOString() }),
+    }).catch(() => {});
+  }, [getAuthHeaders]);
+
   const sendAction = useCallback(async (action: string, extra: Record<string, any> = {}) => {
     // Voice: fire synchronously — guaranteed to be in the user-gesture chain
     if (action === 'strategy') playRandomVoice('in_trade');
@@ -367,7 +435,11 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     if (action === 'sl_hit') playVoiceWithChain('sl_hit', 2, 'pre_trade');
     if (action === 'tp_hit') setTimeout(() => setState((p: any) => ({ ...p, cockpitState: 'pre_trade' })), 1400);
     if (action === 'breach') playRandomVoice('account_lost'); /* max-accounts check handled by effect */
-  }, [getAuthHeaders, playVoiceWithChain]);
+    // Close the open prop-trade row in R. SL is always -1R; TP is the planned target.
+    if (action === 'sl_hit') closePropTrade('loss', -1);
+    if (action === 'tp_hit') closePropTrade('win', stratRTarget);
+    if (action === 'breach') closePropTrade('loss', -1);
+  }, [getAuthHeaders, playVoiceWithChain, closePropTrade, stratRTarget]);
 
   const mockAction = useCallback((action: string, extra: Record<string, any>) => {
     const now = Date.now();
@@ -380,7 +452,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
 
       if (action === 'strategy') {
         setPendingStrategy(extra.strategy || '');
-        setStratSetupTf(''); setStratEntryTf(''); setStratSlPlace(''); setStratVariant('');
+        setStratSetupTf(''); setStratEntryTf(''); setStratSlPlace(''); setStratVariant(''); setStratRTarget(2);
         setShowStratPrompt(true);
         return p;
       }
@@ -452,11 +524,15 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     const targetAcct = accounts.find((a: any) => (a.nickname || a.displayLabel || a.id) === propLink);
     const propPhase = targetAcct?.phase === 'funded' ? 'funded' : targetAcct?.phase === 'live' ? 'live' : 'eval';
     const body = hasPropLink
-      ? JSON.stringify({ action: 'create', instrument: '\u2014', side: 'buy', quantity: 0, strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant, accountId: propLink, phase: propPhase })
+      ? JSON.stringify({ action: 'create', instrument: '\u2014', side: 'buy', quantity: 0, strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant, accountId: propLink, phase: propPhase, riskReward: stratRTarget })
       : JSON.stringify({ action: 'log-strategy', strategy: s, setupTf: stratSetupTf, entryTf: stratEntryTf, slPlacement: stratSlPlace, variant: stratVariant });
-    // Log to prop trades if linking
+    // OPEN the trade row and keep its id — the exit CLOSES this same row, which
+    // is what makes the log analysable. (Before, this row was never closed.)
     if (hasPropLink) {
-      fetch('/.netlify/functions/db-prop-trades', { method: 'POST', headers: h, body }).catch(() => {});
+      fetch('/.netlify/functions/db-prop-trades', { method: 'POST', headers: h, body })
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => { if (d?.trade?.id) openTradeIdRef.current = d.trade.id; })
+        .catch(() => {});
     }
     // Log to personal trades if personal mode (even if linked)
     if (!propMode) {
@@ -471,10 +547,15 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       return { ...prev, actionHistory: history, currentStrategy: s, strategyAttempts: same ? (prev.strategyAttempts || 1) + 1 : 1, freshSetup: false, cockpitState: 'in_trade', lastAction: 'strategy', lastActionTime: Date.now(), cooldown: false };
     });
     setTimeout(() => playRandomVoice('in_trade'), 400);
-  }, [pendingStrategy, stratSetupTf, stratEntryTf, stratSlPlace, stratVariant, getAuthHeaders, accounts, propMode, linkedPropId, selectedAccountId]);
+  }, [pendingStrategy, stratSetupTf, stratEntryTf, stratSlPlace, stratVariant, stratRTarget, getAuthHeaders, accounts, propMode, linkedPropId, selectedAccountId]);
 
   // Handle OUT prompt result
   const handleOutResult = useCallback((result: 'green' | 'red' | 'even') => {
+    // Close the open prop-trade row in R: green = planned target, red = -1R, even = 0.
+    closePropTrade(
+      result === 'green' ? 'win' : result === 'red' ? 'loss' : 'even',
+      result === 'green' ? stratRTarget : result === 'red' ? -1 : 0,
+    );
     setState((prev: any) => {
       let p = ensureDailyReset(prev);
       const history = p.actionHistory || [];
@@ -496,7 +577,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
     setShowOutPrompt(false);
     setTimeout(() => setState((p: any) => ({ ...p, cockpitState: 'pre_trade' })), 1500);
     setTimeout(() => playRandomVoice('pre_trade'), 1700);
-  }, [ensureDailyReset]);
+  }, [ensureDailyReset, closePropTrade, stratRTarget]);
 
   // Load data — db-accounts carries everything the cockpit needs: the picker
   // contract (nickname/displayLabel/id/phase), each account's `rules`, the raw
@@ -818,9 +899,11 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       {/* Strategy Prompt */}
       {showStratPrompt && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-            <h3 className="text-lg font-bold text-white mb-1">📌 {pendingStrategy}</h3>
-            <p className="text-xs text-white/40 mb-4">Tell me about this setup</p>
+          <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl max-h-[85vh] flex flex-col">
+            <h3 className="text-lg font-bold text-white mb-1 shrink-0">📌 {pendingStrategy}</h3>
+            <p className="text-xs text-white/40 mb-4 shrink-0">Tell me about this setup</p>
+
+            <div className="overflow-y-auto flex-1 min-h-0 -mr-2 pr-2">
             
             <div className="mb-3">
               <div className="text-[10px] text-white/40 uppercase mb-1.5">Setup Timeframe</div>
@@ -855,6 +938,17 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
               </div>
             </div>
 
+            <div className="mb-3">
+              <div className="text-[10px] text-white/40 uppercase mb-1.5">R Target</div>
+              <div className="flex flex-wrap gap-1.5">
+                {[1, 1.5, 2, 2.5, 3, 4].map(r => (
+                  <button key={r} onClick={() => setStratRTarget(r)}
+                    className={`text-sm px-3 py-1.5 rounded-lg transition-all border ${stratRTarget === r ? 'text-lime-300 border-lime-400/50 bg-lime-500/15' : 'text-white/50 border-white/10 bg-white/5'}`}
+                  >{r}R</button>
+                ))}
+              </div>
+            </div>
+
             <div className="mb-5">
               <div className="text-[10px] text-white/40 uppercase mb-1.5">Variant Notes</div>
               <input type="text" value={stratVariant} onChange={e => { setStratVariant(e.target.value); setFilteredVariants(variantHistory.filter(v => v.toLowerCase().includes(e.target.value.toLowerCase()))); }}
@@ -872,7 +966,9 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
               )}
             </div>
 
-            <div className="flex gap-3">
+            </div>
+
+            <div className="flex gap-3 pt-3 shrink-0">
               <button onClick={() => setShowStratPrompt(false)} className="flex-1 px-4 py-3 rounded-xl border text-sm text-white/50 border-white/15">Cancel</button>
               <button onClick={confirmStrategy} className="flex-1 px-4 py-3 rounded-xl border-2 text-sm font-bold" style={{ borderColor: '#a855f750', background: '#a855f715', color: '#a855f7' }}>✅ Confirm Strategy</button>
             </div>
@@ -883,10 +979,12 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       {/* Account Picker (Prop mode) */}
       {showAccountPicker && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-            <h3 className="text-lg font-bold text-white mb-2">Select Account</h3>
-            <p className="text-sm text-white/50 mb-4">Choose which account to trade this session</p>
-            <div className="space-y-2 mb-5">
+          <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl max-h-[85vh] flex flex-col">
+            <h3 className="text-lg font-bold text-white mb-2 shrink-0">Select Account</h3>
+            <p className="text-sm text-white/50 mb-4 shrink-0">Choose which account to trade this session</p>
+            {/* min-h-0 is required: without it a flex child refuses to shrink and
+                the list overflows the viewport with no way to scroll. */}
+            <div className="space-y-2 mb-5 overflow-y-auto flex-1 min-h-0 -mr-2 pr-2">
               {displayAccounts.map((a: any) => (
                 <button key={a.id || a.nickname} onClick={() => { setSelectedAccountId(a.nickname || a.displayLabel || a.id); setAccountIdx(0); setShowAccountPicker(false); if (propMode) { const items = accounts.map((x: any) => x.nickname || x.displayLabel || x.id); setPendingAccountOrder(items); setShowOrderArranger(true); } else { setShowLinkPrompt(true); } }}
                   className={`w-full text-left px-4 py-3 rounded-xl border transition-all hover:scale-[1.02]`}
@@ -900,7 +998,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
                 </button>
               ))}
             </div>
-            <button onClick={() => setShowAccountPicker(false)} className="text-sm text-white/40">Cancel</button>
+            <button onClick={() => setShowAccountPicker(false)} className="text-sm text-white/40 shrink-0">Cancel</button>
           </div>
         </div>
       )}
@@ -947,14 +1045,16 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
       {/* Order Arranger (prop mode only) */}
       {showOrderArranger && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
-            <h3 className="text-lg font-bold text-white mb-2">Session Order</h3>
-            <p className="text-sm text-white/50 mb-4">Arrange the account order (Done Trading cycles through this)</p>
-            <div className="space-y-2 mb-5">
+          <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl max-h-[85vh] flex flex-col">
+            <h3 className="text-lg font-bold text-white mb-2 shrink-0">Session Order</h3>
+            <p className="text-sm text-white/50 mb-4 shrink-0">Arrange the account order (Done Trading cycles through this)</p>
+            {/* min-h-0 lets this list scroll instead of pushing the Lock button
+                off-screen when there are many accounts. */}
+            <div className="space-y-2 mb-5 overflow-y-auto flex-1 min-h-0 -mr-2 pr-2">
               {pendingAccountOrder.map((aid: string, idx: number) => {
                 return (
                   <div key={aid}
-                    draggable
+                    draggable={!IS_TOUCH}
                     onDragStart={e => e.dataTransfer.setData('text/plain', aid)}
                     onDragOver={e => e.preventDefault()}
                     onDrop={e => { e.preventDefault(); const from = e.dataTransfer.getData('text/plain'); const arr = [...pendingAccountOrder]; const fi = arr.indexOf(from); if (fi >= 0) { arr.splice(fi, 1); arr.splice(idx, 0, from); setPendingAccountOrder(arr); } }}
@@ -970,7 +1070,7 @@ const TradingModeCockpit: React.FC<{ onExit: () => void; propMode?: boolean }> =
               })}
             </div>
             <button onClick={() => { setSessionStarted(true); setShowOrderArranger(false); if (pendingAccountOrder.length > 0) { const first = pendingAccountOrder[0]; const a = (propMode ? displayAccounts : accounts).find((x: any) => (x.nickname || x.displayLabel || x.id) === first); if (a) setSelectedAccountId(a.nickname || a.displayLabel || a.id); } }}
-              className="w-full px-4 py-3 rounded-xl border-2 text-sm font-bold"
+              className="w-full px-4 py-3 rounded-xl border-2 text-sm font-bold shrink-0"
               style={{ borderColor: '#a855f750', background: '#a855f715', color: '#a855f7' }}
             >✅ Lock Order & Start Trading</button>
           </div>

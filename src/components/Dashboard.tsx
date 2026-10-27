@@ -176,6 +176,59 @@ const Dashboard: React.FC = () => {
   const [agendaData, setAgendaData] = React.useState<any>(null);
   const [agendaLoading, setAgendaLoading] = React.useState(false);
   const [agendaError, setAgendaError] = React.useState(false);
+
+  // ── Arcade: the blue button opens a chooser — Agenda or Mindset ────────────
+  const [showArcadeMenu, setShowArcadeMenu] = React.useState(false);
+  const [showMindset, setShowMindset] = React.useState(false);
+  const [moodMsg, setMoodMsg] = React.useState<string>('');
+  const moodAudioRef = React.useRef<HTMLAudioElement | null>(null);
+
+  /** Moods — tap how you feel, hear L pull you back. `key` maps to
+   *  public/cockpit-voice/mood-<key>-<n>.mp3 (up to 3 clips each).
+   *  `color` drives the cockpit-neon styling. */
+  const MOODS: { key: string; label: string; emoji: string; color: string; line: string }[] = [
+    { key: 'comfortable',   label: 'Comfortable',   emoji: '🛋️', color: '#f59e0b', line: 'Getting too relaxed' },
+    { key: 'unmotivated',   label: 'Unmotivated',   emoji: '😶‍🌫️', color: '#94a3b8', line: "Can't be bothered" },
+    { key: 'tired',         label: 'Tired',         emoji: '😴', color: '#818cf8', line: 'Running on empty' },
+    { key: 'bored',         label: 'Bored',         emoji: '🥱', color: '#a78bfa', line: 'Nothing is happening' },
+    { key: 'tilted',        label: 'Tilted',        emoji: '😤', color: '#ef4444', line: 'Angry, want it back' },
+    { key: 'scared',        label: 'Scared',        emoji: '😰', color: '#fb923c', line: 'Hesitating' },
+    { key: 'greedy',        label: 'Greedy',        emoji: '🤑', color: '#eab308', line: 'Up and feeling invincible' },
+    { key: 'discouraged',   label: 'Discouraged',   emoji: '😞', color: '#64748b', line: "Feels pointless" },
+    { key: 'distracted',    label: 'Distracted',    emoji: '📱', color: '#22d3ee', line: 'Everything but the work' },
+    { key: 'motivated',     label: 'Motivated',     emoji: '🔥', color: '#a3e635', line: 'Fuel it, keep going' },
+  ];
+
+  /** Play a random clip for a mood. Falls back to a clear "not recorded yet"
+   *  message so an empty mood is obvious instead of looking broken. */
+  const playMood = (mood: string) => {
+    const candidates = [1, 2, 3].map((n) => `/cockpit-voice/mood-${mood}-${n}.mp3`);
+    const src = candidates[Math.floor(Math.random() * candidates.length)];
+    const el = moodAudioRef.current || new Audio();
+    moodAudioRef.current = el;
+    el.onerror = () => setMoodMsg(`⚠️ No clip yet — record mood-${mood}-1.mp3`);
+    el.onplaying = () => setMoodMsg(`🔊 ${mood}`);
+    el.src = src;
+    el.currentTime = 0;
+    el.play().then(() => setMoodMsg(`🔊 ${mood}`)).catch(() => {
+      setMoodMsg(`⚠️ No clip yet — record mood-${mood}-1.mp3`);
+    });
+    setTimeout(() => setMoodMsg(''), 4000);
+  };
+
+  /** Opens the agenda modal and loads today's entries. */
+  const openAgenda = async () => {
+    setShowArcadeMenu(false);
+    setShowAgenda(true); setAgendaLoading(true); setAgendaError(false);
+    try {
+      const h: Record<string, string> = {};
+      try { const u = JSON.parse(localStorage.getItem('user') || '{}'); if (u?.id) { h['X-User-Id'] = String(u.id); h['X-User-Email'] = String(u.email); } } catch {}
+      const res = await fetch('/.netlify/functions/daily-agenda', { headers: h });
+      const d = await res.json();
+      setAgendaData(d); setAgendaLoading(false);
+    } catch { setAgendaError(true); setAgendaLoading(false); }
+  };
+
   const formatTime12 = (t: string) => {
     if (!t) return '';
     const [h, m] = t.split(':').map(Number);
@@ -1063,16 +1116,7 @@ const Dashboard: React.FC = () => {
 
         {!cockpitActive && (
           <div className="flex fixed right-4 top-24 z-40 gap-3">
-            <div className="lg:hidden"><button onClick={async () => {
-              setShowAgenda(true); setAgendaLoading(true); setAgendaError(false);
-              try {
-                const h: Record<string, string> = {};
-                try { const u = JSON.parse(localStorage.getItem('user') || '{}'); if (u?.id) { h['X-User-Id'] = String(u.id); h['X-User-Email'] = String(u.email); } } catch {}
-                const res = await fetch('/.netlify/functions/daily-agenda', { headers: h });
-                const d = await res.json();
-                setAgendaData(d); setAgendaLoading(false);
-              } catch { setAgendaError(true); setAgendaLoading(false); }
-            }}
+            <div className="lg:hidden"><button onClick={() => setShowArcadeMenu(v => !v)}
               className="relative w-14 h-14 rounded-full flex items-center justify-center select-none active:scale-95 transition-all duration-200 hover:scale-105 lg:hidden"
               style={{
                 background: 'radial-gradient(circle at 40% 35%, #60a5fa, #3b82f6 55%, #1d4ed8 100%)',
@@ -1081,10 +1125,9 @@ const Dashboard: React.FC = () => {
                 transform: 'perspective(300px) rotateX(15deg)',
                 border: '3px solid #1e3a8a',
               }}
-              title="Daily Agenda"
+              title="Agenda / Mindset"
             >
               <div className="absolute inset-0 pointer-events-none rounded-full" style={{ background: 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 55%)' }} />
-              
             </button>
             </div>
             <button
@@ -1106,6 +1149,60 @@ const Dashboard: React.FC = () => {
                 }}
               />
             </button>
+          </div>
+        )}
+
+        {/* Arcade chooser — Agenda or Mindset (mobile only) */}
+        {showArcadeMenu && !cockpitActive && (
+          <div className="fixed inset-0 z-[58] flex items-center justify-center bg-black/70 backdrop-blur-sm lg:hidden"
+               onClick={() => setShowArcadeMenu(false)}>
+            <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl"
+                 onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-lg font-bold text-white mb-6 text-center">Agenda or Mindset?</h3>
+              <div className="flex flex-col gap-4">
+                <button onClick={openAgenda}
+                  className="w-full px-6 py-5 rounded-2xl border-2 text-lg font-bold transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-3"
+                  style={{ background: '#22d3ee15', color: '#22d3ee', borderColor: '#22d3ee50', boxShadow: '0 0 30px #22d3ee20' }}>
+                  <span className="text-2xl">📋</span> Agenda
+                </button>
+                <button onClick={() => { setShowArcadeMenu(false); setShowMindset(true); }}
+                  className="w-full px-6 py-5 rounded-2xl border-2 text-lg font-bold transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-3"
+                  style={{ background: '#a855f715', color: '#a855f7', borderColor: '#a855f750', boxShadow: '0 0 30px #a855f720' }}>
+                  <span className="text-2xl">🗣️</span> Mindset
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Mindset — tap how you feel, L talks you back into it */}
+        {showMindset && (
+          <div className="fixed inset-0 z-[66] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
+               onClick={() => setShowMindset(false)}>
+            <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+                 style={{ maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-lg font-bold text-white">🗣️ Mindset</h3>
+                <button onClick={() => setShowMindset(false)} className="text-white/30 hover:text-white/60 text-lg">✕</button>
+              </div>
+              <p className="text-sm text-white/40 mb-5">Tap how you feel. He talks.</p>
+              <div className="flex flex-col gap-3">
+                {MOODS.map((m) => (
+                  <button key={m.key} onClick={() => playMood(m.key)}
+                    className="w-full px-5 py-4 rounded-2xl border-2 text-left transition-all hover:scale-[1.02] active:scale-95 flex items-center gap-3"
+                    style={{ background: `${m.color}15`, borderColor: `${m.color}50`, boxShadow: `0 0 30px ${m.color}18` }}>
+                    <span className="text-2xl leading-none">{m.emoji}</span>
+                    <span className="flex-1">
+                      <span className="block text-lg font-bold tracking-tight" style={{ color: m.color, textShadow: `0 0 20px ${m.color}40` }}>{m.label}</span>
+                      <span className="block text-xs text-white/40 mt-0.5">{m.line}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {moodMsg && (
+                <div className="mt-4 text-center text-sm text-cyan-200/80">{moodMsg}</div>
+              )}
+            </div>
           </div>
         )}
 

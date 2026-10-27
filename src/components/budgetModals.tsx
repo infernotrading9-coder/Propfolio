@@ -453,6 +453,10 @@ export function ResetModal(p: ResetModalProps) {
           <button className="budget-btn budget-btn-outline" onClick={p.onResetBalances}>Reset All Balances to $0</button>
           <button className="budget-btn budget-btn-danger" onClick={p.onResetAll}>Reset EVERYTHING</button>
         </div>
+        <p style={{ marginTop: 14, fontSize: 12, lineHeight: 1.5, opacity: 0.6 }}>
+          Eval purchases are never touched by any of these. Once an eval is on the
+          dashboard it is permanent — the budget tab only reads it.
+        </p>
       </div>
     </div>
   );

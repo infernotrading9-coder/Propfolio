@@ -946,6 +946,33 @@ export const budgetStateService = {
     return Array.from(map.values());
   },
 
+  /**
+   * Dashboard-bound transactions are IMMUTABLE from the budget side.
+   *
+   * An eval purchase is written to BOTH sides at once: the dashboard (a
+   * `challenges` row + the account card) and the budget log, where it carries
+   * `isPropFirm: true` and a name like "Eval — Lucid Trading 50K (0007)".
+   *
+   * Daniel's rule: **once it's on the dashboard, it's there forever.** The
+   * budget tab must never be able to remove it. But the budget tab PUTs the
+   * whole state document, so three different paths could silently drop one —
+   * deleting the row, an undo, or `_deleted.all` from Reset Everything — while
+   * the dashboard went on showing the eval.
+   *
+   * So every dashboard-bound transaction the merge would have dropped is put
+   * back verbatim. Enforced HERE, at the single write choke point, because a
+   * guard the client can skip is not a guard.
+   */
+  _protectDashboardTransactions(mergedTxns: any[] | undefined, existingTxns: any[] | undefined): any[] {
+    const out = mergedTxns || [];
+    const isDashboardBound = (t: any) => t && t.isPropFirm === true;
+    const locked = (existingTxns || []).filter(isDashboardBound);
+    if (locked.length === 0) return out;
+    const present = new Set(out.filter(isDashboardBound).map((t: any) => String(t.id)));
+    const missing = locked.filter((t: any) => !present.has(String(t.id)));
+    return missing.length ? [...out, ...missing] : out;
+  },
+
   _merge(existing: any, incoming: any, deleted: any): any {
     const delTxn = new Set<string>(deleted.transactions || []);
     const delAcct = new Set<string>(deleted.accounts || []);
@@ -964,7 +991,12 @@ export const budgetStateService = {
       autoIncome: incoming.autoIncome ?? existing.autoIncome ?? true,
       excludePropFirm: incoming.excludePropFirm ?? existing.excludePropFirm ?? true,
       categories: keepOrClear('categories', delCat),
-      transactions: keepOrClear('transactions', delTxn),
+      // Eval purchases survive every budget-side delete/undo/reset — see
+      // _protectDashboardTransactions. Dashboard is the source of truth.
+      transactions: this._protectDashboardTransactions(
+        keepOrClear('transactions', delTxn),
+        existing.transactions,
+      ),
       accounts: keepOrClear('accounts', delAcct),
       savingsGoals: keepOrClear('savingsGoals', delGoal),
       completedGoals: keepOrClear('completedGoals', delGoal),

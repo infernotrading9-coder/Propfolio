@@ -1255,6 +1255,13 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
 
   // ─── Delete transaction ────────────────────────────────────────────────────
   const handleDeleteTxn = useCallback((txn: Transaction) => {
+    // Dashboard-bound (eval purchase): permanent. The dashboard shows this
+    // challenge/account forever, so its budget row must never disappear either.
+    // The server enforces this too — this is just the honest early exit.
+    if ((txn as any).isPropFirm === true) {
+      alert('This is an eval purchase — it lives on the dashboard, so it can\'t be removed from the budget tab. Delete the account on the dashboard instead.');
+      return;
+    }
     let s = { ...state, accounts: [...state.accounts], transactions: [...state.transactions] };
     if (txn.type !== 'internal') {
       const account = s.accounts.find((a) => a.id === txn.accountId);
@@ -1448,24 +1455,33 @@ const BudgetTab: React.FC<BudgetTabProps> = ({ state: propState, onChange }) => 
   }, [state, saveAndRender]);
 
   // ─── Reset actions ────────────────────────────────────────────────────────────
+  // Eval purchases (`isPropFirm`) are dashboard-bound and survive EVERY reset
+  // below. The server re-injects them if a client ever drops them, but keeping
+  // them out of the local write means the UI stays truthful without a refetch.
   const handleResetTransactions = useCallback(() => {
-    if (!confirm('Reset all transactions? This cannot be undone.')) return;
-    saveAndRender({ ...state, transactions: [] });
+    if (!confirm('Reset all transactions? Eval purchases are kept — they live on the dashboard.')) return;
+    // The server merges by id and KEEPS rows the client omits (stale-tab guard),
+    // so an empty list deletes nothing. The doomed ids have to be named
+    // explicitly via `_deleted` or this button silently no-ops.
+    const doomed = state.transactions.filter((t) => (t as any).isPropFirm !== true).map((t) => t.id);
+    pendingDeletesRef.current.transactions.push(...doomed);
+    saveAndRender({ ...state, transactions: state.transactions.filter((t) => (t as any).isPropFirm === true) });
     setShowResetModal(false);
   }, [state, saveAndRender]);
 
   const handleResetBalances = useCallback(() => {
-    if (!confirm('Reset balances for all accounts (set to 0.00)?')) return;
+    if (!confirm('Reset balances for all accounts (set to 0.00)? Transactions and evals are untouched.')) return;
     saveAndRender({ ...state, accounts: state.accounts.map((a) => ({ ...a, balance: 0 })) });
     setShowResetModal(false);
   }, [state, saveAndRender]);
 
   const handleResetAll = useCallback(() => {
-    if (!confirm('Reset EVERYTHING? This cannot be undone.')) return;
+    if (!confirm('Reset EVERYTHING? Eval purchases are kept — they live on the dashboard.')) return;
     handleChange({
       income: 0, autoIncome: true, excludePropFirm: true,
       categories: [{ id: uid(), name: 'Needs', percent: 95 }, { id: uid(), name: 'Wants', percent: 5 }],
-      transactions: [], accounts: [], savingsGoals: [], completedGoals: [],
+      transactions: state.transactions.filter((t) => (t as any).isPropFirm === true),
+      accounts: [], savingsGoals: [], completedGoals: [],
       _deleted: { all: true },
     } as any);
     setShowResetModal(false);

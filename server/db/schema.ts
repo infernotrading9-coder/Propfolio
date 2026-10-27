@@ -200,6 +200,10 @@ export const propTrades = pgTable('prop_trades', {
   tpMethod: text('tp_method'),
   tryCounter: integer('try_counter'),
   stuckToSize: text('stuck_to_size').default('yes'),
+  /** What the cockpit actually knows when a trade closes. P&L is the bot's job. */
+  outcome: text('outcome'), // 'win' | 'loss' | 'even'
+  /** 'estimated' = derived from riskPerTrade in the cockpit; 'actual' = bot-backfilled. */
+  pnlSource: text('pnl_source'),
   notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),

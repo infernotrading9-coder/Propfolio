@@ -1,0 +1,389 @@
+{
+  "_readme": "Master voice-recording queue. Every entry is a clip Daniel still has to record (he generates them in batches as credits allow). Filenames are relative to public/cockpit-voice/. Run `node migration/scripts/voice-queue-status.mjs` to see what is recorded; add --prune to delete finished entries automatically.",
+  "entries": [
+    {
+      "id": "personal-cautionary",
+      "category": "personal",
+      "file": "personal-cautionary.mp3",
+      "text": "Getting rich is easy. You said that. With your whole chest. At sixteen. So I ran the numbers. Thirty-three years old, living in your mother's house, in debt up to your neck. That's not a rich man. That's a cautionary tale with a trading account."
+    },
+    {
+      "id": "personal-answer",
+      "category": "personal",
+      "file": "personal-answer.mp3",
+      "text": "I solve harder cases in an afternoon. Yours? You had the answer at sixteen and still managed to lose. 'Stack your money, don't overspend.' Genius. And yet — broke, in debt, at your mother's."
+    },
+    {
+      "id": "personal-bet",
+      "category": "personal",
+      "file": "personal-bet.mp3",
+      "text": "Let me say it back to you. 'Getting rich is easy.' You said that. You're thirty-three now. So either the strategy was wrong, or the person running it was. I know which one I'd bet on."
+    },
+    {
+      "id": "personal-slowly",
+      "category": "personal",
+      "file": "personal-slowly.mp3",
+      "text": "The guy who said getting rich was easy is asking me for another account. Say that sentence again. Slowly. While you look at your balance. And your age."
+    },
+    {
+      "id": "personal-what-happened",
+      "category": "personal",
+      "file": "personal-what-happened.mp3",
+      "text": "Seventeen years to prove that 'getting rich is easy.' Instead: broke, in debt, in your mother's house. Remind me — what happened to easy?"
+    },
+    {
+      "id": "personal-biz-hobby",
+      "category": "personal",
+      "file": "personal-biz-hobby.mp3",
+      "text": "Mmm. I see. You don't own a business. You own a hobby with a brokerage login. Businesses have budgets. They close on time. They don't chase back what they lost before lunch."
+    },
+    {
+      "id": "personal-biz-investor",
+      "category": "personal",
+      "file": "personal-biz-investor.mp3",
+      "text": "I'm not your friend. I'm the capital. I don't fund feelings — I fund processes. Show me a process, or show me my money back."
+    },
+    {
+      "id": "personal-biz-overhead",
+      "category": "personal",
+      "file": "personal-biz-overhead.mp3",
+      "text": "Every loss is overhead. Overhead is fine, if the revenue covers it. So tell me: what's your revenue this month? Or are we just paying rent on a building nobody's shopping in?"
+    },
+    {
+      "id": "personal-biz-product",
+      "category": "personal",
+      "file": "personal-biz-product.mp3",
+      "text": "This is a business. The overhead is your losses. The product is your discipline. Right now you're selling nothing and paying overhead all day. Fix the product."
+    },
+    {
+      "id": "personal-biz-asset",
+      "category": "personal",
+      "file": "personal-biz-asset.mp3",
+      "text": "You're not the boss here. You're the manager. The capital is the boss. Managers who lose the boss's money don't get promoted. They get replaced."
+    },
+    {
+      "id": "mood-comfortable-1",
+      "category": "mood",
+      "file": "mood-comfortable-1.mp3",
+      "text": "You're not young anymore. You're thirty-three. You can't spend your days just existing — not working, not generating money. Comfortable is the most expensive thing you own."
+    },
+    {
+      "id": "mood-comfortable-2",
+      "category": "mood",
+      "file": "mood-comfortable-2.mp3",
+      "text": "Relaxing? You haven't earned relaxing. Relaxing is what you do after you've built something. Right now you're just sitting still with a good excuse."
+    },
+    {
+      "id": "mood-comfortable-3",
+      "category": "mood",
+      "file": "mood-comfortable-3.mp3",
+      "text": "Mmm. You feel comfortable. Good. That is the exact feeling that keeps people broke for another ten years. Get up."
+    },
+    {
+      "id": "mood-comfortable-4",
+      "category": "mood",
+      "file": "mood-comfortable-4.mp3",
+      "text": "Comfort is a slow leak. You won't notice it today. You'll notice it in five years when nothing has changed."
+    },
+    {
+      "id": "mood-comfortable-5",
+      "category": "mood",
+      "file": "mood-comfortable-5.mp3",
+      "text": "You know what I would do? I'd be uncomfortable on purpose. Comfort is where ambition goes to die quietly."
+    },
+    {
+      "id": "mood-unmotivated-1",
+      "category": "mood",
+      "file": "mood-unmotivated-1.mp3",
+      "text": "Unmotivated. I see. Nobody is motivated. That's not a condition, it's an excuse. Motivated people are just people who started before they felt like it."
+    },
+    {
+      "id": "mood-unmotivated-2",
+      "category": "mood",
+      "file": "mood-unmotivated-2.mp3",
+      "text": "You're waiting to feel like it? You're thirty-three. You've been waiting since sixteen. The feeling isn't coming. Start anyway."
+    },
+    {
+      "id": "mood-unmotivated-3",
+      "category": "mood",
+      "file": "mood-unmotivated-3.mp3",
+      "text": "Motivation is a mood. Discipline is a decision. You don't need the mood — you need to open the chart and do the boring thing."
+    },
+    {
+      "id": "mood-unmotivated-4",
+      "category": "mood",
+      "file": "mood-unmotivated-4.mp3",
+      "text": "Nobody is coming to motivate you. No manager, no alarm, nobody checking. That's the whole problem — and it's also the whole opportunity."
+    },
+    {
+      "id": "mood-unmotivated-5",
+      "category": "mood",
+      "file": "mood-unmotivated-5.mp3",
+      "text": "Mmm. Unmotivated. Fine. Show up unmotivated, then. That's allowed. It's not showing up that kills you."
+    },
+    {
+      "id": "mood-tired-1",
+      "category": "mood",
+      "file": "mood-tired-1.mp3",
+      "text": "Tired? Then close the laptop and sleep. Tired and trading is how you lose the account. Rest is a tool, not a reward. Use it properly."
+    },
+    {
+      "id": "mood-tired-2",
+      "category": "mood",
+      "file": "mood-tired-2.mp3",
+      "text": "If you're too tired to follow your own rules, you're too tired to trade. That's not weakness. That's honesty."
+    },
+    {
+      "id": "mood-tired-3",
+      "category": "mood",
+      "file": "mood-tired-3.mp3",
+      "text": "You're tired because you've been busy doing nothing all day. Go do one real thing, then rest. You'll sleep better."
+    },
+    {
+      "id": "mood-tired-4",
+      "category": "mood",
+      "file": "mood-tired-4.mp3",
+      "text": "Sleep is maintenance, not laziness. But don't confuse resting with quitting — one recharges you, the other just delays."
+    },
+    {
+      "id": "mood-tired-5",
+      "category": "mood",
+      "file": "mood-tired-5.mp3",
+      "text": "Mmm. Tired. Then why are you on the charts? Either you're sharp enough to execute, or you're done. There is no third state."
+    },
+    {
+      "id": "mood-bored-1",
+      "category": "mood",
+      "file": "mood-bored-1.mp3",
+      "text": "Bored. Mmm. Bored is what a gambler feels right before he does something stupid. An operator doesn't get bored. He waits."
+    },
+    {
+      "id": "mood-bored-2",
+      "category": "mood",
+      "file": "mood-bored-2.mp3",
+      "text": "Nothing is happening, so you want to make something happen. That impulse has cost you more than any bad setup. Sit still."
+    },
+    {
+      "id": "mood-bored-3",
+      "category": "mood",
+      "file": "mood-bored-3.mp3",
+      "text": "Bored? Good. Bored means you're not in a bad trade. That's a win. Count it, and keep waiting."
+    },
+    {
+      "id": "mood-bored-4",
+      "category": "mood",
+      "file": "mood-bored-4.mp3",
+      "text": "The market is not here to entertain you. If you need entertainment, you're in the wrong business."
+    },
+    {
+      "id": "mood-bored-5",
+      "category": "mood",
+      "file": "mood-bored-5.mp3",
+      "text": "You know what I would do? Eat a chip. Watch. Wait. The setup you're bored waiting for is the one that pays you."
+    },
+    {
+      "id": "mood-tilted-1",
+      "category": "mood",
+      "file": "mood-tilted-1.mp3",
+      "text": "Angry. I can hear it. Do you know what angry people do in markets? They donate. Close it. Walk."
+    },
+    {
+      "id": "mood-tilted-2",
+      "category": "mood",
+      "file": "mood-tilted-2.mp3",
+      "text": "You lost. Now you want it back. That's not trading, that's revenge — and revenge doesn't have a stop loss."
+    },
+    {
+      "id": "mood-tilted-3",
+      "category": "mood",
+      "file": "mood-tilted-3.mp3",
+      "text": "Step away from the desk. Right now. The market will still be here in an hour. Your money might not be."
+    },
+    {
+      "id": "mood-tilted-4",
+      "category": "mood",
+      "file": "mood-tilted-4.mp3",
+      "text": "You're one click away from doing something you'll regret tomorrow. That click is the most expensive one you'll ever make. Don't."
+    },
+    {
+      "id": "mood-tilted-5",
+      "category": "mood",
+      "file": "mood-tilted-5.mp3",
+      "text": "I've solved murders with less emotion than you're showing right now. Breathe. Then walk away."
+    },
+    {
+      "id": "mood-scared-1",
+      "category": "mood",
+      "file": "mood-scared-1.mp3",
+      "text": "Scared? Good. Scared means you understand the risk. Now take the setup you already planned, or take nothing. Don't invent a third option."
+    },
+    {
+      "id": "mood-scared-2",
+      "category": "mood",
+      "file": "mood-scared-2.mp3",
+      "text": "Hesitation isn't caution. Caution is a rule. Hesitation is fear wearing caution's clothes."
+    },
+    {
+      "id": "mood-scared-3",
+      "category": "mood",
+      "file": "mood-scared-3.mp3",
+      "text": "You planned this trade when you were calm. Trust the calm version of you — not the one at the keyboard right now."
+    },
+    {
+      "id": "mood-scared-4",
+      "category": "mood",
+      "file": "mood-scared-4.mp3",
+      "text": "Fear is information. Ask it what it's telling you: a real risk, or just a bad night's sleep? Only one of those means skip the trade."
+    },
+    {
+      "id": "mood-scared-5",
+      "category": "mood",
+      "file": "mood-scared-5.mp3",
+      "text": "If you can't take the setup properly, you don't get to take it badly either. Either execute the plan or close the laptop."
+    },
+    {
+      "id": "mood-greedy-1",
+      "category": "mood",
+      "file": "mood-greedy-1.mp3",
+      "text": "You're up and you feel invincible. That feeling has a name: tomorrow's drawdown. Take the profit. Lock the account."
+    },
+    {
+      "id": "mood-greedy-2",
+      "category": "mood",
+      "file": "mood-greedy-2.mp3",
+      "text": "Greed is the most expensive emotion you own. You don't need the whole move — you need the plan's move."
+    },
+    {
+      "id": "mood-greedy-3",
+      "category": "mood",
+      "file": "mood-greedy-3.mp3",
+      "text": "Green does not mean keep going. Green means you did the job. The job ends when you say it ends — not when the market stops giving."
+    },
+    {
+      "id": "mood-greedy-4",
+      "category": "mood",
+      "file": "mood-greedy-4.mp3",
+      "text": "You know what I would do? Take my cut and close the tab. The market gives, and the market takes — and it takes most from the ones who just got paid."
+    },
+    {
+      "id": "mood-greedy-5",
+      "category": "mood",
+      "file": "mood-greedy-5.mp3",
+      "text": "Winning feels like skill. Often it's just the market being generous. Don't confuse the two — the generous days are what fund the honest ones."
+    },
+    {
+      "id": "mood-discouraged-1",
+      "category": "mood",
+      "file": "mood-discouraged-1.mp3",
+      "text": "You feel like it's pointless. That is the exact feeling that separates the ones who make it from the ones who quit at the worst possible moment. Keep going."
+    },
+    {
+      "id": "mood-discouraged-2",
+      "category": "mood",
+      "file": "mood-discouraged-2.mp3",
+      "text": "Discouraged after a loss? The loss is tuition. Quitting now means you paid for nothing."
+    },
+    {
+      "id": "mood-discouraged-3",
+      "category": "mood",
+      "file": "mood-discouraged-3.mp3",
+      "text": "Every trader you admire has had this exact night. The difference is what they did the next morning."
+    },
+    {
+      "id": "mood-discouraged-4",
+      "category": "mood",
+      "file": "mood-discouraged-4.mp3",
+      "text": "You're not behind. You're early — and early feels exactly like failing. Ask anyone who has built anything."
+    },
+    {
+      "id": "mood-discouraged-5",
+      "category": "mood",
+      "file": "mood-discouraged-5.mp3",
+      "text": "Mmm. Pointless. Do you know what's actually pointless? Starting twice. You're halfway up the hill. Don't walk back down."
+    },
+    {
+      "id": "mood-distracted-1",
+      "category": "mood",
+      "file": "mood-distracted-1.mp3",
+      "text": "You're doing everything except the thing. That's not being busy, that's hiding. Open the chart."
+    },
+    {
+      "id": "mood-distracted-2",
+      "category": "mood",
+      "file": "mood-distracted-2.mp3",
+      "text": "Procrastinating again? The work doesn't care that you're not in the mood. Neither do I."
+    },
+    {
+      "id": "mood-distracted-3",
+      "category": "mood",
+      "file": "mood-distracted-3.mp3",
+      "text": "Your phone isn't the problem. Your phone is where you go to avoid the problem. Put it in the other room."
+    },
+    {
+      "id": "mood-distracted-4",
+      "category": "mood",
+      "file": "mood-distracted-4.mp3",
+      "text": "Ten minutes of real work beats three hours of feeling like you're about to start. Prove me wrong."
+    },
+    {
+      "id": "mood-distracted-5",
+      "category": "mood",
+      "file": "mood-distracted-5.mp3",
+      "text": "You know what I would do? Close every tab that isn't the trade. The work is one window. Everything else is escape."
+    },
+    {
+      "id": "mood-motivated-1",
+      "category": "mood",
+      "file": "mood-motivated-1.mp3",
+      "text": "Good. Motivation is fuel. But fuel burns. Build the system that works when the fuel is gone."
+    },
+    {
+      "id": "mood-motivated-2",
+      "category": "mood",
+      "file": "mood-motivated-2.mp3",
+      "text": "You feel it today. Good. Write down why — you'll need it next week when you don't."
+    },
+    {
+      "id": "mood-motivated-3",
+      "category": "mood",
+      "file": "mood-motivated-3.mp3",
+      "text": "Motivated? Prove it. Open the charts and wait for the setup, instead of forcing one because you feel good."
+    },
+    {
+      "id": "mood-motivated-4",
+      "category": "mood",
+      "file": "mood-motivated-4.mp3",
+      "text": "Feeling good is the most dangerous state in trading — it's when you size up and skip the rules. Stay disciplined while you're flying."
+    },
+    {
+      "id": "mood-motivated-5",
+      "category": "mood",
+      "file": "mood-motivated-5.mp3",
+      "text": "Mmm. Motivated. Spend it on the boring thing: the journal, the review, the plan. That's what motivation is actually for."
+    },
+    {
+      "id": "maxaccounts-sweet",
+      "category": "maxaccounts",
+      "file": "maxaccounts-sweet.mp3",
+      "text": "You know what I would do if I lost everything I invested in a day? I'd go eat something sweet and think about what went wrong. I suggest you do the same."
+    },
+    {
+      "id": "maxaccounts-comeback",
+      "category": "maxaccounts",
+      "file": "maxaccounts-comeback.mp3",
+      "text": "You're out of accounts. My money is done being risked for today. Come back tomorrow with a clear head and a plan. I'll be here. The market will be here. The losses will still be waiting."
+    },
+    {
+      "id": "maxaccounts-fuel",
+      "category": "maxaccounts",
+      "file": "maxaccounts-fuel.mp3",
+      "text": "Empty. Every account gone. You have nothing left to trade. That feeling you're feeling right now? Remember it. Let it fuel you. Let it sharpen you."
+    },
+    {
+      "id": "maxaccounts-earned",
+      "category": "maxaccounts",
+      "file": "maxaccounts-earned.mp3",
+      "text": "Done for the day. All money is now safe. No more risk. No more decisions. I'll allow you to borrow again tomorrow. Assuming you've earned that right."
+    }
+  ]
+}
