@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, boolean, decimal, uuid, jsonb, serial } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, boolean, decimal, uuid, jsonb, serial, numeric } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Users table (matches existing structure)
@@ -204,6 +204,19 @@ export const propTrades = pgTable('prop_trades', {
   outcome: text('outcome'), // 'win' | 'loss' | 'even'
   /** 'estimated' = derived from riskPerTrade in the cockpit; 'actual' = bot-backfilled. */
   pnlSource: text('pnl_source'),
+  /** Planned vs realised scale-outs: [{ r, pct, actualR }]. The blended realised
+   *  multiple also lands in risk_reward — that stays the analysis axis. */
+  exits: jsonb('exits'),
+  /** Multi-select confluences (RSI divergence, MACD divergence, …). An array
+   *  because a setup can genuinely have more than one. */
+  confluences: jsonb('confluences'),
+  /** Hard vs mental — a different axis from WHERE the stop sits. */
+  slStyle: text('sl_style'),
+  /** ATR offset: multiplier (0.1–1.0) and the TF whose ATR it was read from.
+   *  The TF is AUTO-derived from entry_tf but recorded, because "0.5 ATR" is
+   *  meaningless later without knowing which chart it came from. */
+  slAtrMult: numeric('sl_atr_mult'),
+  slAtrTf: text('sl_atr_tf'),
   notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
@@ -545,3 +558,56 @@ export type BudgetAccount = typeof budgetAccounts.$inferSelect;
 export type NewBudgetAccount = typeof budgetAccounts.$inferInsert;
 export type BudgetStateRow = typeof budgetState.$inferSelect;
 export type NewBudgetStateRow = typeof budgetState.$inferInsert;
+
+// ─── Vest Markets instant accounts (Nov 13 2026) ─────────────────────────────
+//
+// Instant accounts are a DIFFERENT PRODUCT, not a stage of an eval. They sit in
+// their OWN tables so that no eval query, statistic, or account list can ever
+// pick them up by accident.
+//
+// Why not reuse trading_accounts with a flag: every existing surface reads
+// `trading_accounts` wholesale (dashboard counts, drawdown tracker, copy-trade
+// groups, cockpit picker, pass-rate stats). A flag would mean auditing and
+// filtering all of them, and one forgotten filter would put a no-eval account
+// into the pass-rate denominator — which is exactly the bug this avoids.
+// Segregated by schema, not by remembering to filter.
+//
+// MONEY MODEL. On a Vest instant account the one-time payment IS the max
+// drawdown, and it is NEVER recoverable — funded accounts cannot receive
+// deposits, the trading capital is Vest's. So `cost` is 100% sunk expense, and
+// an instant account's full loss is exactly `cost`. Break-even (post-split)
+// requires claimed >= cost, because the 95% split is already applied at claim.
+export const instantAccounts = pgTable('instant_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  nickname: text('nickname').notNull(),                 // V1, V2, …
+  accountSize: decimal('account_size', { precision: 12, scale: 2 }).notNull(), // 500 / 5000 / 10000 / 25000
+  cost: decimal('cost', { precision: 12, scale: 2 }).notNull(),                // == the max drawdown
+  purchasedAt: text('purchased_at').notNull(),          // YYYY-MM-DD
+  status: text('status').notNull().default('alive'),    // alive | dead
+  diedAt: text('died_at'),                              // YYYY-MM-DD, set when status -> dead
+  fundingSource: text('funding_source'),                // card | crypto | credit — credit means a "win" is repayment
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// One row per Claim Profit request. Vest pays on demand with no minimum, so an
+// account can claim many times — which is why the amount is an EVENT here and
+// not a running total on the account row.
+export const instantClaims = pgTable('instant_claims', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  accountId: uuid('account_id')
+    .references(() => instantAccounts.id, { onDelete: 'cascade' })
+    .notNull(),
+  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(), // POST-split, as Vest credits it
+  claimedAt: text('claimed_at').notNull(),             // YYYY-MM-DD
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type InstantAccount = typeof instantAccounts.$inferSelect;
+export type NewInstantAccount = typeof instantAccounts.$inferInsert;
+export type InstantClaim = typeof instantClaims.$inferSelect;
+export type NewInstantClaim = typeof instantClaims.$inferInsert;

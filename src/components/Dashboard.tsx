@@ -29,12 +29,61 @@ import { AccountsView } from './AccountsView';
 import { TradingModeWidget } from './TradingModeWidget';
 import BudgetTab, { type BudgetState } from './BudgetTab';
 import TradingModeCockpit from "./TradingModeCockpit";
+import InstantTab from './InstantTab';
 import PropTradesTab from "./PropTradesTab";
 import { PersonalTab } from './PersonalTab';
 import { GoalsTab } from './GoalsTab';
 
 
-type ViewMode = 'prop' | 'accounts' | 'budget' | 'personal' | 'goals' | 'cockpit' | 'prop_trades';
+type ViewMode = 'prop' | 'accounts' | 'budget' | 'personal' | 'goals' | 'cockpit' | 'prop_trades' | 'instant';
+
+/**
+ * THE NAV IS GROUPED, NOT FLAT (Nov 14 2026).
+ *
+ * Seven flat buttons mixed three different kinds of thing — performance views,
+ * account inventories, and money/life — and Daniel called it messy: "the tabs on
+ * top of the page I feel like it's getting messy". Now there are three
+ * destinations, and a sub-tab row appears ONLY for a group that has more than one
+ * surface.
+ *
+ * Daniel's corrections, same day:
+ *   - **Instant belongs under the trading group**, not next to the prop accounts.
+ *     ⚠️ Grouping is NAVIGATION ONLY — it does not mix any data. Instant accounts
+ *     stay in their own tables and still cannot reach the pass rate (that
+ *     segregation is at the schema level, not in this map).
+ *   - **Budget and Goals are one destination** with two sub-tabs, named **Life**
+ *     (he first said "Money", then switched to "Life").
+ *   - **`groupLastView` must be validated against the group's CURRENT items** — see
+ *     `rememberedView` below; without that check, moving a view between groups makes
+ *     a stale memory open the wrong view from a tab (which is how Instant briefly
+ *     looked like it lived under two tabs).
+ *
+ * ⚠️ This map changes the NAVIGATION ONLY. Every `view === '...'` branch below, and
+ * the `ViewMode` values themselves, are untouched — the groups just decide which
+ * buttons are drawn and which one is lit. `cockpit` is deliberately absent: it is a
+ * full-screen overlay opened by the arcade button, never a tab.
+ */
+const NAV_GROUPS: { key: string; label: string; items: { view: ViewMode; label: string }[] }[] = [
+  {
+    key: 'trading',
+    label: 'Trading',
+    items: [
+      { view: 'prop', label: 'Prop Firm' },
+      { view: 'prop_trades', label: 'Prop Trades' },
+      { view: 'personal', label: 'Personal' },
+      { view: 'instant', label: 'Instant' },
+    ],
+  },
+  { key: 'accounts', label: 'Accounts', items: [{ view: 'accounts', label: 'Accounts' }] },
+  {
+    key: 'life',
+    label: 'Life',
+    items: [
+      { view: 'budget', label: 'Budget' },
+      { view: 'goals', label: 'Goals' },
+    ],
+  },
+];
 
 const Dashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -59,6 +108,31 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = React.useState(true);
   
   const [view, setView] = React.useState<ViewMode>('prop');
+
+  // Which sub-tab each group was last on, so tapping a primary tab returns you to
+  // where you left off instead of always resetting to the group's first surface.
+  const [groupLastView, setGroupLastView] = React.useState<Record<string, ViewMode>>({});
+  const activeGroup = NAV_GROUPS.find((g) => g.items.some((i) => i.view === view)) ?? null;
+
+  /**
+   * The sub-tab a group should open on: where you left it, but ONLY if that view is
+   * still in the group.
+   *
+   * ⚠️ The membership check is load-bearing. When Instant moved from the Accounts
+   * group to Trading, the remembered `accounts → instant` outlived the membership —
+   * and (with HMR preserving state instead of reloading) tapping **Accounts** opened
+   * the **Instant** view, so a single view appeared to live under two tabs. Any
+   * future reshuffle of NAV_GROUPS would resurrect the same bug without this guard.
+   */
+  const rememberedView = (g: (typeof NAV_GROUPS)[number]) => {
+    const remembered = groupLastView[g.key];
+    return remembered && g.items.some((i) => i.view === remembered) ? remembered : g.items[0].view;
+  };
+  const goToGroup = (g: (typeof NAV_GROUPS)[number]) => setView(rememberedView(g));
+  const goToSubView = (g: (typeof NAV_GROUPS)[number], v: ViewMode) => {
+    setGroupLastView((prev) => ({ ...prev, [g.key]: v }));
+    setView(v);
+  };
   const [editing, setEditing] = React.useState<Challenge | null>(null);
   const [deleteConfirm, setDeleteConfirm] = React.useState<{ id: string; name: string } | null>(null);
   const [loadingDelete, setLoadingDelete] = React.useState(false);
@@ -1078,18 +1152,46 @@ const Dashboard: React.FC = () => {
             <SettingsPanel />
           </div>
 
-          <div className="mb-4 flex flex-wrap items-center justify-center gap-3">
-            <button onClick={() => setView('prop')} className={`px-4 py-2 rounded-md border ${view==='prop' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Prop Firm Dashboard</button>
-            <button onClick={() => setView('prop_trades')} className={`px-4 py-2 rounded-md border ${view==='prop_trades' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Prop Trades</button>
-            <button onClick={() => setView('accounts')} className={`px-4 py-2 rounded-md border ${view==='accounts' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Accounts</button>
-            <button onClick={() => setView('budget')} className={`px-4 py-2 rounded-md border ${view==='budget' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Budget</button>
-            <button onClick={() => setView('personal')} className={`px-4 py-2 rounded-md border ${view==='personal' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Personal</button>
-            <button onClick={() => setView('goals')} className={`px-4 py-2 rounded-md border ${view==='goals' ? 'bg-white/10 border-white/30' : 'border-white/10'}`}>Goals</button>
+          {/* Primary destinations — 4 instead of 7 flat tabs. */}
+          <div className="mb-2 flex flex-wrap items-center justify-center gap-2">
+            {NAV_GROUPS.map((g) => (
+              <button
+                key={g.key}
+                onClick={() => goToGroup(g)}
+                className={`px-5 py-2 rounded-md border text-sm font-medium transition-colors ${
+                  activeGroup?.key === g.key
+                    ? 'bg-white/10 border-white/30 text-white'
+                    : 'border-white/10 text-white/70 hover:text-white'
+                }`}
+              >
+                {g.label}
+              </button>
+            ))}
           </div>
+
+          {/* Sub-tabs — drawn ONLY for a group that has more than one surface. */}
+          {activeGroup && activeGroup.items.length > 1 && (
+            <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
+              {activeGroup.items.map((item) => (
+                <button
+                  key={item.view}
+                  onClick={() => goToSubView(activeGroup, item.view)}
+                  className={`px-3 py-1 rounded-full border text-xs transition-colors ${
+                    view === item.view
+                      ? 'bg-white/15 border-white/40 text-white'
+                      : 'border-white/10 text-white/60 hover:text-white'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {(!activeGroup || activeGroup.items.length === 1) && <div className="mb-4" />}
           <a href="/" className="inline-block mb-2 hover:scale-105 transition-transform duration-200">
-            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='accounts' ? 'Trading Accounts' : view==='budget' ? 'Budget' : view==='personal' ? 'Personal Trades' : view==='goals' ? 'Goals' : view==='prop_trades' ? 'Prop Trade Log' : 'Propfolio'}</h1>
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='accounts' ? 'Trading Accounts' : view==='budget' ? 'Budget' : view==='personal' ? 'Personal Trades' : view==='goals' ? 'Goals' : view==='prop_trades' ? 'Prop Trade Log' : view==='instant' ? 'Instant Accounts' : 'Propfolio'}</h1>
           </a>
-          <p className="text-white/70 mt-2">{view==='accounts' ? 'Manage your trading accounts and daily order' : view==='budget' ? 'Track income, expenses, accounts, debts, and savings goals' : view==='personal' ? 'Your personal NinjaTrader trade journal' : view==='goals' ? 'Long, mid and short-term goals, broken into steps' : view==='prop_trades' ? 'Every prop trade logged in R — win rate and expectancy by strategy, variant and timeframe' : 'Track Challenges, Trading Rules, and ROI'}</p>
+          <p className="text-white/70 mt-2">{view==='accounts' ? 'Manage your trading accounts and daily order' : view==='budget' ? 'Track income, expenses, accounts, debts, and savings goals' : view==='personal' ? 'Your personal NinjaTrader trade journal' : view==='goals' ? 'Long, mid and short-term goals, broken into steps' : view==='prop_trades' ? 'Every prop trade logged in R — win rate and expectancy by strategy, variant and timeframe' : view==='instant' ? 'Vest Markets instant accounts — no evaluation, no pass rate. Spending, payouts, and how many accounts it takes to land one' : 'Track Challenges, Trading Rules, and ROI'}</p>
         </header>
 
         {view !== 'budget' && (
@@ -1116,7 +1218,7 @@ const Dashboard: React.FC = () => {
         )}
 
         {!cockpitActive && (
-          <div className="flex fixed right-4 top-24 z-40 gap-3">
+          <div className="flex flex-col items-center fixed right-4 top-24 z-40 gap-3">
             <div className="lg:hidden"><button onClick={() => setShowArcadeMenu(v => !v)}
               className="relative w-14 h-14 rounded-full flex items-center justify-center select-none active:scale-95 transition-all duration-200 hover:scale-105 lg:hidden"
               style={{
@@ -1133,8 +1235,9 @@ const Dashboard: React.FC = () => {
             </div>
             <button
               onClick={() => setShowCockpitMode(true)}
-              className="relative w-20 h-20 transition-all duration-200 hover:scale-105 max-sm:hidden
+              className="relative w-16 h-16 sm:w-20 sm:h-20 transition-all duration-200 hover:scale-105
                 flex items-center justify-center select-none active:scale-95"
+              title="Trading Cockpit"
               style={{
                 background: 'radial-gradient(circle at 40% 35%, #ff6b6b, #dc2626 55%, #b91c1c 100%)',
                 borderRadius: '50%',
@@ -1274,6 +1377,12 @@ const Dashboard: React.FC = () => {
           )}
           {view === 'prop_trades' && (
             <PropTradesTab />
+          )}
+          {/* Instant accounts live in their OWN tab, not a dashboard toggle: they have
+              no evaluation, so they must never reach the Funded Pass Rate (which is
+              derived from `challenges`). A tab means no eval surface has to filter. */}
+          {view === 'instant' && (
+            <InstantTab />
           )}
 {/* cockpit is now a fixed overlay, triggered by the arcade button */}
           {view === 'accounts' && (

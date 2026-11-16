@@ -325,6 +325,49 @@ _No description in code — read the source at the line above._
 
 _No description in code — read the source at the line above._
 
+## `db-instant.ts`
+
+```
+POST /.netlify/functions/db-instant
+{ "action": "<one of the actions below>", ...fields }
+```
+
+### `buy-accounts`
+
+* style: `if` · source: `db-instant.ts:69`
+
+Buy N instant accounts in ONE statement. Every account is its own card, so "15 bought, 13 dead, 2 alive" stays trackable. Fields: count (1-50), accountSize (Vest trading capital: 500 / 5000 / 10000 / 25000), cost (defaults to accountSize), purchasedAt (YYYY-MM-DD), fundingSource (card|crypto|credit), notes. MONEY MODEL: the price IS the max drawdown — $500->$10, $5k->$200, $10k->$400, $25k->$1,000 — and it is NEVER recoverable, because Vest funded accounts cannot receive deposits and the trading capital is Vest's. Record it as sunk expense, never as equity or a deposit. This purchase does NOT touch the budget side. RETRY-SAFE: send idempotencyKey (any unique string per statement, e.g. a UUID). A retried call returns the ORIGINAL result with idempotentReplay: true instead of buying the accounts twice — a Netlify timeout after the write makes bots retry.
+
+### `delete-account`
+
+* style: `if` · source: `db-instant.ts:189`
+
+Remove one card. Fields: id. Its claims are CASCADE-deleted with it — an account cannot be deleted while its payouts survive. Use this for a mistaken purchase, NOT for a blown account (that is update-account status 'dead', which keeps the card and its history).
+
+### `delete-claim`
+
+* style: `if` · source: `db-instant.ts:277`
+
+Remove one payout row. Fields: id. For a payout that never happened (or was logged twice); update-claim handles a wrong amount without losing the row.
+
+### `log-claim`
+
+* style: `if` · source: `db-instant.ts:208`
+
+Record ONE Claim Profit request. Vest pays on demand with no minimum, so the same account can claim many times — each claim is its own row. Fields: accountId, amount, claimedAt (YYYY-MM-DD), notes. `amount` MUST be POST-split: the figure Vest actually credits after the 95% split. Storing a pre-split figure inflates every money statistic in the tab by ~5% and cannot be detected after the fact. RETRY-SAFE: send idempotencyKey (any unique string per claim). A retried call returns the ORIGINAL claim with idempotentReplay: true instead of crediting the same payout twice — double-counting money is the failure this prevents.
+
+### `update-account`
+
+* style: `if` · source: `db-instant.ts:128`
+
+Partial edit of one card — send only what changed. Fields: id (required), nickname, accountSize, cost, purchasedAt, status ('alive'|'dead'), diedAt, fundingSource, notes. status 'dead' sets diedAt to today unless one is supplied; setting it back to 'alive' CLEARS diedAt, so a stale date can never fake a lifespan.
+
+### `update-claim`
+
+* style: `if` · source: `db-instant.ts:244`
+
+Fix a mistyped payout in place. Fields: id (required), amount, claimedAt (YYYY-MM-DD), notes. `amount` is POST-split, exactly as log-claim requires. Partial — send only what changed. For a payout that should not exist at all, use delete-claim instead.
+
 ## `db-notes.ts`
 
 ```
@@ -444,25 +487,25 @@ POST /.netlify/functions/db-prop-trades
 
 ### `create`
 
-* style: `if` · source: `db-prop-trades.ts:69`
+* style: `if` · source: `db-prop-trades.ts:117`
 
 _No description in code — read the source at the line above._
 
 ### `delete`
 
-* style: `if` · source: `db-prop-trades.ts:78`
+* style: `if` · source: `db-prop-trades.ts:126`
 
 _No description in code — read the source at the line above._
 
 ### `stats`
 
-* style: `if` · source: `db-prop-trades.ts:83`
+* style: `if` · source: `db-prop-trades.ts:131`
 
 _No description in code — read the source at the line above._
 
 ### `update`
 
-* style: `if` · source: `db-prop-trades.ts:73`
+* style: `if` · source: `db-prop-trades.ts:121`
 
 _No description in code — read the source at the line above._
 

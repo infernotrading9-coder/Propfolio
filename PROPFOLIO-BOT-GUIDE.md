@@ -975,6 +975,58 @@ Reversible: `set-balance`, `reset-drawdown-state`, `record-payout` (including ev
 
 **Correcting a balance figure** is `set-balance` with the right total — there is no trade to edit any more. `set-balance` itself is journaled and undoable.
 
+### 5.12 Vest Markets instant accounts → `db-instant`
+
+**A separate product from evals.** Instant accounts have NO evaluation and NO pass
+rate — they must never be logged as a challenge. They live in their own tables and
+are completely isolated from `challenges` / `trading_accounts` / the budget.
+
+**Read the whole tab:** `GET db-instant` returns `{ accounts, claims, stats }`. Never
+compute a total yourself — `stats` is the single source of truth.
+
+**Buy N accounts in one call:**
+```json
+{ "action": "buy-accounts", "count": 15, "accountSize": 500, "cost": 10,
+  "purchasedAt": "2026-11-12", "fundingSource": "card", "idempotencyKey": "tg-msg-90001" }
+```
+`accountSize` is Vest trading capital (500 / 5000 / 10000 / 25000). `cost` defaults to
+`accountSize`, but for instant products the real price is $10 / $200 / $400 / $1,000 —
+**pass `cost` explicitly.** `fundingSource` is `card | crypto | credit`.
+
+**MONEY MODEL — get this right or every number is wrong:**
+- `cost` is a **sunk expense**. The price IS the max drawdown. It is never a deposit and
+  never recoverable — Vest funded accounts cannot receive deposits.
+- **It does NOT touch the budget side.** No budget transaction is created. Do not try to
+  log an instant purchase as a budget expense.
+- `amount` on a claim MUST be **POST-split** — the figure Vest actually credits after the
+  95% split. A pre-split figure inflates every money stat by ~5% and cannot be detected later.
+
+**Actions:** `buy-accounts` · `update-account` · `log-claim` · `update-claim` · `delete-account` · `delete-claim`
+
+- `update-account` fields: `id`, `nickname`, `accountSize`, `cost`, `purchasedAt`,
+  `status` (`alive|dead`), `diedAt`, `fundingSource`, `notes`. Setting `dead` stamps
+  `diedAt` today; setting back to `alive` clears it. **Partial — send only what changed.**
+- `log-claim` fields: `accountId`, `amount` (post-split), `claimedAt`, `notes`.
+- `update-claim` fields: `id`, `amount` (post-split), `claimedAt`, `notes`. **For a
+  mistyped amount** — it edits the payout in place. Do NOT delete-and-relog for a wrong
+  figure; deleting loses the row's original date and logs a phantom churn.
+- `delete-account` **CASCADES** its claims away. Use it only for a mistaken purchase —
+  a blown account is `update-account` with `status: "dead"`, which keeps the card.
+- `delete-claim` is for a payout that NEVER HAPPENED (or was logged twice) — not for a
+  wrong amount.
+- **Every write accepts `idempotencyKey`.** Send the Telegram message id. A retried call
+  returns the original result with `idempotentReplay: true` instead of double-counting.
+
+**⚠️ EVERY FIGURE IS DERIVED ON READ.** Nothing is totalled or stored, so an edit to a
+`cost` or a `purchasedAt` moves the account between the monthly/weekly P&L rows and
+re-derives every tile by itself. After ANY add/edit/delete, just re-read `GET db-instant`
+and report `stats` — never patch a total by hand. Editing is safe: instant writes cannot
+reach the budget document or an eval row (`test-instant.mts` asserts both stay identical).
+
+**How to talk about it:** "15 bought, 13 dead, 2 alive" — accounts, not evals. The useful
+figures are accounts-per-payout, cost-per-payout, net-per-account and net after split.
+Daniel calls this his gambling bucket; keep it separate from eval reporting.
+
 ---
 
 ## 6. Drawdown verdicts — the rule that got 9058 wrong
