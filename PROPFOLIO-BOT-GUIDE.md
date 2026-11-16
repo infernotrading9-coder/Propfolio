@@ -992,12 +992,21 @@ Default when none is given: `Vest Markets`. Report a blended figure **as a blend
 
 **Buy N accounts in one call:**
 ```json
-{ "action": "buy-accounts", "count": 15, "firm": "Vest Markets", "accountSize": 500, "cost": 10,
-  "purchasedAt": "2026-11-12", "fundingSource": "card", "idempotencyKey": "tg-msg-90001" }
+{ "action": "buy-accounts", "count": 15, "firm": "Vest Markets", "accountSize": 500, "cost": 9.5,
+  "purchasedAt": "2026-11-12", "fundingSource": "card", "budgetAccountId": "acc_sofi",
+  "idempotencyKey": "tg-msg-90001" }
 ```
 `accountSize` is the trading capital (Vest: 500 / 5000 / 10000 / 25000). `cost` defaults to
 `accountSize`, but for instant products the real price is $10 / $200 / $400 / $1,000 — **pass `cost`
 explicitly.** `fundingSource` is `card | crypto | credit`. `firm` is a non-empty name, max 60 chars.
+
+**⚠️ THE MONEY — same mechanism as an eval purchase.** `budgetAccountId` (the ids from
+`GET db-budget-state?action=accounts`) is the account the money came OUT of. The purchase books a
+prop-firm **expense** named `Instant — <firm> <size> (<nickname>)`, one row per account, and moves
+that account's balance — so it shows up in the Budget tab and the bank figure stops overstating.
+Omit it and the cards are still created but **no expense is booked**, with a `warnings[]` entry
+saying so. There is no other bank deduction. Editing a card's price/date or deleting it moves that
+same ledger row with it (delete reverses it), so do not hand-write budget transactions.
 
 **MONEY MODEL — get this right or every number is wrong:**
 - `cost` is a **sunk expense**. The price IS the max drawdown. It is never a deposit and
@@ -1013,10 +1022,15 @@ explicitly.** `fundingSource` is `card | crypto | credit`. `firm` is a non-empty
   `status` (`alive|dead`), `diedAt`, `fundingSource`, `notes`. Setting `dead` stamps
   `diedAt` today; setting back to `alive` clears it. **Partial — send only what changed.**
   Moving an account's `firm` re-scopes both firms' figures automatically.
-- `log-claim` fields: `accountId`, `amount` (post-split), `claimedAt`, `notes`.
-- `update-claim` fields: `id`, `amount` (post-split), `claimedAt`, `notes`. **For a
-  mistyped amount** — it edits the payout in place. Do NOT delete-and-relog for a wrong
-  figure; deleting loses the row's original date and logs a phantom churn.
+- `log-claim` fields: `accountId`, `amount` (post-split), `claimedAt`, `notes`, `budgetAccountId`.
+  **`budgetAccountId` is an explicit decision, never automatic** (same rule as an eval payout): send
+  the account the money LANDED in and a `Claim <nickname> (<firm>)` income row is booked to
+  `cat_payout`; omit it and the claim is recorded with **no** income row plus a `warnings[]` entry —
+  correct while the money still sits on the firm's platform.
+- `update-claim` fields: `id`, `amount` (post-split), `claimedAt`, `notes`, `budgetAccountId`. **For a
+  mistyped amount** — it edits the payout in place, and replaces its income row, so the balance can
+  never drift from the claim. Send `budgetAccountId` alone to book the income on a claim logged
+  earlier without one.
 - `delete-account` **CASCADES** its claims away. Use it only for a mistaken purchase —
   a blown account is `update-account` with `status: "dead"`, which keeps the card.
 - `delete-claim` is for a payout that NEVER HAPPENED (or was logged twice) — not for a

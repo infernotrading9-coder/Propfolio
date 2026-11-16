@@ -34,6 +34,9 @@
 
 import { randomUUID } from 'crypto';
 import { withTransaction, type TxClient } from './txConnection';
+// Budget maths lives in ONE place so the eval cascade and the instant-account path
+// can never disagree about which way a balance moves (see budgetLedger.ts).
+import { applyBudgetTransaction } from './budgetLedger';
 import { sessionStart } from './drawdownModel';
 import { logAction } from './actionLog';
 
@@ -299,57 +302,6 @@ async function insertCalendarAccount(
     `INSERT INTO calendar_accounts (id,user_id,name,challenge_id,is_active,created_at)
      VALUES ($1,$2,$3,$4,true,NOW())`, [id, userId, name, challengeId]);
   return id;
-}
-
-/**
- * Append a budget transaction and move the paying account's balance.
- *
- * budget_state is ONE JSONB row per user — always read-modify-write, never a
- * blind overwrite. Credit/debt accounts store the amount OWED, so a charge
- * INCREASES the balance; cash/bank accounts decrease.
- */
-async function applyBudgetTransaction(tx: TxClient, userId: string, t: {
-  name: string; amount: number; accountId: string; date?: string;
-  type?: 'expense' | 'income'; categoryId?: string; isPropFirm?: boolean;
-}): Promise<void> {
-  const amount = round2(t.amount);
-  if (amount <= 0) return;
-
-  const { rows } = await tx.query(
-    `SELECT state FROM budget_state WHERE user_id = $1 LIMIT 1 FOR UPDATE`, [userId]);
-  if (!rows.length) return;
-
-  const state = typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state;
-  if (!state || typeof state !== 'object') return;
-
-  const type = t.type ?? 'expense';
-  state.transactions = Array.isArray(state.transactions) ? state.transactions : [];
-  state.transactions.push({
-    id: randomUUID().slice(0, 8),
-    name: t.name,
-    amount,
-    type,
-    date: t.date || todayET(),
-    accountId: t.accountId,
-    categoryId: t.categoryId || (t.isPropFirm ? 'cat_propfirm' : 'cat_other'),
-    excluded: false,
-    ...(t.isPropFirm ? { isPropFirm: true } : {}),
-  });
-
-  const accounts = Array.isArray(state.accounts) ? state.accounts : [];
-  const target = accounts.find((a: any) => a && a.id === t.accountId);
-  if (target) {
-    const kind = String(target.loanKind || '');
-    const isLiability = kind === 'credit' || kind === 'debt' || kind === 'borrow';
-    const bal = Number(target.balance) || 0;
-    const delta = type === 'income' ? -amount : amount;
-    target.balance = round2(isLiability ? bal + delta : bal - delta);
-  }
-  state.accounts = accounts;
-
-  await tx.query(
-    `UPDATE budget_state SET state = $2::jsonb, updated_at = NOW() WHERE user_id = $1`,
-    [userId, JSON.stringify(state)]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

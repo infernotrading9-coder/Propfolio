@@ -593,6 +593,13 @@ export const instantAccounts = pgTable('instant_accounts', {
   diedAt: text('died_at'),                              // YYYY-MM-DD, set when status -> dead
   fundingSource: text('funding_source'),                // card | crypto | credit — credit means a "win" is repayment
   notes: text('notes'),
+  /** The budget ledger row this purchase booked (see budgetLedger.ts). Nullable:
+   *  accounts logged before instant money reached the budget have none, and a
+   *  purchase bought without a budgetAccountId books nothing (the API warns). */
+  budgetTxnId: text('budget_txn_id'),
+  /** Which budget account the money came from — needed to re-create the expense
+   *  when the price or date is corrected, since the ledger row is keyed by id. */
+  budgetAccountId: text('budget_account_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -606,9 +613,14 @@ export const instantClaims = pgTable('instant_claims', {
   accountId: uuid('account_id')
     .references(() => instantAccounts.id, { onDelete: 'cascade' })
     .notNull(),
-  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(), // POST-split, as Vest credits it
-  claimedAt: text('claimed_at').notNull(),             // YYYY-MM-DD
+  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(), // POST-split
+  claimedAt: text('claimed_at').notNull(),              // YYYY-MM-DD
   notes: text('notes'),
+  /** Income ledger row, written ONLY when a budget account was named — money still
+   *  sitting on the firm's platform is not in a bank account yet. Same rule as eval
+   *  payouts, which never move money without an explicit allocation. */
+  budgetTxnId: text('budget_txn_id'),
+  budgetAccountId: text('budget_account_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

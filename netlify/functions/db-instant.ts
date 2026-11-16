@@ -84,7 +84,15 @@ export const handler: Handler = async (event) => {
     // "15 bought, 13 dead, 2 alive" stays trackable.
     // Fields: count (1-50), firm (default 'Vest Markets'), accountSize (trading
     // capital — Vest: 500 / 5000 / 10000 / 25000), cost (defaults to accountSize),
-    // purchasedAt (YYYY-MM-DD), fundingSource (card|crypto|credit), notes.
+    // purchasedAt (YYYY-MM-DD), fundingSource (card|crypto|credit), notes,
+    // budgetAccountId.
+    // MONEY — SAME MECHANISM AS AN EVAL PURCHASE: `budgetAccountId` is the account
+    // the money came from (the ids in `GET db-budget-state?action=accounts`), and the
+    // purchase books a prop-firm EXPENSE named `Instant — <firm> <size> (<nickname>)`
+    // out of it, moving that account's balance. One ledger row per account. Omit
+    // `budgetAccountId` and the cards are still created but NO expense is booked — the
+    // response says so in `warnings`, and the money then looks untouched in the Budget
+    // tab. There is no bank deduction beyond this single expense.
     // FIRM: instant products are now sold by more than one firm, and cost-per-payout
     // and break-even DIFFER per firm, so always pass it when it isn't Vest. Read back
     // with `GET ?firm=` to keep one firm's figures out of another's.
@@ -137,8 +145,8 @@ export const handler: Handler = async (event) => {
         user.id,
         typeof input.idempotencyKey === 'string' ? input.idempotencyKey : undefined,
         'instant.buy-accounts',
-        async () => ({
-          accounts: await instantService.buyAccounts(user.id, {
+        async () => {
+          const bought = await instantService.buyAccounts(user.id, {
             count,
             firm: firm.firm,
             accountSize,
@@ -146,13 +154,18 @@ export const handler: Handler = async (event) => {
             purchasedAt,
             fundingSource: input.fundingSource ?? null,
             notes: input.notes != null ? String(input.notes) : null,
-          }),
-        }),
+            // The money side: the purchase books a prop-firm expense out of this
+            // account, exactly like an eval purchase, inside the same transaction.
+            budgetAccountId: typeof input.budgetAccountId === 'string' ? input.budgetAccountId : null,
+          });
+          return { accounts: bought.accounts, warnings: bought.warnings };
+        },
       );
       const accounts = result?.accounts ?? [];
       return json(200, {
         created: accounts.length,
         accounts,
+        warnings: result?.warnings ?? [],
         idempotentReplay: result?.idempotentReplay === true,
       });
     }
@@ -218,11 +231,17 @@ export const handler: Handler = async (event) => {
       }
       if (input.notes !== undefined) patch.notes = input.notes === null ? null : String(input.notes);
 
-      if (Object.keys(patch).length === 0) {
+      // `budgetAccountId` on its own is meaningful: it ATTACHES a ledger row to a card
+      // that never had one (every account logged before instant purchases reached the
+      // budget), which is how a backfill is done one card at a time.
+      const budgetAccountId = typeof input.budgetAccountId === 'string' && input.budgetAccountId.trim()
+        ? input.budgetAccountId.trim()
+        : null;
+      if (Object.keys(patch).length === 0 && !budgetAccountId) {
         return json(400, { error: 'nothing to update', code: 'empty_patch' });
       }
 
-      const account = await instantService.updateAccount(user.id, id, patch as any);
+      const account = await instantService.updateAccount(user.id, id, patch as any, { budgetAccountId });
       if (!account) return json(404, { error: `Account ${id} not found`, code: 'no_account' });
       return json(200, { account });
     }
@@ -238,7 +257,14 @@ export const handler: Handler = async (event) => {
       if (!id) return json(400, { error: 'id required', code: 'no_id' });
       const deleted = await instantService.deleteAccount(user.id, id);
       if (!deleted) return json(404, { error: `Account ${id} not found`, code: 'no_account' });
-      return json(200, { deleted: deleted.id, cascadedClaims: true });
+      // The budget entries the card and its claims had booked are reversed with it —
+      // money that is still missing from a balance after a delete is a silent lie.
+      return json(200, {
+        deleted: deleted.id,
+        cascadedClaims: deleted.cascadedClaims,
+        cascadedClaimsCount: deleted.cascadedClaimsCount,
+        removedBudgetEntries: deleted.removedBudgetEntries,
+      });
     }
 
     // ── log-claim ────────────────────────────────────────────────────────────
@@ -274,20 +300,30 @@ export const handler: Handler = async (event) => {
             amount,
             claimedAt,
             notes: input.notes != null ? String(input.notes) : null,
+            // EXPLICIT, never automatic — a claim still sitting on the firm's platform
+            // is not in a bank account yet. Omit it and the response warns.
+            budgetAccountId: typeof input.budgetAccountId === 'string' ? input.budgetAccountId : null,
           }),
         }),
       );
       const claim = result?.claim ?? null;
       if (!claim) return json(404, { error: `Account ${accountId} not found`, code: 'no_account' });
-      return json(200, { claim, idempotentReplay: result?.idempotentReplay === true });
+      return json(200, {
+        claim,
+        warnings: claim.warnings ?? [],
+        idempotentReplay: result?.idempotentReplay === true,
+      });
     }
 
     // ── update-claim ─────────────────────────────────────────────────────────
 
     // Fix a mistyped payout in place. Fields: id (required), amount, claimedAt
-    // (YYYY-MM-DD), notes. `amount` is POST-split, exactly as log-claim requires.
-    // Partial — send only what changed. For a payout that should not exist at all,
-    // use delete-claim instead.
+    // (YYYY-MM-DD), notes, budgetAccountId. `amount` is POST-split, exactly as
+    // log-claim requires. Partial — send only what changed. For a payout that should
+    // not exist at all, use delete-claim instead.
+    // `budgetAccountId` books (or re-books) the income entry: send it to move a claim
+    // into the Budget tab, which is how a claim logged while the money was still on
+    // the platform gets booked once it lands.
     if (input.action === 'update-claim') {
       const id = typeof input.id === 'string' ? input.id : '';
       if (!id) return json(400, { error: 'id required', code: 'no_id' });
@@ -307,6 +343,10 @@ export const handler: Handler = async (event) => {
         patch.claimedAt = input.claimedAt;
       }
       if (input.notes !== undefined) patch.notes = input.notes === null ? null : String(input.notes);
+      const budgetAccountId = typeof input.budgetAccountId === 'string' && input.budgetAccountId.trim()
+        ? input.budgetAccountId.trim()
+        : null;
+      if (budgetAccountId) patch.budgetAccountId = budgetAccountId;
 
       if (Object.keys(patch).length === 0) {
         return json(400, { error: 'nothing to update', code: 'empty_patch' });

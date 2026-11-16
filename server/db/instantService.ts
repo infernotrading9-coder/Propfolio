@@ -1,6 +1,15 @@
 import { db } from './connection';
 import { instantAccounts, instantClaims } from './schema';
 import { and, eq, sql } from 'drizzle-orm';
+// Money writes go through a REAL transaction (the drizzle neon-http driver cannot
+// hold one) and land in the shared budget ledger, so an instant purchase books its
+// expense exactly the way an eval purchase does.
+import { withTransaction } from './txConnection';
+import {
+  applyBudgetTransaction,
+  removeBudgetTransactionById,
+  replaceBudgetTransaction,
+} from './budgetLedger';
 // The stats maths lives in shared/ so the service, the dev mock and the UI all
 // use ONE implementation. See the header of that file for why.
 import {
@@ -43,6 +52,21 @@ export type InstantFundingSource = (typeof INSTANT_FUNDING_SOURCES)[number];
  * without saying so.
  */
 export const INSTANT_DEFAULT_FIRM = 'Vest Markets';
+
+/**
+ * 500 → '500', 5000 → '5K'. The eval naming style (`Lucid Trading 50K`) would turn
+ * a $500 instant account into "1K", so small sizes keep their full figure.
+ */
+const sizeLabel = (size: number): string => (size >= 1000 ? `${Math.round(size / 1000)}K` : String(size));
+
+/**
+ * How an instant purchase appears in the Budget tab:
+ *   `Instant — Vest Markets 500 (V18)`
+ * Mirrors `Eval — Lucid Trading 50K (0064)` so the two sit side by side and the
+ * prop-firm spend rollup treats them alike.
+ */
+const instantTxnName = (firm: string, accountSize: number, nickname: string): string =>
+  `Instant — ${firm} ${sizeLabel(accountSize)} (${nickname})`;
 
 export interface InstantAccountWithClaims {
   id: string;
@@ -160,11 +184,10 @@ export const instantService = {
   },
 
   /**
-   * Buy N accounts in ONE statement.
+   * Buy N accounts in ONE statement — and book the money, exactly like `buyEval`.
    *
    * A batch, not a loop: `buyEval` taught this the hard way — looping N inserts
-   * is N round-trips and N chances to half-succeed. The neon-http driver has no
-   * interactive transactions, so a single multi-row INSERT is the atomic unit.
+   * is N round-trips and N chances to half-succeed.
    *
    * Nicknames continue from the highest existing V<n> so a re-run never
    * reuses a name that is already on a card.
@@ -179,37 +202,86 @@ export const instantService = {
       purchasedAt: string;
       fundingSource?: string | null;
       notes?: string | null;
+      /** Which budget account the money came from. Omit and no expense is booked —
+       *  the response says so in `warnings` rather than pretending. */
+      budgetAccountId?: string | null;
     },
   ) {
     const count = Math.trunc(input.count);
-    const taken = await db.execute(sql`
-      SELECT COALESCE(MAX(NULLIF(regexp_replace(nickname, '\\D', '', 'g'), '')::int), 0) AS maxn
-        FROM instant_accounts WHERE user_id = ${userId}::uuid`);
-    let next = n((taken.rows as any[])[0]?.maxn);
-
     const firm = input.firm && input.firm.trim() ? input.firm.trim() : INSTANT_DEFAULT_FIRM;
+    const budgetAccountId = input.budgetAccountId && String(input.budgetAccountId).trim()
+      ? String(input.budgetAccountId).trim()
+      : null;
 
-    const values = Array.from({ length: count }, () => {
-      next += 1;
-      return {
-        userId,
-        nickname: `V${next}`,
-        firm,
-        accountSize: String(input.accountSize),
-        cost: String(input.cost),
-        purchasedAt: input.purchasedAt,
-        status: 'alive',
-        fundingSource: input.fundingSource ?? null,
-        notes: input.notes ?? null,
-      };
+    /**
+     * ATOMIC + LEDGERED, like the eval dashboard's cascade.
+     *
+     * Each card is inserted and its budget expense booked inside ONE transaction.
+     * A card with no expense is an understated spend that nobody can trace later;
+     * an expense with no card is the same error in reverse. With the HTTP drizzle
+     * driver BEGIN/COMMIT are meaningless, so the write path uses the pooled
+     * WebSocket connection that can hold a real transaction.
+     *
+     * One ledger row PER CARD — same granularity as an eval purchase, so deleting
+     * or re-pricing a single card can move exactly its own money.
+     */
+    return withTransaction(async (tx) => {
+      const taken = await tx.query<{ maxn: number | string | null }>(
+        `SELECT COALESCE(MAX(NULLIF(regexp_replace(nickname, '\\D', '', 'g'), '')::int), 0) AS maxn
+           FROM instant_accounts WHERE user_id = $1`, [userId]);
+      let next = n(taken.rows[0]?.maxn);
+
+      const warnings: string[] = [];
+      if (input.cost > 0 && !budgetAccountId) {
+        warnings.push(
+          'no budgetAccountId — purchases were recorded but NO expense was booked, so this money ' +
+          'will not appear in the Budget tab. Send the account the money came from.',
+        );
+      }
+
+      const created: InstantAccountWithClaims[] = [];
+      for (let i = 0; i < count; i += 1) {
+        next += 1;
+        const nickname = `V${next}`;
+        const { rows } = await tx.query(
+          `INSERT INTO instant_accounts
+             (user_id, nickname, firm, account_size, cost, purchased_at, status,
+              funding_source, notes, budget_account_id)
+           VALUES ($1,$2,$3,$4,$5,$6,'alive',$7,$8,$9)
+           RETURNING *`,
+          [userId, nickname, firm, String(input.accountSize), String(input.cost),
+           input.purchasedAt, input.fundingSource ?? null, input.notes ?? null, budgetAccountId],
+        );
+        const row: any = rows[0];
+
+        if (input.cost > 0 && budgetAccountId) {
+          const txnId = await applyBudgetTransaction(tx, userId, {
+            name: instantTxnName(row.firm, n(row.account_size), nickname),
+            amount: input.cost,
+            accountId: budgetAccountId,
+            date: input.purchasedAt,
+            isPropFirm: true,
+          }, { strict: true });
+          await tx.query(`UPDATE instant_accounts SET budget_txn_id = $2 WHERE id = $1`, [row.id, txnId]);
+          row.budget_txn_id = txnId;
+        }
+
+        created.push(shapeRow(row, 0, 0));
+      }
+
+      return { accounts: created, warnings };
     });
-
-    const rows = await db.insert(instantAccounts).values(values).returning();
-    // Same shape as GET, so a client can treat a create response like a list row.
-    return rows.map((r) => shapeRow(r));
   },
 
-  /** Partial update. Only the keys present are written. Status and diedAt are kept in step. */
+  /**
+   * Partial update. Only the keys present are written. Status and diedAt are kept in step.
+   *
+   * MONEY: if the price, the date, the firm or the nickname changes, the card's
+   * budget expense is REPLACED (reverse the old row, book the new one) rather than
+   * patched in place — a delete-and-rebook cannot get the liability sign wrong.
+   * Passing `budgetAccountId` on a card that has no ledger row yet (every account
+   * logged before instant money reached the budget) attaches one.
+   */
   async updateAccount(
     userId: string,
     id: string,
@@ -224,30 +296,67 @@ export const instantService = {
       fundingSource?: string | null;
       notes?: string | null;
     },
+    opts: { budgetAccountId?: string | null } = {},
   ) {
-    const set: Record<string, unknown> = { updatedAt: new Date() };
-    if (patch.nickname !== undefined) set.nickname = patch.nickname;
-    if (patch.firm !== undefined) set.firm = patch.firm;
-    if (patch.accountSize !== undefined) set.accountSize = String(patch.accountSize);
-    if (patch.cost !== undefined) set.cost = String(patch.cost);
-    if (patch.purchasedAt !== undefined) set.purchasedAt = patch.purchasedAt;
-    if (patch.fundingSource !== undefined) set.fundingSource = patch.fundingSource;
-    if (patch.notes !== undefined) set.notes = patch.notes;
-    if (patch.status !== undefined) {
-      set.status = patch.status;
-      // Dying sets a date; coming back to life must clear it, or lifespan is a lie.
-      if (patch.status === 'dead') set.diedAt = patch.diedAt ?? new Date().toISOString().slice(0, 10);
-      else set.diedAt = null;
-    } else if (patch.diedAt !== undefined) {
-      set.diedAt = patch.diedAt;
-    }
+    await withTransaction(async (tx) => {
+      const cur = await tx.query(`SELECT * FROM instant_accounts WHERE user_id = $1 AND id = $2 FOR UPDATE`,
+        [userId, id]);
+      const before: any = cur.rows[0];
+      if (!before) return;
 
-    const rows = await db
-      .update(instantAccounts)
-      .set(set as any)
-      .where(and(eq(instantAccounts.userId, userId), eq(instantAccounts.id, id)))
-      .returning();
-    if (!rows[0]) return null;
+      const cols: Record<string, unknown> = {};
+      if (patch.nickname !== undefined) cols.nickname = patch.nickname;
+      if (patch.firm !== undefined) cols.firm = patch.firm;
+      if (patch.accountSize !== undefined) cols.account_size = String(patch.accountSize);
+      if (patch.cost !== undefined) cols.cost = String(patch.cost);
+      if (patch.purchasedAt !== undefined) cols.purchased_at = patch.purchasedAt;
+      if (patch.fundingSource !== undefined) cols.funding_source = patch.fundingSource;
+      if (patch.notes !== undefined) cols.notes = patch.notes;
+      if (patch.status !== undefined) {
+        cols.status = patch.status;
+        // Dying sets a date; coming back to life must clear it, or lifespan is a lie.
+        cols.died_at = patch.status === 'dead'
+          ? (patch.diedAt ?? new Date().toISOString().slice(0, 10))
+          : null;
+      } else if (patch.diedAt !== undefined) {
+        cols.died_at = patch.diedAt;
+      }
+
+      const keys = Object.keys(cols);
+      let after: any = before;
+      if (keys.length > 0) {
+        // `keys` is built from this function's own column map, never from user input.
+        const assignments = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
+        const res = await tx.query(
+          `UPDATE instant_accounts SET ${assignments}, updated_at = NOW() WHERE id = $1 RETURNING *`,
+          [id, ...keys.map((k) => cols[k])]);
+        after = res.rows[0];
+      }
+
+      // ── keep the expense in step ──────────────────────────────────────────
+      const moneyChanged = patch.cost !== undefined || patch.purchasedAt !== undefined
+        || patch.firm !== undefined || patch.nickname !== undefined;
+      const acct = (opts.budgetAccountId && String(opts.budgetAccountId).trim())
+        || (before.budget_account_id as string | null)
+        || null;
+      const cost = n(after.cost);
+
+      if (moneyChanged && acct && cost > 0) {
+        const next = {
+          name: instantTxnName(String(after.firm), n(after.account_size), String(after.nickname)),
+          amount: cost,
+          accountId: acct,
+          date: String(after.purchased_at),
+          isPropFirm: true,
+        };
+        const txnId = before.budget_txn_id
+          ? await replaceBudgetTransaction(tx, userId, before.budget_txn_id, next, { strict: true })
+          : await applyBudgetTransaction(tx, userId, next, { strict: true });
+        await tx.query(`UPDATE instant_accounts SET budget_txn_id = $2, budget_account_id = $3 WHERE id = $1`,
+          [id, txnId, acct]);
+      }
+    });
+
     // Re-read so the response carries this card's claim totals too. Returning the
     // bare update row would report claimed 0 and make a card look like it lost
     // its payouts.
@@ -255,53 +364,116 @@ export const instantService = {
     return all.find((a) => a.id === id) ?? null;
   },
 
-  /** Deleting an account cascades its claims away (FK ON DELETE CASCADE). */
+  /**
+   * Deleting an account cascades its claims away (FK ON DELETE CASCADE).
+   *
+   * The budget rows have to be reversed BEFORE the delete: once the cascade has
+   * removed the claim rows, the ids of their income entries are gone, and money
+   * stays missing from the balance with nothing left pointing at it.
+   */
   async deleteAccount(userId: string, id: string) {
-    const rows = await db
-      .delete(instantAccounts)
-      .where(and(eq(instantAccounts.userId, userId), eq(instantAccounts.id, id)))
-      .returning();
-    return rows[0] ?? null;
+    return withTransaction(async (tx) => {
+      const cur = await tx.query(`SELECT * FROM instant_accounts WHERE user_id = $1 AND id = $2 FOR UPDATE`,
+        [userId, id]);
+      const row: any = cur.rows[0];
+      if (!row) return null;
+
+      const removed = await removeBudgetTransactionById(tx, userId, row.budget_txn_id);
+      const claims = await tx.query<{ budget_txn_id: string | null; id: string }>(
+        `SELECT id, budget_txn_id FROM instant_claims WHERE account_id = $1`, [id]);
+      let claimTxns = 0;
+      for (const c of claims.rows) {
+        claimTxns += await removeBudgetTransactionById(tx, userId, c.budget_txn_id);
+      }
+
+      await tx.query(`DELETE FROM instant_accounts WHERE id = $1`, [id]);
+
+      return {
+        id: row.id,
+        nickname: row.nickname,
+        firm: row.firm,
+        cascadedClaims: claims.rows.length > 0,
+        cascadedClaimsCount: claims.rows.length,
+        removedBudgetEntries: removed + claimTxns,
+      };
+    });
   },
 
-  /** Record a Claim Profit. `amount` must already be post-split. */
+  /**
+   * Record a Claim Profit. `amount` must already be post-split.
+   *
+   * `budgetAccountId` is an EXPLICIT decision, never automatic — the same rule as
+   * eval payouts, which never move money without an allocation. A claim whose money
+   * is still sitting on the firm's platform is not in a bank account yet, so with no
+   * account named nothing is booked and the response says so.
+   */
   async logClaim(
     userId: string,
-    input: { accountId: string; amount: number; claimedAt: string; notes?: string | null },
+    input: {
+      accountId: string;
+      amount: number;
+      claimedAt: string;
+      notes?: string | null;
+      budgetAccountId?: string | null;
+    },
   ) {
-    const owns = await db
-      .select({ id: instantAccounts.id })
-      .from(instantAccounts)
-      .where(and(eq(instantAccounts.userId, userId), eq(instantAccounts.id, input.accountId)))
-      .limit(1);
-    if (!owns[0]) return null;
+    const budgetAccountId = input.budgetAccountId && String(input.budgetAccountId).trim()
+      ? String(input.budgetAccountId).trim()
+      : null;
 
-    const rows = await db
-      .insert(instantClaims)
-      .values({
-        userId,
-        accountId: input.accountId,
-        amount: String(input.amount),
-        claimedAt: input.claimedAt,
-        notes: input.notes ?? null,
-      })
-      .returning();
-    const r: any = rows[0];
-    return {
-      id: r.id,
-      accountId: r.account_id ?? r.accountId,
-      amount: round2(n(r.amount)),
-      claimedAt: r.claimed_at ?? r.claimedAt,
-      notes: r.notes ?? null,
-    };
+    return withTransaction(async (tx) => {
+      const owned = await tx.query<{ id: string; nickname: string; firm: string }>(
+        `SELECT id, nickname, firm FROM instant_accounts WHERE user_id = $1 AND id = $2`,
+        [userId, input.accountId]);
+      const acct = owned.rows[0];
+      if (!acct) return null;
+
+      const ins = await tx.query(
+        `INSERT INTO instant_claims (user_id, account_id, amount, claimed_at, notes, budget_account_id)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [userId, input.accountId, String(input.amount), input.claimedAt, input.notes ?? null, budgetAccountId]);
+      const r: any = ins.rows[0];
+
+      const warnings: string[] = [];
+      if (budgetAccountId) {
+        const txnId = await applyBudgetTransaction(tx, userId, {
+          name: `Claim ${acct.nickname} (${acct.firm})`,
+          amount: input.amount,
+          accountId: budgetAccountId,
+          date: input.claimedAt,
+          type: 'income',
+          categoryId: 'cat_payout',
+        }, { strict: true });
+        await tx.query(`UPDATE instant_claims SET budget_txn_id = $2 WHERE id = $1`, [r.id, txnId]);
+        r.budget_txn_id = txnId;
+      } else {
+        warnings.push(
+          'no budgetAccountId — the claim was recorded but no income was booked, so it will not ' +
+          'show in the Budget tab. Send the account the money landed in.',
+        );
+      }
+
+      return {
+        id: r.id,
+        accountId: r.account_id ?? r.accountId,
+        amount: round2(n(r.amount)),
+        claimedAt: r.claimed_at ?? r.claimedAt,
+        notes: r.notes ?? null,
+        warnings,
+      };
+    });
   },
 
   async deleteClaim(userId: string, id: string) {
-    const rows = await db
-      .delete(instantClaims)
-      .where(and(eq(instantClaims.userId, userId), eq(instantClaims.id, id)))
-      .returning();
-    return rows[0] ?? null;
+    return withTransaction(async (tx) => {
+      const cur = await tx.query(`SELECT * FROM instant_claims WHERE user_id = $1 AND id = $2 FOR UPDATE`,
+        [userId, id]);
+      const row: any = cur.rows[0];
+      if (!row) return null;
+      await removeBudgetTransactionById(tx, userId, row.budget_txn_id);
+      await tx.query(`DELETE FROM instant_claims WHERE id = $1`, [id]);
+      return { id: row.id, accountId: row.account_id, amount: round2(n(row.amount)) };
+    });
   },
 
   /**
@@ -311,32 +483,71 @@ export const instantService = {
    * correction leaves no trail. That is deliberate: a claim is an EVENT, and the
    * alternative (delete + re-log) loses the same information while also moving the
    * row's created_at. Only the keys present are written.
+   *
+   * A corrected amount moves the money in the budget too: the income row is
+   * replaced, not patched, so the balance can never drift from the claim.
    */
   async updateClaim(
     userId: string,
     id: string,
-    patch: { amount?: number; claimedAt?: string; notes?: string | null },
+    patch: { amount?: number; claimedAt?: string; notes?: string | null; budgetAccountId?: string | null },
   ) {
-    const set: Record<string, unknown> = {};
-    if (patch.amount !== undefined) set.amount = String(patch.amount);
-    if (patch.claimedAt !== undefined) set.claimedAt = patch.claimedAt;
-    if (patch.notes !== undefined) set.notes = patch.notes;
+    return withTransaction(async (tx) => {
+      const cur = await tx.query(`SELECT * FROM instant_claims WHERE user_id = $1 AND id = $2 FOR UPDATE`,
+        [userId, id]);
+      const before: any = cur.rows[0];
+      if (!before) return null;
 
-    const rows = await db
-      .update(instantClaims)
-      .set(set as any)
-      .where(and(eq(instantClaims.userId, userId), eq(instantClaims.id, id)))
-      .returning();
-    if (!rows[0]) return null;
-    // Same shape as log-claim, so a client can treat an edit response like a create.
-    const r: any = rows[0];
-    return {
-      id: r.id,
-      accountId: r.account_id ?? r.accountId,
-      amount: round2(n(r.amount)),
-      claimedAt: r.claimed_at ?? r.claimedAt,
-      notes: r.notes ?? null,
-    };
+      const cols: Record<string, unknown> = {};
+      if (patch.amount !== undefined) cols.amount = String(patch.amount);
+      if (patch.claimedAt !== undefined) cols.claimed_at = patch.claimedAt;
+      if (patch.notes !== undefined) cols.notes = patch.notes;
+      if (patch.budgetAccountId !== undefined && patch.budgetAccountId !== null) {
+        const a = String(patch.budgetAccountId).trim();
+        if (a) cols.budget_account_id = a;
+      }
+
+      const keys = Object.keys(cols);
+      let after: any = before;
+      if (keys.length > 0) {
+        const assignments = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
+        const res = await tx.query(
+          `UPDATE instant_claims SET ${assignments} WHERE id = $1 RETURNING *`,
+          [id, ...keys.map((k) => cols[k])]);
+        after = res.rows[0];
+      }
+
+      const acct = (after.budget_account_id as string | null) || null;
+      const amount = n(after.amount);
+      const moneyChanged = patch.amount !== undefined || patch.claimedAt !== undefined || !!patch.budgetAccountId;
+
+      if (moneyChanged && acct && amount > 0) {
+        const owner = await tx.query<{ nickname: string; firm: string }>(
+          `SELECT nickname, firm FROM instant_accounts WHERE id = $1`, [after.account_id]);
+        const next = {
+          name: `Claim ${owner.rows[0]?.nickname ?? '?'} (${owner.rows[0]?.firm ?? INSTANT_DEFAULT_FIRM})`,
+          amount,
+          accountId: acct,
+          date: String(after.claimed_at),
+          type: 'income' as const,
+          categoryId: 'cat_payout',
+        };
+        const txnId = before.budget_txn_id
+          ? await replaceBudgetTransaction(tx, userId, before.budget_txn_id, next, { strict: true })
+          : await applyBudgetTransaction(tx, userId, next, { strict: true });
+        await tx.query(`UPDATE instant_claims SET budget_txn_id = $2, budget_account_id = $3 WHERE id = $1`,
+          [id, txnId, acct]);
+      }
+
+      // Same shape as log-claim, so a client can treat an edit response like a create.
+      return {
+        id: after.id,
+        accountId: after.account_id ?? after.accountId,
+        amount: round2(n(after.amount)),
+        claimedAt: after.claimed_at ?? after.claimedAt,
+        notes: after.notes ?? null,
+      };
+    });
   },
 
   /**
