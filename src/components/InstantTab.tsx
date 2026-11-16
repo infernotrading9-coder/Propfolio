@@ -11,26 +11,28 @@ import {
 } from '../../shared/instantStats.mts';
 
 /**
- * Vest Markets — Instant Accounts.
+ * Instant accounts (Vest Markets and any other firm selling the same product).
  *
  * A SEPARATE TAB ON PURPOSE, not a toggle on the eval dashboard. Instant
  * accounts have no evaluation, so they must never reach the Funded Pass Rate
  * (which is derived from `challenges`). Keeping them in their own tab means no
  * eval surface has to filter anything, and no forgotten filter can fake a stat.
  *
- * Every NUMBER on this screen comes from the API's `stats` object. This file
- * derives nothing — no totals, no sums, no averages. (Two divergent copies of
- * the personal-trade maths caused a real bug in Oct 2026.)
+ * EVERY NUMBER on this screen comes from the API's `stats` object — and the API
+ * scopes that object to ONE FIRM when the filter is set. This file derives
+ * nothing: not totals, not sums, not averages, and not a cross-firm blend.
+ * (Two divergent copies of the personal-trade maths caused a real bug in Oct 2026.)
  *
- * MONEY MODEL: the one-time price IS the max drawdown and is never recoverable
- * — Vest funded accounts cannot receive deposits, the trading capital is
- * Vest's. So `cost` is sunk the moment it is paid, and a claim is the only way
- * money ever comes back.
+ * MONEY MODEL (true of Vest; re-check per firm): the one-time price IS the max
+ * drawdown and is never recoverable — Vest funded accounts cannot receive
+ * deposits, the trading capital is Vest's. So `cost` is sunk the moment it is
+ * paid, and a claim is the only way money ever comes back.
  */
 
 interface InstantAccount {
   id: string;
   nickname: string;
+  firm: string;
   accountSize: number;
   cost: number;
   purchasedAt: string;
@@ -48,6 +50,7 @@ interface InstantClaim {
   id: string;
   accountId: string;
   nickname: string;
+  firm?: string;
   amount: number;
   claimedAt: string;
   notes: string | null;
@@ -55,13 +58,27 @@ interface InstantClaim {
 
 const EMPTY_STATS: InstantStats = EMPTY_INSTANT_STATS;
 
-/** The real Vest instant products. Price always equals the max drawdown. */
-const VEST_SIZES = [
-  { size: 500, cost: 10, label: '$500' },
-  { size: 5000, cost: 200, label: '$5,000' },
-  { size: 10000, cost: 400, label: '$10,000' },
-  { size: 25000, cost: 1000, label: '$25,000' },
-];
+/**
+ * Size/price presets PER FIRM.
+ *
+ * Vest's ladder is the known one. Another firm's ladder is DATA, not code — when a
+ * real second firm lands, add its entry here so the buy modal offers its sizes. Until
+ * then an unknown firm simply shows no preset buttons and you type the size and price
+ * by hand, which is why both fields are editable.
+ */
+const FIRM_PRESETS: Record<string, { size: number; cost: number; label: string }[]> = {
+  'Vest Markets': [
+    { size: 500, cost: 10, label: '$500' },
+    { size: 5000, cost: 200, label: '$5,000' },
+    { size: 10000, cost: 400, label: '$10,000' },
+    { size: 25000, cost: 1000, label: '$25,000' },
+  ],
+};
+
+/** What a purchase is attributed to when nobody picks a firm — matches the API default. */
+const DEFAULT_FIRM = 'Vest Markets';
+
+const presetsFor = (firm: string) => FIRM_PRESETS[firm] ?? [];
 
 const money = (v: number | null | undefined) =>
   v === null || v === undefined
@@ -88,14 +105,23 @@ export const InstantTab: React.FC = () => {
   const [accounts, setAccounts] = React.useState<InstantAccount[]>([]);
   const [claims, setClaims] = React.useState<InstantClaim[]>([]);
   const [stats, setStats] = React.useState<InstantStats>(EMPTY_STATS);
+  const [firms, setFirms] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   // The P&L cards have a mobile variant; same 768px breakpoint the dashboard
   // uses for the very same card.
   const [isMobile, setIsMobile] = React.useState(false);
 
+  // ── FIRM ───────────────────────────────────────────────────────────────────
+  // A firm is a STATISTICS BOUNDARY: cost-per-payout and break-even differ per firm,
+  // so a figure that blends two is meaningless. `firmFilter` scopes the whole read
+  // server-side (accounts + claims + stats together) — the UI never re-adds a total.
+  // null = every firm added together, which is shown as such.
+  const [firmFilter, setFirmFilter] = React.useState<string | null>(null);
+
   const [showBuy, setShowBuy] = React.useState(false);
   const [buyCount, setBuyCount] = React.useState(1);
+  const [buyFirm, setBuyFirm] = React.useState(DEFAULT_FIRM);
   const [buySize, setBuySize] = React.useState(500);
   const [buyCost, setBuyCost] = React.useState(10);
   const [buyDate, setBuyDate] = React.useState(today());
@@ -107,6 +133,7 @@ export const InstantTab: React.FC = () => {
 
   // Mistake recovery: edit an account's fields, or fix/remove a payout.
   const [editFor, setEditFor] = React.useState<InstantAccount | null>(null);
+  const [editFirm, setEditFirm] = React.useState(DEFAULT_FIRM);
   const [editSize, setEditSize] = React.useState(500);
   const [editCost, setEditCost] = React.useState(10);
   const [editDate, setEditDate] = React.useState(today());
@@ -144,18 +171,28 @@ export const InstantTab: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/.netlify/functions/db-instant', { headers: getAuthHeaders() });
+      const qs = firmFilter ? `?firm=${encodeURIComponent(firmFilter)}` : '';
+      const res = await fetch(`/.netlify/functions/db-instant${qs}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error(`load failed (${res.status})`);
       const d = await res.json();
       setAccounts(d.accounts || []);
       setClaims(d.claims || []);
       setStats(d.stats || EMPTY_STATS);
+      // The API always returns every firm this user holds, even when filtered, so
+      // the filter control can still offer the others.
+      const returned: string[] = Array.isArray(d.firms) && d.firms.length ? d.firms : [];
+      setFirms(returned);
+      // A filter that no longer matches anything (last account at that firm deleted)
+      // would otherwise leave the tab looking empty for no visible reason.
+      if (firmFilter && returned.length > 0 && !returned.includes(firmFilter)) {
+        setFirmFilter(null);
+      }
     } catch (e: any) {
       setError(String(e?.message || e));
     } finally {
       setLoading(false);
     }
-  }, [getAuthHeaders]);
+  }, [getAuthHeaders, firmFilter]);
 
   React.useEffect(() => {
     load();
@@ -193,9 +230,11 @@ export const InstantTab: React.FC = () => {
   );
 
   const submitBuy = async () => {
+    const firm = buyFirm.trim() || DEFAULT_FIRM;
     const ok = await post({
       action: 'buy-accounts',
       count: Math.max(1, Math.trunc(Number(buyCount) || 1)),
+      firm,
       accountSize: Number(buySize),
       cost: Number(buyCost),
       purchasedAt: buyDate,
@@ -204,6 +243,9 @@ export const InstantTab: React.FC = () => {
     if (ok) {
       setShowBuy(false);
       setBuyCount(1);
+      // Follow the purchase if the read is scoped to a different firm, so the new
+      // accounts can't silently land outside the filter he is looking through.
+      if (firmFilter && firmFilter !== firm) setFirmFilter(firm);
     }
   };
 
@@ -251,6 +293,7 @@ export const InstantTab: React.FC = () => {
    */
   const openEdit = (a: InstantAccount) => {
     setEditFor(a);
+    setEditFirm(a.firm ?? DEFAULT_FIRM);
     setEditSize(a.accountSize);
     setEditCost(a.cost);
     setEditDate(a.purchasedAt);
@@ -260,16 +303,23 @@ export const InstantTab: React.FC = () => {
 
   const submitEdit = async () => {
     if (!editFor) return;
+    const firm = editFirm.trim() || DEFAULT_FIRM;
     const ok = await post({
       action: 'update-account',
       id: editFor.id,
+      firm,
       accountSize: Number(editSize),
       cost: Number(editCost),
       purchasedAt: editDate,
       fundingSource: editFunding,
       notes: editNotes.trim() === '' ? null : editNotes.trim(),
     });
-    if (ok) setEditFor(null);
+    if (ok) {
+      setEditFor(null);
+      // Moving an account to another firm while filtered to the old one would make
+      // it vanish; follow it so the change is visible.
+      if (firmFilter && firmFilter !== firm) setFirmFilter(firm);
+    }
   };
 
   const openClaimEdit = (cl: InstantClaim) => {
@@ -341,6 +391,40 @@ export const InstantTab: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* ── firm filter ──────────────────────────────────────────────────────
+          A firm is a STATISTICS BOUNDARY. Cost-per-payout and break-even differ per
+          firm, so "All firms" is a blended figure and says so out loud rather than
+          quietly averaging two products into one number. */}
+      {firms.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-white/40 text-xs uppercase tracking-wider">Firm</span>
+          <button
+            onClick={() => setFirmFilter(null)}
+            className={`px-3 py-1 rounded-full border text-xs transition-colors ${
+              firmFilter === null ? 'bg-white/15 border-white/40 text-white' : 'border-white/10 text-white/60 hover:text-white'
+            }`}
+          >
+            All{firms.length > 1 ? ` (${firms.length})` : ''}
+          </button>
+          {firms.map((f) => (
+            <button
+              key={f}
+              onClick={() => setFirmFilter(f)}
+              className={`px-3 py-1 rounded-full border text-xs transition-colors ${
+                firmFilter === f ? 'bg-white/15 border-white/40 text-white' : 'border-white/10 text-white/60 hover:text-white'
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+          {firmFilter === null && firms.length > 1 && (
+            <span className="text-amber-300/80 text-xs">
+              ⚠️ these figures blend {firms.length} firms — pick one for a real cost-per-payout
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ── stat tiles ───────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -623,27 +707,54 @@ export const InstantTab: React.FC = () => {
       {showBuy && (
         <Modal title="Buy instant accounts" onClose={() => setShowBuy(false)}>
           <div className="space-y-4">
-            <div>
-              <label className="block text-white/60 text-xs uppercase tracking-wider mb-2">Account size</label>
-              <div className="flex flex-wrap gap-2">
-                {VEST_SIZES.map((v) => (
+            <Field label="Firm">
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={buyFirm}
+                  onChange={(e) => setBuyFirm(e.target.value)}
+                  placeholder={DEFAULT_FIRM}
+                  className="flex-1 min-w-[160px] rounded-md border border-white/15 bg-black/30 px-3 py-2 text-white"
+                />
+                {[...new Set([DEFAULT_FIRM, ...firms])].map((f) => (
                   <button
-                    key={v.size}
-                    onClick={() => {
-                      setBuySize(v.size);
-                      setBuyCost(v.cost);
-                    }}
-                    className={`rounded-md border px-3 py-2 text-sm ${
-                      buySize === v.size
-                        ? 'border-emerald-400/60 bg-emerald-400/20 text-emerald-100'
-                        : 'border-white/15 text-white/70 hover:bg-white/10'
+                    key={f}
+                    onClick={() => setBuyFirm(f)}
+                    className={`rounded-md border px-3 py-2 text-xs ${
+                      buyFirm === f ? 'border-cyan-400/60 bg-cyan-400/15 text-cyan-100' : 'border-white/15 text-white/70 hover:bg-white/10'
                     }`}
                   >
-                    {v.label} · {money(v.cost)}
+                    {f}
                   </button>
                 ))}
               </div>
-            </div>
+            </Field>
+
+            {presetsFor(buyFirm).length > 0 && (
+              <div>
+                <label className="block text-white/60 text-xs uppercase tracking-wider mb-2">
+                  {buyFirm} sizes
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {presetsFor(buyFirm).map((v) => (
+                    <button
+                      key={v.size}
+                      onClick={() => {
+                        setBuySize(v.size);
+                        setBuyCost(v.cost);
+                      }}
+                      className={`rounded-md border px-3 py-2 text-sm ${
+                        buySize === v.size
+                          ? 'border-emerald-400/60 bg-emerald-400/20 text-emerald-100'
+                          : 'border-white/15 text-white/70 hover:bg-white/10'
+                      }`}
+                    >
+                      {v.label} · {money(v.cost)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="How many">
@@ -653,6 +764,15 @@ export const InstantTab: React.FC = () => {
                   max={50}
                   value={buyCount}
                   onChange={(e) => setBuyCount(Number(e.target.value))}
+                  className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-white"
+                />
+              </Field>
+              <Field label="Size (capital)">
+                <input
+                  type="number"
+                  min={0}
+                  value={buySize}
+                  onChange={(e) => setBuySize(Number(e.target.value))}
                   className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-white"
                 />
               </Field>
@@ -689,8 +809,10 @@ export const InstantTab: React.FC = () => {
 
             <div className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-white/60">
               {buyCount} × {money(buyCost)} ={' '}
-              <span className="text-white/90 font-semibold">{money(buyCount * buyCost)}</span> spent.
-              Remember this is sunk — the price is the drawdown, and it never comes back.
+              <span className="text-white/90 font-semibold">{money(buyCount * buyCost)}</span> spent at{' '}
+              {buyFirm.trim() || DEFAULT_FIRM}.
+              Treated as sunk — on Vest the price is the drawdown and never comes back; check that
+              assumption before trusting it for a new firm.
             </div>
 
             <div className="flex justify-end gap-2">
@@ -739,9 +861,9 @@ export const InstantTab: React.FC = () => {
               />
             </Field>
             <div className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-white/60">
-              Enter what Vest actually credits you — post-split. A pre-split figure inflates
-              every number on this tab by about 5%. Claims credit to the Primary Account
-              after 24 hours.
+              Enter what your firm actually credits you — post-split. A pre-split figure inflates
+              every number on this tab by about 5%. Vest credits claims to the Primary Account
+              after 24 hours; check other firms' timings.
             </div>
             <div className="flex justify-end gap-2">
               <button
@@ -769,26 +891,60 @@ export const InstantTab: React.FC = () => {
       {editFor && (
         <Modal title={`Edit ${accountLabel(editFor.nickname)}`} onClose={() => setEditFor(null)}>
           <div className="space-y-4">
-            <div>
-              <label className="block text-white/60 text-xs uppercase tracking-wider mb-2">Account size</label>
-              <div className="flex flex-wrap gap-2">
-                {VEST_SIZES.map((v) => (
+            <Field label="Firm">
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={editFirm}
+                  onChange={(e) => setEditFirm(e.target.value)}
+                  placeholder={DEFAULT_FIRM}
+                  className="flex-1 min-w-[160px] rounded-md border border-white/15 bg-black/30 px-3 py-2 text-white"
+                />
+                {[...new Set([DEFAULT_FIRM, editFor.firm, ...firms])].map((f) => (
                   <button
-                    key={v.size}
-                    onClick={() => setEditSize(v.size)}
-                    className={`rounded-md border px-3 py-2 text-sm ${
-                      editSize === v.size
-                        ? 'border-emerald-400/60 bg-emerald-400/20 text-emerald-100'
-                        : 'border-white/15 text-white/70 hover:bg-white/10'
+                    key={f}
+                    onClick={() => setEditFirm(f)}
+                    className={`rounded-md border px-3 py-2 text-xs ${
+                      editFirm === f ? 'border-cyan-400/60 bg-cyan-400/15 text-cyan-100' : 'border-white/15 text-white/70 hover:bg-white/10'
                     }`}
                   >
-                    {v.label}
+                    {f}
                   </button>
                 ))}
               </div>
-            </div>
+            </Field>
+
+            {presetsFor(editFirm).length > 0 && (
+              <div>
+                <label className="block text-white/60 text-xs uppercase tracking-wider mb-2">Account size</label>
+                <div className="flex flex-wrap gap-2">
+                  {presetsFor(editFirm).map((v) => (
+                    <button
+                      key={v.size}
+                      onClick={() => setEditSize(v.size)}
+                      className={`rounded-md border px-3 py-2 text-sm ${
+                        editSize === v.size
+                          ? 'border-emerald-400/60 bg-emerald-400/20 text-emerald-100'
+                          : 'border-white/15 text-white/70 hover:bg-white/10'
+                      }`}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
+              <Field label="Size (capital)">
+                <input
+                  type="number"
+                  min={0}
+                  value={editSize}
+                  onChange={(e) => setEditSize(Number(e.target.value))}
+                  className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-white"
+                />
+              </Field>
               <Field label="Price paid">
                 <input
                   type="number"
@@ -911,7 +1067,7 @@ const AccountCard: React.FC<{
     </div>
 
     <div className="mt-2 text-white/40 text-xs">
-      bought {a.purchasedAt}
+      <span className="text-white/60">{a.firm}</span> · bought {a.purchasedAt}
       {a.diedAt ? ` · died ${a.diedAt}` : ''}
       {a.lifespanDays !== null ? ` (${a.lifespanDays}d)` : ''}
       {a.claimCount > 1 ? ` · ${a.claimCount} claims` : ''}

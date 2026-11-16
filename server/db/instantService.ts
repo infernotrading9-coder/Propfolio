@@ -33,9 +33,21 @@ export type { InstantStats };
 export const INSTANT_FUNDING_SOURCES = ['card', 'crypto', 'credit'] as const;
 export type InstantFundingSource = (typeof INSTANT_FUNDING_SOURCES)[number];
 
+/**
+ * The firm a purchase is attributed to when nobody says otherwise.
+ *
+ * A FIRM IS A STATISTICS BOUNDARY, not a label. Accounts-per-payout, cost-per-payout
+ * and break-even are all firm-specific (Vest is $10 on $500 with a 95% split; the
+ * next firm will price differently), so every read that drives a number can be
+ * scoped to one firm. Never blend firms in a figure and never sum across them
+ * without saying so.
+ */
+export const INSTANT_DEFAULT_FIRM = 'Vest Markets';
+
 export interface InstantAccountWithClaims {
   id: string;
   nickname: string;
+  firm: string;
   accountSize: number;
   cost: number;
   purchasedAt: string;
@@ -72,6 +84,7 @@ function shapeRow(r: any, claimed: unknown = 0, claimCount: unknown = 0): Instan
   return {
     id: r.id,
     nickname: r.nickname,
+    firm: (r.firm ?? r.firm_name ?? INSTANT_DEFAULT_FIRM) as string,
     accountSize: n(r.account_size ?? r.accountSize),
     cost: round2(cost),
     purchasedAt,
@@ -87,10 +100,17 @@ function shapeRow(r: any, claimed: unknown = 0, claimCount: unknown = 0): Instan
 }
 
 export const instantService = {
-  /** Every account for the user, each carrying its own claim totals. Newest last. */
-  async listAccounts(userId: string): Promise<InstantAccountWithClaims[]> {
+  /**
+   * Every account for the user, each carrying its own claim totals. Newest last.
+   *
+   * `filter.firm` scopes the read to ONE firm. Use it whenever a figure is about to
+   * be shown: accounts-per-payout and cost-per-payout are firm-specific, so a
+   * blended number across two firms averages two different products.
+   */
+  async listAccounts(userId: string, filter?: { firm?: string | null }): Promise<InstantAccountWithClaims[]> {
+    const firm = filter?.firm && filter.firm.trim() ? filter.firm.trim() : null;
     const { rows } = await db.execute(sql`
-      SELECT a.id, a.nickname, a.account_size, a.cost, a.purchased_at, a.status,
+      SELECT a.id, a.nickname, a.firm, a.account_size, a.cost, a.purchased_at, a.status,
              a.died_at, a.funding_source, a.notes,
              COALESCE(c.claimed, 0)      AS claimed,
              COALESCE(c.claim_count, 0)  AS claim_count
@@ -102,22 +122,37 @@ export const instantService = {
            GROUP BY account_id
         ) c ON c.account_id = a.id
        WHERE a.user_id = ${userId}::uuid
+         AND (${firm}::text IS NULL OR a.firm = ${firm}::text)
        ORDER BY a.purchased_at ASC, a.created_at ASC`);
 
     return (rows as any[]).map((r) => shapeRow(r, r.claimed, r.claim_count));
   },
 
-  async listClaims(userId: string) {
+  /** The distinct firms this user actually has accounts at, for the tab's filter. */
+  async listFirms(userId: string): Promise<string[]> {
     const { rows } = await db.execute(sql`
-      SELECT c.id, c.account_id, c.amount, c.claimed_at, c.notes, a.nickname
+      SELECT firm, count(*)::int AS n
+        FROM instant_accounts
+       WHERE user_id = ${userId}::uuid
+       GROUP BY firm
+       ORDER BY n DESC, firm ASC`);
+    return (rows as any[]).map((r) => String(r.firm));
+  },
+
+  async listClaims(userId: string, filter?: { firm?: string | null }) {
+    const firm = filter?.firm && filter.firm.trim() ? filter.firm.trim() : null;
+    const { rows } = await db.execute(sql`
+      SELECT c.id, c.account_id, c.amount, c.claimed_at, c.notes, a.nickname, a.firm
         FROM instant_claims c
         JOIN instant_accounts a ON a.id = c.account_id
        WHERE c.user_id = ${userId}::uuid
+         AND (${firm}::text IS NULL OR a.firm = ${firm}::text)
        ORDER BY c.claimed_at DESC, c.created_at DESC`);
     return (rows as any[]).map((r) => ({
       id: r.id,
       accountId: r.account_id,
       nickname: r.nickname,
+      firm: (r.firm ?? INSTANT_DEFAULT_FIRM) as string,
       amount: n(r.amount),
       claimedAt: r.claimed_at,
       notes: r.notes ?? null,
@@ -138,6 +173,7 @@ export const instantService = {
     userId: string,
     input: {
       count: number;
+      firm?: string | null;
       accountSize: number;
       cost: number;
       purchasedAt: string;
@@ -151,11 +187,14 @@ export const instantService = {
         FROM instant_accounts WHERE user_id = ${userId}::uuid`);
     let next = n((taken.rows as any[])[0]?.maxn);
 
+    const firm = input.firm && input.firm.trim() ? input.firm.trim() : INSTANT_DEFAULT_FIRM;
+
     const values = Array.from({ length: count }, () => {
       next += 1;
       return {
         userId,
         nickname: `V${next}`,
+        firm,
         accountSize: String(input.accountSize),
         cost: String(input.cost),
         purchasedAt: input.purchasedAt,
@@ -176,6 +215,7 @@ export const instantService = {
     id: string,
     patch: {
       nickname?: string;
+      firm?: string;
       accountSize?: number;
       cost?: number;
       purchasedAt?: string;
@@ -187,6 +227,7 @@ export const instantService = {
   ) {
     const set: Record<string, unknown> = { updatedAt: new Date() };
     if (patch.nickname !== undefined) set.nickname = patch.nickname;
+    if (patch.firm !== undefined) set.firm = patch.firm;
     if (patch.accountSize !== undefined) set.accountSize = String(patch.accountSize);
     if (patch.cost !== undefined) set.cost = String(patch.cost);
     if (patch.purchasedAt !== undefined) set.purchasedAt = patch.purchasedAt;
@@ -302,10 +343,10 @@ export const instantService = {
    * The stats. Derived every call from the rows — never stored, never cached.
    * A remembered total for this is a wrong total.
    */
-  async stats(userId: string): Promise<InstantStats> {
+  async stats(userId: string, filter?: { firm?: string | null }): Promise<InstantStats> {
     // Delegate to the ONE implementation in shared/instantStats.mts. Do not
     // re-derive here — the dev mock and the UI import the same function, and a
     // second copy is how dev silently stops matching live.
-    return computeInstantStats(await this.listAccounts(userId));
+    return computeInstantStats(await this.listAccounts(userId, filter));
   },
 };

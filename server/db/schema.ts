@@ -581,6 +581,11 @@ export const instantAccounts = pgTable('instant_accounts', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').references(() => users.id).notNull(),
   nickname: text('nickname').notNull(),                 // V1, V2, …
+  /** WHICH INSTANT PRODUCT. Text, not firms.id — that table is the EVAL registry
+   *  and a crypto instant firm in the challenge picker would be nonsense. Mirrors
+   *  prop_trades.firm. Blank is rejected by a CHECK: a firm name is a filter key,
+   *  and '' would be an invisible firm that swallows rows out of every filter. */
+  firm: text('firm').notNull().default('Vest Markets'),
   accountSize: decimal('account_size', { precision: 12, scale: 2 }).notNull(), // 500 / 5000 / 10000 / 25000
   cost: decimal('cost', { precision: 12, scale: 2 }).notNull(),                // == the max drawdown
   purchasedAt: text('purchased_at').notNull(),          // YYYY-MM-DD

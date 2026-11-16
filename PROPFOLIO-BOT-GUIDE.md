@@ -981,17 +981,23 @@ Reversible: `set-balance`, `reset-drawdown-state`, `record-payout` (including ev
 rate — they must never be logged as a challenge. They live in their own tables and
 are completely isolated from `challenges` / `trading_accounts` / the budget.
 
-**Read the whole tab:** `GET db-instant` returns `{ accounts, claims, stats }`. Never
+**Read the whole tab:** `GET db-instant` returns `{ accounts, claims, stats, firms, firm }`. Never
 compute a total yourself — `stats` is the single source of truth.
+
+**⚠️ FIRM IS A STATISTICS BOUNDARY.** Instant products are sold by more than one firm now, and
+cost-per-payout and break-even DIFFER per firm — so a figure that adds two firms together is
+meaningless. `GET db-instant?firm=<name>` scopes accounts, claims **and** stats to that one firm;
+omit it and you get a blend. `firms` is always the full list this user holds, even when filtered.
+Default when none is given: `Vest Markets`. Report a blended figure **as a blend**, never as a firm's.
 
 **Buy N accounts in one call:**
 ```json
-{ "action": "buy-accounts", "count": 15, "accountSize": 500, "cost": 10,
+{ "action": "buy-accounts", "count": 15, "firm": "Vest Markets", "accountSize": 500, "cost": 10,
   "purchasedAt": "2026-11-12", "fundingSource": "card", "idempotencyKey": "tg-msg-90001" }
 ```
-`accountSize` is Vest trading capital (500 / 5000 / 10000 / 25000). `cost` defaults to
-`accountSize`, but for instant products the real price is $10 / $200 / $400 / $1,000 —
-**pass `cost` explicitly.** `fundingSource` is `card | crypto | credit`.
+`accountSize` is the trading capital (Vest: 500 / 5000 / 10000 / 25000). `cost` defaults to
+`accountSize`, but for instant products the real price is $10 / $200 / $400 / $1,000 — **pass `cost`
+explicitly.** `fundingSource` is `card | crypto | credit`. `firm` is a non-empty name, max 60 chars.
 
 **MONEY MODEL — get this right or every number is wrong:**
 - `cost` is a **sunk expense**. The price IS the max drawdown. It is never a deposit and
@@ -1003,9 +1009,10 @@ compute a total yourself — `stats` is the single source of truth.
 
 **Actions:** `buy-accounts` · `update-account` · `log-claim` · `update-claim` · `delete-account` · `delete-claim`
 
-- `update-account` fields: `id`, `nickname`, `accountSize`, `cost`, `purchasedAt`,
+- `update-account` fields: `id`, `nickname`, `firm`, `accountSize`, `cost`, `purchasedAt`,
   `status` (`alive|dead`), `diedAt`, `fundingSource`, `notes`. Setting `dead` stamps
   `diedAt` today; setting back to `alive` clears it. **Partial — send only what changed.**
+  Moving an account's `firm` re-scopes both firms' figures automatically.
 - `log-claim` fields: `accountId`, `amount` (post-split), `claimedAt`, `notes`.
 - `update-claim` fields: `id`, `amount` (post-split), `claimedAt`, `notes`. **For a
   mistyped amount** — it edits the payout in place. Do NOT delete-and-relog for a wrong

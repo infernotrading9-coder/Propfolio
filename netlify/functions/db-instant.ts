@@ -27,6 +27,22 @@ const positive = (v: unknown): number | null => {
   return Number.isFinite(num) && num > 0 ? num : null;
 };
 
+/** Firm names are filter keys, so they are length-capped and never blank. */
+const FIRM_MAX = 60;
+
+/**
+ * `undefined` / `null` → "not specified" (the caller applies the default).
+ * A blank or over-long value is an ERROR, not a silent default: a bot passing an
+ * empty variable would otherwise file accounts under the wrong firm, and a firm is
+ * a statistics boundary — every cost-per-payout figure depends on it.
+ */
+const parseFirm = (v: unknown): { ok: true; firm: string | null } | { ok: false } => {
+  if (v === undefined || v === null) return { ok: true, firm: null };
+  const s = String(v).trim();
+  if (!s || s.length > FIRM_MAX) return { ok: false };
+  return { ok: true, firm: s };
+};
+
 export const handler: Handler = async (event) => {
   try {
     const user = await getUserFromSession(event);
@@ -35,17 +51,27 @@ export const handler: Handler = async (event) => {
     // ── READ ─────────────────────────────────────────────────────────────────
     // One shape for the whole tab: stats + account cards + claim history. The UI
     // never derives a total of its own.
+    //
+    // FILTER BY FIRM: `?firm=Vest%20Markets` scopes accounts, claims AND stats to
+    // one firm. Use it whenever a per-firm figure is what matters — cost-per-payout
+    // and break-even are firm-specific, so a blended number averages two different
+    // products. Omit it and you get every firm added together.
+    // `firms` is ALWAYS the unfiltered list of firms this user holds, so a filter
+    // control can still offer the others while one is selected.
     if (event.httpMethod === 'GET') {
       const params = event.queryStringParameters || {};
       if (params.action && params.action !== 'list') {
         return json(400, { error: `Unknown action "${params.action}". Use: list` });
       }
-      const [accounts, claims, stats] = await Promise.all([
-        instantService.listAccounts(user.id),
-        instantService.listClaims(user.id),
-        instantService.stats(user.id),
+      const firm = params.firm && params.firm.trim() ? params.firm.trim() : null;
+      const filter = { firm };
+      const [accounts, claims, stats, firms] = await Promise.all([
+        instantService.listAccounts(user.id, filter),
+        instantService.listClaims(user.id, filter),
+        instantService.stats(user.id, filter),
+        instantService.listFirms(user.id),
       ]);
-      return json(200, { accounts, claims, stats });
+      return json(200, { accounts, claims, stats, firms, firm });
     }
 
     if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
@@ -56,13 +82,18 @@ export const handler: Handler = async (event) => {
 
     // Buy N instant accounts in ONE statement. Every account is its own card, so
     // "15 bought, 13 dead, 2 alive" stays trackable.
-    // Fields: count (1-50), accountSize (Vest trading capital: 500 / 5000 / 10000 /
-    // 25000), cost (defaults to accountSize), purchasedAt (YYYY-MM-DD),
-    // fundingSource (card|crypto|credit), notes.
-    // MONEY MODEL: the price IS the max drawdown — $500->$10, $5k->$200, $10k->$400,
-    // $25k->$1,000 — and it is NEVER recoverable, because Vest funded accounts cannot
-    // receive deposits and the trading capital is Vest's. Record it as sunk expense,
-    // never as equity or a deposit. This purchase does NOT touch the budget side.
+    // Fields: count (1-50), firm (default 'Vest Markets'), accountSize (trading
+    // capital — Vest: 500 / 5000 / 10000 / 25000), cost (defaults to accountSize),
+    // purchasedAt (YYYY-MM-DD), fundingSource (card|crypto|credit), notes.
+    // FIRM: instant products are now sold by more than one firm, and cost-per-payout
+    // and break-even DIFFER per firm, so always pass it when it isn't Vest. Read back
+    // with `GET ?firm=` to keep one firm's figures out of another's.
+    // MONEY MODEL: the price IS the max drawdown — Vest: $500->$10, $5k->$200,
+    // $10k->$400, $25k->$1,000 — and it is NEVER recoverable, because Vest funded
+    // accounts cannot receive deposits and the trading capital is Vest's. Re-check
+    // that assumption per firm; not every instant product refunds nothing.
+    // Record it as sunk expense, never as equity or a deposit. This purchase does
+    // NOT touch the budget side.
     // RETRY-SAFE: send idempotencyKey (any unique string per statement, e.g. a UUID).
     // A retried call returns the ORIGINAL result with idempotentReplay: true instead of
     // buying the accounts twice — a Netlify timeout after the write makes bots retry.
@@ -91,6 +122,13 @@ export const handler: Handler = async (event) => {
           code: 'bad_funding_source',
         });
       }
+      const firm = parseFirm(input.firm);
+      if (!firm.ok) {
+        return json(400, {
+          error: `firm must be a non-empty name of ${FIRM_MAX} characters or fewer`,
+          code: 'bad_firm',
+        });
+      }
 
       // Wrap an OBJECT, not the bare array: withIdempotency replays a stored
       // response by spreading it, and spreading an array yields a plain object
@@ -102,6 +140,7 @@ export const handler: Handler = async (event) => {
         async () => ({
           accounts: await instantService.buyAccounts(user.id, {
             count,
+            firm: firm.firm,
             accountSize,
             cost,
             purchasedAt,
@@ -121,7 +160,7 @@ export const handler: Handler = async (event) => {
     // ── update-account ───────────────────────────────────────────────────────
 
     // Partial edit of one card — send only what changed.
-    // Fields: id (required), nickname, accountSize, cost, purchasedAt,
+    // Fields: id (required), nickname, firm, accountSize, cost, purchasedAt,
     // status ('alive'|'dead'), diedAt, fundingSource, notes.
     // status 'dead' sets diedAt to today unless one is supplied; setting it back to
     // 'alive' CLEARS diedAt, so a stale date can never fake a lifespan.
@@ -135,6 +174,14 @@ export const handler: Handler = async (event) => {
         if (!nickname) return json(400, { error: 'nickname cannot be empty', code: 'no_nickname' });
         patch.nickname = nickname;
       }
+      const firm = parseFirm(input.firm);
+      if (!firm.ok) {
+        return json(400, {
+          error: `firm must be a non-empty name of ${FIRM_MAX} characters or fewer`,
+          code: 'bad_firm',
+        });
+      }
+      if (firm.firm !== null) patch.firm = firm.firm;
       if (input.accountSize !== undefined) {
         const v = positive(input.accountSize);
         if (v === null) return json(400, { error: 'accountSize must be positive', code: 'bad_size' });

@@ -31,6 +31,10 @@
 export interface InstantAccountLike {
   id?: string;
   nickname?: string;
+  /** WHICH instant product (e.g. 'Vest Markets'). A firm is a STATISTICS BOUNDARY:
+   *  cost-per-payout and break-even differ per firm, so never blend two into one
+   *  figure. Carried through so a filtered read can be verified end-to-end. */
+  firm?: string;
   accountSize?: string | number;
   cost?: string | number;
   purchasedAt?: string;
