@@ -84,11 +84,30 @@ export class CascadeError extends Error {
 // Internal primitives (all take an open transaction)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Find the firm row for this user, or create it.
+ *
+ * ⚠️ THE MATCH IS NORMALISED, and it has to be. This used to be
+ * `lower(name) = lower($2)` — case-insensitive but SPACE- and punctuation-sensitive,
+ * so a purchase typed as "MyFundedFutures" silently created a SECOND firm row beside
+ * "My Funded Futures". Firm Analysis groups by `firms.name`, so that showed up as two
+ * firms with the history split between them (Nov 2026: 41 challenges on one row, 10 on
+ * "MFF", 5 on "MyFundedFutures"; merging them back was a manual data fix).
+ *
+ * Stripping everything that is not a letter or a digit means "My Funded Futures",
+ * "MyFundedFutures", "my funded futures" and "MFF"… well, not MFF — an acronym is a
+ * different name on purpose. Spelling variants of the SAME name now resolve to the
+ * SAME row, which is the actual fix: a duplicate can no longer be created by a typo.
+ */
 async function findOrCreateFirm(
   tx: TxClient, userId: string, name: string, firmType = 'futures',
 ): Promise<{ id: string; name: string }> {
   const found = await tx.query(
-    `SELECT id, name FROM firms WHERE user_id = $1 AND lower(name) = lower($2) LIMIT 1`,
+    `SELECT id, name FROM firms
+      WHERE user_id = $1
+        AND lower(regexp_replace(name, '[^a-zA-Z0-9]', '', 'g'))
+          = lower(regexp_replace($2,   '[^a-zA-Z0-9]', '', 'g'))
+      LIMIT 1`,
     [userId, name]);
   if (found.rows.length) return { id: String(found.rows[0].id), name: String(found.rows[0].name) };
 
