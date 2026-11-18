@@ -119,14 +119,6 @@ export const InstantTab: React.FC = () => {
   // null = every firm added together, which is shown as such.
   const [firmFilter, setFirmFilter] = React.useState<string | null>(null);
 
-  const [showBuy, setShowBuy] = React.useState(false);
-  const [buyCount, setBuyCount] = React.useState(1);
-  const [buyFirm, setBuyFirm] = React.useState(DEFAULT_FIRM);
-  const [buySize, setBuySize] = React.useState(500);
-  const [buyCost, setBuyCost] = React.useState(10);
-  const [buyDate, setBuyDate] = React.useState(today());
-  const [buyFunding, setBuyFunding] = React.useState('card');
-
   const [claimFor, setClaimFor] = React.useState<InstantAccount | null>(null);
   const [claimAmount, setClaimAmount] = React.useState('');
   const [claimDate, setClaimDate] = React.useState(today());
@@ -228,26 +220,6 @@ export const InstantTab: React.FC = () => {
     },
     [getAuthHeaders, load],
   );
-
-  const submitBuy = async () => {
-    const firm = buyFirm.trim() || DEFAULT_FIRM;
-    const ok = await post({
-      action: 'buy-accounts',
-      count: Math.max(1, Math.trunc(Number(buyCount) || 1)),
-      firm,
-      accountSize: Number(buySize),
-      cost: Number(buyCost),
-      purchasedAt: buyDate,
-      fundingSource: buyFunding,
-    });
-    if (ok) {
-      setShowBuy(false);
-      setBuyCount(1);
-      // Follow the purchase if the read is scoped to a different firm, so the new
-      // accounts can't silently land outside the filter he is looking through.
-      if (firmFilter && firmFilter !== firm) setFirmFilter(firm);
-    }
-  };
 
   const submitClaim = async () => {
     // Editing an existing payout reuses this modal — same fields, different action.
@@ -366,31 +338,12 @@ export const InstantTab: React.FC = () => {
         </div>
       )}
 
-      {/* ── header ───────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className="rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs font-semibold tracking-wide text-cyan-200">
-            NO EVALUATION
-          </span>
-          <span className="text-white/50 text-sm">
-            Kept separate from evals — these never touch the pass rate.
-          </span>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={load}
-            className="rounded-md border border-white/15 px-3 py-2 text-sm text-white/80 hover:bg-white/10"
-          >
-            Refresh
-          </button>
-          <button
-            onClick={() => setShowBuy(true)}
-            className="rounded-md border border-emerald-400/40 bg-emerald-400/15 px-4 py-2 text-sm font-semibold text-emerald-200 hover:bg-emerald-400/25"
-          >
-            + Buy accounts
-          </button>
-        </div>
-      </div>
+      {/* The "NO EVALUATION" badge, the "kept separate from evals" line, Refresh and
+          "+ Buy accounts" used to sit here. Daniel removed all four (Nov 16 2026): they
+          stated the obvious and ate the top of the tab.
+          The separation is still real — it lives in the DATABASE (own tables, no eval
+          query can see them) — it just doesn't need a banner, and accounts are logged
+          through Ticksensei / the API rather than from this screen. */}
 
       {/* ── firm filter ──────────────────────────────────────────────────────
           A firm is a STATISTICS BOUNDARY. Cost-per-payout and break-even differ per
@@ -508,7 +461,7 @@ export const InstantTab: React.FC = () => {
         </h3>
         {accounts.length === 0 ? (
           <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center text-white/50">
-            No instant accounts yet. Use <span className="text-emerald-300">+ Buy accounts</span> to add your first batch.
+            No instant accounts yet — log them through Ticksensei and they'll show up here.
           </div>
         ) : activeAccounts.length === 0 ? (
           <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-center text-white/50">
@@ -704,132 +657,11 @@ export const InstantTab: React.FC = () => {
       )}
 
       {/* ── buy modal ────────────────────────────────────────────────────── */}
-      {showBuy && (
-        <Modal title="Buy instant accounts" onClose={() => setShowBuy(false)}>
-          <div className="space-y-4">
-            <Field label="Firm">
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  value={buyFirm}
-                  onChange={(e) => setBuyFirm(e.target.value)}
-                  placeholder={DEFAULT_FIRM}
-                  className="flex-1 min-w-[160px] rounded-md border border-white/15 bg-black/30 px-3 py-2 text-white"
-                />
-                {[...new Set([DEFAULT_FIRM, ...firms])].map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setBuyFirm(f)}
-                    className={`rounded-md border px-3 py-2 text-xs ${
-                      buyFirm === f ? 'border-cyan-400/60 bg-cyan-400/15 text-cyan-100' : 'border-white/15 text-white/70 hover:bg-white/10'
-                    }`}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-            </Field>
-
-            {presetsFor(buyFirm).length > 0 && (
-              <div>
-                <label className="block text-white/60 text-xs uppercase tracking-wider mb-2">
-                  {buyFirm} sizes
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {presetsFor(buyFirm).map((v) => (
-                    <button
-                      key={v.size}
-                      onClick={() => {
-                        setBuySize(v.size);
-                        setBuyCost(v.cost);
-                      }}
-                      className={`rounded-md border px-3 py-2 text-sm ${
-                        buySize === v.size
-                          ? 'border-emerald-400/60 bg-emerald-400/20 text-emerald-100'
-                          : 'border-white/15 text-white/70 hover:bg-white/10'
-                      }`}
-                    >
-                      {v.label} · {money(v.cost)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="How many">
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={buyCount}
-                  onChange={(e) => setBuyCount(Number(e.target.value))}
-                  className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-white"
-                />
-              </Field>
-              <Field label="Size (capital)">
-                <input
-                  type="number"
-                  min={0}
-                  value={buySize}
-                  onChange={(e) => setBuySize(Number(e.target.value))}
-                  className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-white"
-                />
-              </Field>
-              <Field label="Price each">
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={buyCost}
-                  onChange={(e) => setBuyCost(Number(e.target.value))}
-                  className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-white"
-                />
-              </Field>
-              <Field label="Date">
-                <input
-                  type="date"
-                  value={buyDate}
-                  onChange={(e) => setBuyDate(e.target.value)}
-                  className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-white"
-                />
-              </Field>
-              <Field label="Paid with">
-                <select
-                  value={buyFunding}
-                  onChange={(e) => setBuyFunding(e.target.value)}
-                  className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-white"
-                >
-                  <option value="card">card</option>
-                  <option value="crypto">crypto</option>
-                  <option value="credit">credit</option>
-                </select>
-              </Field>
-            </div>
-
-            <div className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-white/60">
-              {buyCount} × {money(buyCost)} ={' '}
-              <span className="text-white/90 font-semibold">{money(buyCount * buyCost)}</span> spent at{' '}
-              {buyFirm.trim() || DEFAULT_FIRM}.
-              Treated as sunk — on Vest the price is the drawdown and never comes back; check that
-              assumption before trusting it for a new firm.
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowBuy(false)} className="rounded-md border border-white/15 px-4 py-2 text-sm text-white/70">
-                Cancel
-              </button>
-              <button
-                disabled={busy || buyCount < 1 || buyCount > 50 || !(buyCost > 0)}
-                onClick={submitBuy}
-                className="rounded-md border border-emerald-400/50 bg-emerald-400/20 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-40"
-              >
-                {busy ? 'Saving…' : `Buy ${buyCount}`}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      {/* There is NO buy modal any more. Daniel removed the "+ Buy accounts" button
+          (Nov 16 2026) and Ticksensei logs instant purchases through db-instant, which
+          also books the budget expense — a hand entry point would bypass that. The old
+          modal is in git (fb9ec779) if one is ever wanted back; it needs a button to
+          open it, and it should pass budgetAccountId. */}
 
       {/* ── claim modal (log OR fix a payout) ────────────────────────────── */}
       {(claimFor || editClaim) && (
