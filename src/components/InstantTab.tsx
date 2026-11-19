@@ -154,6 +154,19 @@ export const InstantTab: React.FC = () => {
   const [periodCount, setPeriodCount] = React.useState<number | 'all'>(14);
   const [showFailed, setShowFailed] = React.useState(false);
 
+  // Payout history is ONE ROW PER DAY (see shared/instantStats.mts). Vest pays on demand
+  // with no minimum — 12 claims in a single day — so a flat list of every claim stopped
+  // being readable almost immediately. Days start COLLAPSED, with the individual claims
+  // (and their Edit/Delete) one tap underneath.
+  //
+  // ⚠️ These two hooks MUST stay up here with the rest. They were briefly declared down
+  // in the derived-values block, AFTER the `if (loading) return` — so the loading render
+  // called fewer hooks than the loaded one and React threw #310 ("rendered more hooks
+  // than during the previous render"). The rule at the top of this component exists for
+  // exactly this: ALL hooks first, before any early return.
+  const [expandedDays, setExpandedDays] = React.useState<Record<string, boolean>>({});
+  const claimDays = React.useMemo(() => groupClaimsByDay(claims), [claims]);
+
   const getAuthHeaders = React.useCallback((): Record<string, string> => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     try {
@@ -346,12 +359,8 @@ export const InstantTab: React.FC = () => {
     (period === 'daily' ? stats.daily : period === 'weekly' ? stats.weekly : stats.monthly) ?? [];
   const visiblePeriods = effectiveCount === 'all' ? periodRows : periodRows.slice(0, effectiveCount);
 
-  // Payout history is ONE ROW PER DAY (see shared/instantStats.mts). Vest pays on
-  // demand with no minimum — 12 claims in a single day — so a flat list of every
-  // claim stopped being readable almost immediately. Days start COLLAPSED, with the
-  // individual claims (and their Edit/Delete) one tap underneath.
-  const claimDays = React.useMemo(() => groupClaimsByDay(claims), [claims]);
-  const [expandedDays, setExpandedDays] = React.useState<Record<string, boolean>>({});
+  // Payout history is ONE ROW PER DAY — see `claimDays`/`expandedDays` up in the hooks
+  // block (they cannot be declared here: this runs after the loading early-return).
 
   // One modal serves "log a payout" and "fix a payout" — only the action differs.
   const claimTargetName = editClaim
