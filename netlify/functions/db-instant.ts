@@ -58,6 +58,13 @@ export const handler: Handler = async (event) => {
     // products. Omit it and you get every firm added together.
     // `firms` is ALWAYS the unfiltered list of firms this user holds, so a filter
     // control can still offer the others while one is selected.
+    //
+    // `stats` carries the derived figures PLUS the money-risk ones, all scoped to the
+    // filter: hitRate, winningAccounts, losingAccounts, grossWin, grossLoss,
+    // profitFactor, and daily / weekly / monthly P&L rows (newest first).
+    // `profitFactor` is null when nothing has lost yet — that is UNDEFINED, not 1.00.
+    // `hitRate` counts only accounts that came out AHEAD: a break-even account is not a
+    // hit, and an account that claimed less than its price is a loser even though it paid.
     if (event.httpMethod === 'GET') {
       const params = event.queryStringParameters || {};
       if (params.action && params.action !== 'list') {
@@ -100,8 +107,9 @@ export const handler: Handler = async (event) => {
     // $10k->$400, $25k->$1,000 — and it is NEVER recoverable, because Vest funded
     // accounts cannot receive deposits and the trading capital is Vest's. Re-check
     // that assumption per firm; not every instant product refunds nothing.
-    // Record it as sunk expense, never as equity or a deposit. This purchase does
-    // NOT touch the budget side.
+    // Record it as sunk expense, never as equity or a deposit.
+    // The expense is booked against `budgetAccountId` (see MONEY above) — that single
+    // ledger row IS the budget side, and deleting the card reverses it.
     // RETRY-SAFE: send idempotencyKey (any unique string per statement, e.g. a UUID).
     // A retried call returns the ORIGINAL result with idempotentReplay: true instead of
     // buying the accounts twice — a Netlify timeout after the write makes bots retry.

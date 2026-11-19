@@ -6,6 +6,7 @@ import { PnLPeriodCard } from './PnLPeriodCard';
 // a silent way for the UI to fall behind the API.
 import {
   EMPTY_INSTANT_STATS,
+  groupClaimsByDay,
   type InstantStats,
   type InstantPeriodRow,
 } from '../../shared/instantStats.mts';
@@ -141,8 +142,11 @@ export const InstantTab: React.FC = () => {
   // the failed cards are out of sight, but they must stay REACHABLE (a mistaken
   // purchase still has to be deletable, and a card marked dead by accident still
   // has to be revivable).
-  const [period, setPeriod] = React.useState<'monthly' | 'weekly'>('monthly');
-  const [periodCount, setPeriodCount] = React.useState<6 | 12 | 'all'>(12);
+  // DAILY is the default here, unlike the eval dashboard's Monthly: an instant account
+  // is bought and usually dies within the same day, so a monthly row hides the pace
+  // entirely. Weekly and Monthly stay one tap away.
+  const [period, setPeriod] = React.useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [periodCount, setPeriodCount] = React.useState<number | 'all'>(14);
   const [showFailed, setShowFailed] = React.useState(false);
 
   const getAuthHeaders = React.useCallback((): Record<string, string> => {
@@ -312,6 +316,13 @@ export const InstantTab: React.FC = () => {
   }
 
   const netTone = stats.net > 0 ? 'text-green-400' : stats.net < 0 ? 'text-red-400' : 'text-white/70';
+  // Profit factor carries the verdict (1.00 is a real break-even line). Hit rate does
+  // NOT get judged by a threshold: with this payoff skew a third of accounts hitting can
+  // be very profitable — the winners are multiples of the price — so colouring it
+  // would assert a rule that isn't true. PF is the honest summary.
+  const pfTone = stats.profitFactor === null ? 'text-white/70'
+    : stats.profitFactor >= 1 ? 'text-emerald-300'
+      : stats.profitFactor >= 0.8 ? 'text-amber-200' : 'text-red-300';
 
   // Presentation-only partitioning — every NUMBER below still comes from the API.
   const activeAccounts = accounts.filter((a) => a.status !== 'dead');
@@ -319,9 +330,23 @@ export const InstantTab: React.FC = () => {
   // `?? []` is a guard for an API that predates these fields: a dev mock started
   // BEFORE this change answers without them, and `.slice` on undefined is a white
   // screen. An absent array reads as "no rows", never as an invented figure.
+  // Count chips adapt to the period — "last 12 days" and "last 12 months" are very
+  // different windows, and a daily list needs more rows before it is useful. If the
+  // stored count isn't valid for the period just switched to, the FIRST option wins
+  // (no state churn, no invalid index).
+  const countOptions: (number | 'all')[] = period === 'daily' ? [7, 14, 30, 'all'] : [6, 12, 'all'];
+  const effectiveCount = countOptions.includes(periodCount) ? periodCount : countOptions[0];
+  const periodLabel = period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly';
   const periodRows: InstantPeriodRow[] =
-    (period === 'monthly' ? stats.monthly : stats.weekly) ?? [];
-  const visiblePeriods = periodCount === 'all' ? periodRows : periodRows.slice(0, periodCount);
+    (period === 'daily' ? stats.daily : period === 'weekly' ? stats.weekly : stats.monthly) ?? [];
+  const visiblePeriods = effectiveCount === 'all' ? periodRows : periodRows.slice(0, effectiveCount);
+
+  // Payout history is ONE ROW PER DAY (see shared/instantStats.mts). Vest pays on
+  // demand with no minimum — 12 claims in a single day — so a flat list of every
+  // claim stopped being readable almost immediately. Days start COLLAPSED, with the
+  // individual claims (and their Edit/Delete) one tap underneath.
+  const claimDays = React.useMemo(() => groupClaimsByDay(claims), [claims]);
+  const [expandedDays, setExpandedDays] = React.useState<Record<string, boolean>>({});
 
   // One modal serves "log a payout" and "fix a payout" — only the action differs.
   const claimTargetName = editClaim
@@ -414,6 +439,30 @@ export const InstantTab: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <NeonCard glow="emerald" className="p-4">
+          <div className="text-white/50 text-xs uppercase tracking-wider">Hit rate</div>
+          <div className="text-2xl font-bold text-cyan-200 mt-1">
+            {stats.hitRate !== null ? `${(stats.hitRate * 100).toFixed(1)}%` : '—'}
+          </div>
+          <div className="text-white/50 text-xs mt-1">
+            {stats.accountsBought > 0
+              ? `${stats.winningAccounts} of ${stats.accountsBought} accounts came out ahead`
+              : 'no accounts yet'}
+          </div>
+        </NeonCard>
+
+        <NeonCard glow="emerald" className="p-4">
+          <div className="text-white/50 text-xs uppercase tracking-wider">Profit factor</div>
+          <div className={`text-2xl font-bold mt-1 ${pfTone}`}>
+            {stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : '—'}
+          </div>
+          <div className="text-white/50 text-xs mt-1">
+            {stats.profitFactor === null
+              ? 'nothing has lost yet — undefined, not 1.00'
+              : `${money(stats.grossWin)} won vs ${money(stats.grossLoss)} lost`}
+          </div>
+        </NeonCard>
+
         <NeonCard glow="cyan" className="p-4">
           <div className="text-white/50 text-xs uppercase tracking-wider">Accounts per payout</div>
           <div className="text-2xl font-bold text-cyan-200 mt-1">
@@ -429,7 +478,9 @@ export const InstantTab: React.FC = () => {
           <div className="text-2xl font-bold text-amber-200 mt-1">{money(stats.costPerPayout)}</div>
           <div className="text-white/50 text-xs mt-1">what one payout costs to produce</div>
         </NeonCard>
+      </div>
 
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <NeonCard glow="purple" className="p-4">
           <div className="text-white/50 text-xs uppercase tracking-wider">Net per account</div>
           <div className={`text-2xl font-bold mt-1 ${netTone}`}>{money(stats.netPerAccount)}</div>
@@ -496,47 +547,33 @@ export const InstantTab: React.FC = () => {
         <div>
           <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
             <div>
-              <h3 className="text-lg font-semibold text-white/90">
-                {period === 'monthly' ? 'Monthly' : 'Weekly'} P&amp;L
-              </h3>
+              <h3 className="text-lg font-semibold text-white/90">{periodLabel} P&amp;L</h3>
               <div className="text-white/45 text-xs">
-                after costs · every account bought in the {period === 'monthly' ? 'month' : 'week'}
+                after costs · every account bought {period === 'daily' ? 'that day' : period === 'weekly' ? 'that week' : 'that month'}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="inline-flex bg-white/5 border border-white/10 rounded-md p-1 text-xs">
-                <button
-                  onClick={() => setPeriod('monthly')}
-                  className={`px-2 py-1 rounded ${period === 'monthly' ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white'}`}
-                >
-                  Monthly
-                </button>
-                <button
-                  onClick={() => setPeriod('weekly')}
-                  className={`px-2 py-1 rounded ${period === 'weekly' ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white'}`}
-                >
-                  Weekly
-                </button>
+                {(['daily', 'weekly', 'monthly'] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPeriod(p)}
+                    className={`px-2 py-1 rounded capitalize ${period === p ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white'}`}
+                  >
+                    {p}
+                  </button>
+                ))}
               </div>
               <div className="inline-flex bg-white/5 border border-white/10 rounded-md p-1 text-xs">
-                <button
-                  onClick={() => setPeriodCount(6)}
-                  className={`px-2 py-1 rounded ${periodCount === 6 ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white'}`}
-                >
-                  6
-                </button>
-                <button
-                  onClick={() => setPeriodCount(12)}
-                  className={`px-2 py-1 rounded ${periodCount === 12 ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white'}`}
-                >
-                  12
-                </button>
-                <button
-                  onClick={() => setPeriodCount('all')}
-                  className={`px-2 py-1 rounded ${periodCount === 'all' ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white'}`}
-                >
-                  All
-                </button>
+                {countOptions.map((c) => (
+                  <button
+                    key={String(c)}
+                    onClick={() => setPeriodCount(c)}
+                    className={`px-2 py-1 rounded ${effectiveCount === c ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white'}`}
+                  >
+                    {c === 'all' ? 'All' : c}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -602,56 +639,91 @@ export const InstantTab: React.FC = () => {
         </div>
       )}
 
-      {/* ── claim history ────────────────────────────────────────────────── */}
-      {claims.length > 0 && (
+      {/* ── claim history — ONE ROW PER DAY ────────────────────────────────
+          Vest pays on demand with no minimum, so a single day can produce a dozen
+          claims (12 on Nov 18 2026) and a flat list of every claim stopped being
+          readable almost immediately. Each day collapses to a count + total; the
+          individual claims, and their Edit/Delete, are one tap underneath. */}
+      {claimDays.length > 0 && (
         <div>
-          <h3 className="text-lg font-semibold text-white/90 mb-3">Payout history</h3>
+          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+            <h3 className="text-lg font-semibold text-white/90">Payout history</h3>
+            <span className="text-white/40 text-xs">
+              {stats.payoutsReceived} claim{stats.payoutsReceived === 1 ? '' : 's'} ·{' '}
+              {money(stats.claimed)} all time
+            </span>
+          </div>
           <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/5">
-            {claims.map((cl) => (
-              <div key={cl.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                <div className="flex items-center gap-3">
-                  <span className="text-white/80 font-semibold">{accountLabel(cl.nickname)}</span>
-                  <span className="text-white/40">{cl.claimedAt}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-green-300 font-semibold">{money(cl.amount)}</span>
-                  {/* Fix a mistyped amount, or remove a payout that never happened. */}
+            {claimDays.map((day) => {
+              const open = expandedDays[day.date] === true;
+              return (
+                <div key={day.date}>
                   <button
-                    disabled={busy}
-                    onClick={() => openClaimEdit(cl)}
-                    title="Edit this payout"
-                    className="rounded-md border border-white/15 px-2 py-1 text-xs text-white/60 hover:text-white disabled:opacity-40"
+                    onClick={() => setExpandedDays((prev) => ({ ...prev, [day.date]: !open }))}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-sm hover:bg-white/5"
                   >
-                    Edit
-                  </button>
-                  {confirmClaimDeleteId === cl.id ? (
-                    <span className="flex items-center gap-2">
-                      <button
-                        disabled={busy}
-                        onClick={() => removeClaim(cl.id)}
-                        className="rounded-md border border-red-500 bg-red-500/25 px-2 py-1 text-xs font-semibold text-red-100 disabled:opacity-40"
-                      >
-                        Delete?
-                      </button>
-                      <button
-                        onClick={() => setConfirmClaimDeleteId(null)}
-                        className="text-xs text-white/50 hover:text-white"
-                      >
-                        Cancel
-                      </button>
+                    <span className="flex items-center gap-3">
+                      <span className={`text-white/40 transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
+                      <span className="text-white/90 font-semibold">{day.label}</span>
+                      <span className="text-white/40">
+                        {day.count} claim{day.count === 1 ? '' : 's'}
+                      </span>
                     </span>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmClaimDeleteId(cl.id)}
-                      title="Delete this payout"
-                      className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/40 hover:text-red-300"
-                    >
-                      ✕
-                    </button>
+                    <span className="text-green-300 font-semibold">{money(day.total)}</span>
+                  </button>
+
+                  {open && (
+                    <div className="border-t border-white/5 bg-black/20 divide-y divide-white/5">
+                      {day.claims.map((cl) => (
+                        <div
+                          key={cl.id}
+                          className="flex items-center justify-between gap-3 py-2 pl-10 pr-4 text-sm"
+                        >
+                          <span className="text-white/80 font-semibold">{accountLabel(cl.nickname)}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-green-300 font-semibold">{money(cl.amount)}</span>
+                            {/* Fix a mistyped amount, or remove a payout that never happened. */}
+                            <button
+                              disabled={busy}
+                              onClick={() => openClaimEdit(cl)}
+                              title="Edit this payout"
+                              className="rounded-md border border-white/15 px-2 py-1 text-xs text-white/60 hover:text-white disabled:opacity-40"
+                            >
+                              Edit
+                            </button>
+                            {confirmClaimDeleteId === cl.id ? (
+                              <span className="flex items-center gap-2">
+                                <button
+                                  disabled={busy}
+                                  onClick={() => removeClaim(cl.id)}
+                                  className="rounded-md border border-red-500 bg-red-500/25 px-2 py-1 text-xs font-semibold text-red-100 disabled:opacity-40"
+                                >
+                                  Delete?
+                                </button>
+                                <button
+                                  onClick={() => setConfirmClaimDeleteId(null)}
+                                  className="text-xs text-white/50 hover:text-white"
+                                >
+                                  Cancel
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmClaimDeleteId(cl.id)}
+                                title="Delete this payout"
+                                className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/40 hover:text-red-300"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

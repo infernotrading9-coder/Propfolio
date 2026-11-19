@@ -65,6 +65,29 @@ export interface InstantStats {
   stillToBreakEven: number;         // 0 once past it
   recoveredPct: number | null;      // claimed / spent, 3dp
 
+  /**
+   * HIT RATE — the share of accounts that came out AHEAD: `claimed > cost`.
+   *
+   * Paying something is not a win. An account that claimed $5 against a $9.50 price
+   * still lost, so counting "did it pay at all" as a hit would flatter a losing batch
+   * badly (and every account in a $9.50 bucket that pays $5 is a loser). A hit is
+   * strictly net-positive.
+   */
+  winningAccounts: number;
+  losingAccounts: number;           // net < 0 — for an instant account that is any claim below cost
+  grossWin: number;                 // sum of the positive nets
+  grossLoss: number;                // sum of the negative nets, as a POSITIVE magnitude
+  hitRate: number | null;           // winners / accounts bought, 0–1, 3dp
+
+  /**
+   * PROFIT FACTOR — grossWin / grossLoss. > 1 means the winners cover the losers.
+   *
+   * `null` (not Infinity, not a fake 1) when nothing has lost yet: the ratio is
+   * genuinely undefined with no denominator, and the tab renders '—' rather than a
+   * number that would read as mediocre performance. Also null with no accounts.
+   */
+  profitFactor: number | null;
+
   avgLifespanDays: number | null;   // dead accounts only
   firstPurchase: string | null;
   lastPurchase: string | null;
@@ -78,8 +101,13 @@ export interface InstantStats {
 
   /**
    * Every account rolled up one row per period, newest period first — what the
-   * Instant tab's Monthly / Weekly P&L cards render.
+   * Instant tab's Daily / Weekly / Monthly P&L cards render.
+   *
+   * DAILY is the one that matters most here: an instant account is bought and usually
+   * dies inside the SAME day, so monthly rows hide the pace completely (Nov 2026 was
+   * one row while he was making a dozen decisions a day).
    */
+  daily: InstantPeriodRow[];
   monthly: InstantPeriodRow[];
   weekly: InstantPeriodRow[];
 }
@@ -109,9 +137,11 @@ export const EMPTY_INSTANT_STATS: InstantStats = {
   spent: 0, claimed: 0, net: 0, roi: null, payoutsReceived: 0, avgClaim: null,
   accountsPerPayout: null, costPerPayout: null, netPerAccount: null,
   stillToBreakEven: 0, recoveredPct: null, avgLifespanDays: null,
+  winningAccounts: 0, losingAccounts: 0, grossWin: 0, grossLoss: 0,
+  hitRate: null, profitFactor: null,
   firstPurchase: null, lastPurchase: null,
   topAccount: null,
-  monthly: [], weekly: [],
+  daily: [], monthly: [], weekly: [],
 };
 
 const num = (v: unknown): number => {
@@ -158,6 +188,92 @@ function weekHeading(start: string) {
   const main =
     am === bm ? `${am} ${a.getUTCDate()}–${b.getUTCDate()}` : `${am} ${a.getUTCDate()}–${bm} ${b.getUTCDate()}`;
   return { top: String(a.getUTCFullYear()), main, label: `${main}, ${a.getUTCFullYear()}` };
+}
+
+/**
+ * Day headings read 'Nov 18'.
+ *
+ * Deliberately NOT 'Today'/'Yesterday': this runs inside a PURE stats function with no
+ * clock, and a card labelled 'Today' that quietly means "the newest row" would be a lie
+ * the moment the read is stale. `groupClaimsByDay` takes an explicit `today` for the
+ * history list, which is the one place the relative wording helps.
+ */
+function dayHeading(day: string) {
+  const t = Date.parse(day + 'T00:00:00Z');
+  if (!Number.isFinite(t)) return { top: '', main: day, label: day };
+  const d = new Date(t);
+  const main = `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCDate()}`;
+  return { top: String(d.getUTCFullYear()), main, label: `${main}, ${d.getUTCFullYear()}` };
+}
+
+/** A claim row as the API and the dev mock both shape it. */
+export interface InstantClaimLike {
+  id?: string;
+  claimedAt?: string;
+  amount?: string | number;
+  nickname?: string;
+  firm?: string;
+  notes?: string | null;
+}
+
+/** One day of claims — what Payout history renders as a single collapsible row.
+ *  Generic over the claim type so the UI keeps its own richer claim fields
+ *  (nickname, notes, …) without a cast. */
+export interface InstantDayRow<T = InstantClaimLike> {
+  date: string;      // YYYY-MM-DD
+  label: string;     // 'Today' | 'Yesterday' | 'Nov 16' | 'Nov 16 2025'
+  count: number;
+  total: number;     // summed amounts, 2dp
+  claims: T[];
+}
+
+/** 'Today' / 'Yesterday' / 'Nov 16' / 'Nov 16 2025' when the year differs. */
+function dayLabel(day: string, today: string): string {
+  const t = Date.parse(day + 'T00:00:00Z');
+  if (!Number.isFinite(t)) return day;
+  if (day === today) return 'Today';
+  const prev = new Date(Date.parse(today + 'T00:00:00Z') - 86_400_000).toISOString().slice(0, 10);
+  if (day === prev) return 'Yesterday';
+  const d = new Date(t);
+  const base = `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCDate()}`;
+  return d.getUTCFullYear() === Number(today.slice(0, 4)) ? base : `${base} ${d.getUTCFullYear()}`;
+}
+
+/**
+ * Group claims into ONE ROW PER DAY, newest day first.
+ *
+ * WHY: Vest pays on demand with no minimum, so ONE day can produce a dozen claims
+ * (12 on Nov 18 2026) and a flat list stops being readable almost immediately.
+ * Grouping holds its shape at any volume, and every individual claim is still
+ * underneath so a mistyped amount can be corrected.
+ *
+ * The maths lives HERE, not in the component: the Instant tab displays numbers and
+ * never derives them (see this file's header). Input order is preserved inside a day,
+ * so whatever the query sorted by — newest claim first — is what the expanded list
+ * shows.
+ */
+export function groupClaimsByDay<T extends InstantClaimLike>(
+  input: T[] | null | undefined,
+  today?: string,
+): InstantDayRow<T>[] {
+  const claims = Array.isArray(input) ? input : [];
+  const ref = today ?? new Date().toISOString().slice(0, 10);
+  const buckets = new Map<string, InstantDayRow<T>>();
+  for (const cl of claims) {
+    const day = typeof cl.claimedAt === 'string' && cl.claimedAt ? cl.claimedAt.slice(0, 10) : '';
+    if (!day) continue; // a claim with no date can't be placed on a day
+    let row = buckets.get(day);
+    if (!row) {
+      row = { date: day, label: dayLabel(day, ref), count: 0, total: 0, claims: [] };
+      buckets.set(day, row);
+    }
+    row.count += 1;
+    row.total += num(cl.amount);
+    row.claims.push(cl);
+  }
+  return [...buckets.values()]
+    .map((r) => ({ ...r, total: round2(r.total) }))
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 }
 
 /**
@@ -217,6 +333,10 @@ export function computeInstantStats(input: InstantAccountLike[] | null | undefin
   let dead = 0;
   let paying = 0;
   let payouts = 0;
+  let wins = 0;
+  let losses = 0;
+  let grossWin = 0;
+  let grossLoss = 0;
   const lifespans: number[] = [];
   const dates: string[] = [];
 
@@ -225,6 +345,13 @@ export function computeInstantStats(input: InstantAccountLike[] | null | undefin
     const cl = num(a.claimed);
     spent += cost;
     claimed += cl;
+
+    // Hit rate / profit factor: a winner is strictly net-positive. Break-even
+    // accounts (claimed exactly == cost) are neither — they don't flatter the hit
+    // rate and they don't count as a loss in the denominator.
+    const acctNet = round2(cl - cost);
+    if (acctNet > 0) { wins += 1; grossWin += acctNet; }
+    else if (acctNet < 0) { losses += 1; grossLoss += -acctNet; }
 
     if (a.status === 'dead') {
       dead += 1;
@@ -283,6 +410,13 @@ export function computeInstantStats(input: InstantAccountLike[] | null | undefin
     stillToBreakEven: round2(Math.max(0, spent - claimed)),
     recoveredPct: spent > 0 ? round3(claimed / spent) : null,
 
+    winningAccounts: wins,
+    losingAccounts: losses,
+    grossWin: round2(grossWin),
+    grossLoss: round2(grossLoss),
+    hitRate: round3(wins / accounts.length),
+    profitFactor: grossLoss > 0 ? round3(grossWin / grossLoss) : null,
+
     avgLifespanDays:
       lifespans.length > 0
         ? round2(lifespans.reduce((s, d) => s + d, 0) / lifespans.length)
@@ -292,6 +426,7 @@ export function computeInstantStats(input: InstantAccountLike[] | null | undefin
 
     topAccount,
 
+    daily: rollupPeriods(accounts, (a) => String(a.purchasedAt).slice(0, 10), dayHeading),
     monthly: rollupPeriods(accounts, (a) => String(a.purchasedAt).slice(0, 7), monthHeading),
     weekly: rollupPeriods(accounts, (a) => weekStartOf(String(a.purchasedAt)), weekHeading),
   };

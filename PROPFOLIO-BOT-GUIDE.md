@@ -1039,14 +1039,29 @@ same ledger row with it (delete reverses it), so do not hand-write budget transa
   returns the original result with `idempotentReplay: true` instead of double-counting.
 
 **⚠️ EVERY FIGURE IS DERIVED ON READ.** Nothing is totalled or stored, so an edit to a
-`cost` or a `purchasedAt` moves the account between the monthly/weekly P&L rows and
-re-derives every tile by itself. After ANY add/edit/delete, just re-read `GET db-instant`
-and report `stats` — never patch a total by hand. Editing is safe: instant writes cannot
-reach the budget document or an eval row (`test-instant.mts` asserts both stay identical).
+`cost` or a `purchasedAt` moves the account between the **daily / weekly / monthly** P&L rows
+and re-derives every tile by itself. After ANY add/edit/delete, just re-read `GET db-instant`
+and report `stats` — never patch a total by hand. Editing is safe: the money side moves with
+the card automatically (deleting reverses its expense), and no instant write can reach an
+eval row — `test-instant.mts` asserts the eval counts stay identical and that the budget
+document comes back EXACTLY as it was once the cards are reversed.
 
-**How to talk about it:** "15 bought, 13 dead, 2 alive" — accounts, not evals. The useful
-figures are accounts-per-payout, cost-per-payout, net-per-account and net after split.
-Daniel calls this his gambling bucket; keep it separate from eval reporting.
+**The money-risk statistics (added Nov 18 2026)** — report these, they are the real summary of
+this bucket, and they are correctly scoped to the `?firm=` filter you read with:
+
+| field | meaning |
+|---|---|
+| `hitRate` | share of accounts that came out AHEAD (`claimed > cost`), 0–1. **A break-even account is NOT a hit, and an account that claimed less than its price is a LOSER even though it paid** — say it that way, never "it paid so it was fine". `null` with no accounts. |
+| `winningAccounts` / `losingAccounts` | the counts behind the rate (break-even is neither) |
+| `grossWin` / `grossLoss` | dollars won by the winners / lost by the losers (`grossLoss` is a positive magnitude) |
+| `profitFactor` | `grossWin / grossLoss`. **`null` means nothing has lost yet — the ratio is undefined, so say "no losses yet", NEVER report it as 1.00 or as infinity.** Above 1.00 the winners cover the losers. |
+| `daily` / `weekly` / `monthly` | one row per period, newest first: `{key, top, main, label, cost, claimed, net, accounts, payouts}`. `daily` is the one to reach for — these accounts are bought and die inside a day, so a monthly row hides the pace completely. |
+
+**How to talk about it:** "43 bought, all dead, 10 claims" — accounts, not evals. The useful
+figures are hit rate, profit factor, accounts-per-payout, cost-per-payout and net after split.
+Daniel calls this his gambling bucket; keep it separate from eval reporting, and when the
+numbers are bad say so plainly with the profit factor and the hit rate rather than dressing up
+a losing batch.
 
 ---
 
