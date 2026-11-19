@@ -996,9 +996,12 @@ Default when none is given: `Vest Markets`. Report a blended figure **as a blend
   "purchasedAt": "2026-11-12", "fundingSource": "card", "budgetAccountId": "acc_sofi",
   "idempotencyKey": "tg-msg-90001" }
 ```
-`accountSize` is the trading capital (Vest: 500 / 5000 / 10000 / 25000). `cost` defaults to
-`accountSize`, but for instant products the real price is $10 / $200 / $400 / $1,000 — **pass `cost`
-explicitly.** `fundingSource` is `card | crypto | credit`. `firm` is a non-empty name, max 60 chars.
+`accountSize` is the trading capital (Vest: 500 / 5000 / 10000 / 25000). **`cost` is REQUIRED** and is
+the price actually paid — **never the account size.** The real ladder is far below the size ($500→$10,
+$5k→$200, $10k→$400, $25k→$1,000) and promos change it — a $5,000 account can cost **$190**. Omitting
+`cost` is **refused** (`missing_cost`) rather than inferred: inferring it would book the size as an
+expense, i.e. a $5,000 charge for a $190 purchase. `fundingSource` is `card | crypto | credit`. `firm`
+is a non-empty name, max 60 chars.
 
 **⚠️ THE MONEY — same mechanism as an eval purchase.** `budgetAccountId` (the ids from
 `GET db-budget-state?action=accounts`) is the account the money came OUT of. The purchase books a

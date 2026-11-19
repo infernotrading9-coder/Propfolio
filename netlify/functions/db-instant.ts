@@ -87,32 +87,25 @@ export const handler: Handler = async (event) => {
 
     // ── buy-accounts ─────────────────────────────────────────────────────────
 
-    // Buy N instant accounts in ONE statement. Every account is its own card, so
-    // "15 bought, 13 dead, 2 alive" stays trackable.
-    // Fields: count (1-50), firm (default 'Vest Markets'), accountSize (trading
-    // capital — Vest: 500 / 5000 / 10000 / 25000), cost (defaults to accountSize),
-    // purchasedAt (YYYY-MM-DD), fundingSource (card|crypto|credit), notes,
-    // budgetAccountId.
-    // MONEY — SAME MECHANISM AS AN EVAL PURCHASE: `budgetAccountId` is the account
-    // the money came from (the ids in `GET db-budget-state?action=accounts`), and the
-    // purchase books a prop-firm EXPENSE named `Instant — <firm> <size> (<nickname>)`
-    // out of it, moving that account's balance. One ledger row per account. Omit
-    // `budgetAccountId` and the cards are still created but NO expense is booked — the
-    // response says so in `warnings`, and the money then looks untouched in the Budget
-    // tab. There is no bank deduction beyond this single expense.
-    // FIRM: instant products are now sold by more than one firm, and cost-per-payout
-    // and break-even DIFFER per firm, so always pass it when it isn't Vest. Read back
-    // with `GET ?firm=` to keep one firm's figures out of another's.
-    // MONEY MODEL: the price IS the max drawdown — Vest: $500->$10, $5k->$200,
-    // $10k->$400, $25k->$1,000 — and it is NEVER recoverable, because Vest funded
-    // accounts cannot receive deposits and the trading capital is Vest's. Re-check
-    // that assumption per firm; not every instant product refunds nothing.
-    // Record it as sunk expense, never as equity or a deposit.
-    // The expense is booked against `budgetAccountId` (see MONEY above) — that single
-    // ledger row IS the budget side, and deleting the card reverses it.
-    // RETRY-SAFE: send idempotencyKey (any unique string per statement, e.g. a UUID).
-    // A retried call returns the ORIGINAL result with idempotentReplay: true instead of
-    // buying the accounts twice — a Netlify timeout after the write makes bots retry.
+    // Buy N instant accounts in ONE statement — each is its own card, so "15 bought,
+    // 13 dead, 2 alive" stays trackable.
+    // Fields: count (1-50), firm (default 'Vest Markets'), accountSize (trading capital:
+    // 500/5000/10000/25000), cost (REQUIRED), purchasedAt (YYYY-MM-DD), fundingSource
+    // (card|crypto|credit), notes, budgetAccountId.
+    // ⚠️ cost is REQUIRED and is NEVER the account size — it is the price actually paid.
+    // Vest's ladder is nominal and promos move it ($500->$10, $5k->$200, but a $5k promo
+    // can be $190), so omitting it is REFUSED (missing_cost) rather than inferred:
+    // inferring would book the SIZE as an expense, i.e. $5,000 charged for a $190 purchase.
+    // ⚠️ budgetAccountId is the account the money came OUT of; the purchase books a
+    // prop-firm EXPENSE named `Instant — <firm> <size> (<nickname>)` there and moves its
+    // balance, exactly like an eval purchase. Omit it and the cards are still created but
+    // NO expense is booked — the response says so in `warnings`.
+    // FIRM: cost-per-payout and break-even differ per firm, so pass it whenever it isn't
+    // Vest, and read back with `GET ?firm=`. MONEY MODEL: cost is 100% sunk — it IS the
+    // max drawdown and never comes back; re-check that per firm.
+    // RETRY-SAFE: send idempotencyKey (any unique string). A retry returns the ORIGINAL
+    // result with idempotentReplay: true instead of buying twice — a Netlify timeout after
+    // the write makes bots retry.
     if (input.action === 'buy-accounts') {
       const count = Math.trunc(Number(input.count));
       if (!Number.isFinite(count) || count < 1 || count > MAX_BATCH) {
@@ -125,7 +118,22 @@ export const handler: Handler = async (event) => {
       if (accountSize === null) {
         return json(400, { error: 'accountSize must be a positive number', code: 'bad_size' });
       }
-      const cost = input.cost == null ? accountSize : positive(input.cost);
+      // `cost` IS REQUIRED, and deliberately not defaulted to the account size.
+      //
+      // It used to default, which was harmless only while every purchase was $9.50: the
+      // real product price is NEVER derivable from the size (Vest: $500->$10, $5k->$200
+      // — and a promo can make a $5k cost $190). A bot that forgot the field would have
+      // booked a $5,000 EXPENSE against a real account for a $190 purchase. Failing
+      // loudly is the only safe answer: an instant price is a fact about the purchase,
+      // not something the API can infer.
+      if (input.cost == null) {
+        return json(400, {
+          error: 'cost is required — the price actually paid (e.g. 190). It is NOT the ' +
+            'account size: a $5,000 instant account can cost $190.',
+          code: 'missing_cost',
+        });
+      }
+      const cost = positive(input.cost);
       if (cost === null) {
         return json(400, { error: 'cost must be a positive number', code: 'bad_cost' });
       }

@@ -62,10 +62,15 @@ const EMPTY_STATS: InstantStats = EMPTY_INSTANT_STATS;
 /**
  * Size/price presets PER FIRM.
  *
- * Vest's ladder is the known one. Another firm's ladder is DATA, not code — when a
- * real second firm lands, add its entry here so the buy modal offers its sizes. Until
- * then an unknown firm simply shows no preset buttons and you type the size and price
- * by hand, which is why both fields are editable.
+ * ⚠️ These set the SIZE ONLY. The prices are Vest's NOMINAL ladder for reference — the
+ * real price is whatever he actually paid, and promos move it (a $5k has cost $190
+ * rather than $200). So never let a preset write a price: an account's cost is a fact
+ * about the purchase, and silently rewriting it would move its budget expense too.
+ *
+ * Vest's ladder is the known one. Another firm's ladder is DATA, not code — when a real
+ * second firm lands, add its entry here so its sizes appear as buttons; until then an
+ * unknown firm shows no preset buttons and you type the size and price by hand, which is
+ * why both fields stay editable.
  */
 const FIRM_PRESETS: Record<string, { size: number; cost: number; label: string }[]> = {
   'Vest Markets': [

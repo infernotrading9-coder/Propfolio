@@ -334,37 +334,37 @@ POST /.netlify/functions/db-instant
 
 ### `buy-accounts`
 
-* style: `if` · source: `db-instant.ts:116`
+* style: `if` · source: `db-instant.ts:109`
 
-purchase books a prop-firm EXPENSE named `Instant — <firm> <size> (<nickname>)` out of it, moving that account's balance. One ledger row per account. Omit `budgetAccountId` and the cards are still created but NO expense is booked — the response says so in `warnings`, and the money then looks untouched in the Budget tab. There is no bank deduction beyond this single expense. FIRM: instant products are now sold by more than one firm, and cost-per-payout and break-even DIFFER per firm, so always pass it when it isn't Vest. Read back with `GET ?firm=` to keep one firm's figures out of another's. MONEY MODEL: the price IS the max drawdown — Vest: $500->$10, $5k->$200, $10k->$400, $25k->$1,000 — and it is NEVER recoverable, because Vest funded accounts cannot receive deposits and the trading capital is Vest's. Re-check that assumption per firm; not every instant product refunds nothing. Record it as sunk expense, never as equity or a deposit. The expense is booked against `budgetAccountId` (see MONEY above) — that single ledger row IS the budget side, and deleting the card reverses it. RETRY-SAFE: send idempotencyKey (any unique string per statement, e.g. a UUID). A retried call returns the ORIGINAL result with idempotentReplay: true instead of buying the accounts twice — a Netlify timeout after the write makes bots retry.
+13 dead, 2 alive" stays trackable. Fields: count (1-50), firm (default 'Vest Markets'), accountSize (trading capital: 500/5000/10000/25000), cost (REQUIRED), purchasedAt (YYYY-MM-DD), fundingSource (card|crypto|credit), notes, budgetAccountId. ⚠️ cost is REQUIRED and is NEVER the account size — it is the price actually paid. Vest's ladder is nominal and promos move it ($500->$10, $5k->$200, but a $5k promo can be $190), so omitting it is REFUSED (missing_cost) rather than inferred: inferring would book the SIZE as an expense, i.e. $5,000 charged for a $190 purchase. ⚠️ budgetAccountId is the account the money came OUT of; the purchase books a prop-firm EXPENSE named `Instant — <firm> <size> (<nickname>)` there and moves its balance, exactly like an eval purchase. Omit it and the cards are still created but NO expense is booked — the response says so in `warnings`. FIRM: cost-per-payout and break-even differ per firm, so pass it whenever it isn't Vest, and read back with `GET ?firm=`. MONEY MODEL: cost is 100% sunk — it IS the max drawdown and never comes back; re-check that per firm. RETRY-SAFE: send idempotencyKey (any unique string). A retry returns the ORIGINAL result with idempotentReplay: true instead of buying twice — a Netlify timeout after the write makes bots retry.
 
 ### `delete-account`
 
-* style: `if` · source: `db-instant.ts:263`
+* style: `if` · source: `db-instant.ts:271`
 
 Remove one card. Fields: id. Its claims are CASCADE-deleted with it — an account cannot be deleted while its payouts survive. Use this for a mistaken purchase, NOT for a blown account (that is update-account status 'dead', which keeps the card and its history).
 
 ### `delete-claim`
 
-* style: `if` · source: `db-instant.ts:372`
+* style: `if` · source: `db-instant.ts:380`
 
 Remove one payout row. Fields: id. For a payout that never happened (or was logged twice); update-claim handles a wrong amount without losing the row.
 
 ### `log-claim`
 
-* style: `if` · source: `db-instant.ts:289`
+* style: `if` · source: `db-instant.ts:297`
 
 Record ONE Claim Profit request. Vest pays on demand with no minimum, so the same account can claim many times — each claim is its own row. Fields: accountId, amount, claimedAt (YYYY-MM-DD), notes. `amount` MUST be POST-split: the figure Vest actually credits after the 95% split. Storing a pre-split figure inflates every money statistic in the tab by ~5% and cannot be detected after the fact. RETRY-SAFE: send idempotencyKey (any unique string per claim). A retried call returns the ORIGINAL claim with idempotentReplay: true instead of crediting the same payout twice — double-counting money is the failure this prevents.
 
 ### `update-account`
 
-* style: `if` · source: `db-instant.ts:188`
+* style: `if` · source: `db-instant.ts:196`
 
 Partial edit of one card — send only what changed. Fields: id (required), nickname, firm, accountSize, cost, purchasedAt, status ('alive'|'dead'), diedAt, fundingSource, notes. status 'dead' sets diedAt to today unless one is supplied; setting it back to 'alive' CLEARS diedAt, so a stale date can never fake a lifespan.
 
 ### `update-claim`
 
-* style: `if` · source: `db-instant.ts:335`
+* style: `if` · source: `db-instant.ts:343`
 
 Fix a mistyped payout in place. Fields: id (required), amount, claimedAt (YYYY-MM-DD), notes, budgetAccountId. `amount` is POST-split, exactly as log-claim requires. Partial — send only what changed. For a payout that should not exist at all, use delete-claim instead. `budgetAccountId` books (or re-books) the income entry: send it to move a claim into the Budget tab, which is how a claim logged while the money was still on the platform gets booked once it lands.
 
