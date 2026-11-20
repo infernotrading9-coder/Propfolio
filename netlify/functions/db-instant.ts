@@ -287,10 +287,16 @@ export const handler: Handler = async (event) => {
 
     // Record ONE Claim Profit request. Vest pays on demand with no minimum, so the
     // same account can claim many times — each claim is its own row.
-    // Fields: accountId, amount, claimedAt (YYYY-MM-DD), notes.
+    // Fields: accountId, amount, claimedAt (YYYY-MM-DD), budgetAccountId, notes.
     // `amount` MUST be POST-split: the figure Vest actually credits after the 95%
     // split. Storing a pre-split figure inflates every money statistic in the tab by
     // ~5% and cannot be detected after the fact.
+    // DESTINATION: a claim lands in `acc_vest` ("Vest balance"), NOT a bank account —
+    // the money sits at Vest for ~24h, then spends ~24h moving as crypto. So pass
+    // `budgetAccountId: "acc_vest"`, and record each later leg as a `transfer`
+    // (vest -> kraken -> bank) dated when the money actually arrived. Buying MORE
+    // accounts from that Vest balance is an expense against `acc_vest`, which leaves
+    // Sofi untouched. Do not default a claim into a bank account.
     // RETRY-SAFE: send idempotencyKey (any unique string per claim). A retried call
     // returns the ORIGINAL claim with idempotentReplay: true instead of crediting the
     // same payout twice — double-counting money is the failure this prevents.

@@ -1011,6 +1011,27 @@ Omit it and the cards are still created but **no expense is booked**, with a `wa
 saying so. There is no other bank deduction. Editing a card's price/date or deleting it moves that
 same ledger row with it (delete reverses it), so do not hand-write budget transactions.
 
+**🔗 THE MONEY CHAIN — where instant money actually lives (Nov 19 2026).** Daniel: *"I claim my profit
+and that claim profit doesn't hit my trading account until 24 hours after and then I can withdraw that
+money in crypto and I send it to my crypto exchange that takes another 24 hours but once it's in my
+primary account I can use that money to buy more accounts directly from there."* Three ordinary budget
+accounts, no code change needed — the budget already has accounts and a real `transfer`:
+
+| account | holds | movement |
+|---|---|---|
+| **`acc_vest` "Vest balance"** | money at Vest, including a claim inside its 24h settlement | **`log-claim` → `budgetAccountId: "acc_vest"`**; a Vest-funded purchase is an **expense against `acc_vest`** |
+| **`acc_kraken` "Kraken"** | the crypto leg (~24h) | `transfer` `acc_vest` → `acc_kraken` when he withdraws |
+| **`acc_sofi`** | his bank | `transfer` `acc_kraken` → `acc_sofi` when he cashes out |
+
+⚠️ **This SUPERSEDES the earlier "log every claim to Sofi" instruction.** Nothing is in Sofi until he
+moves it there, and buying accounts from his Vest balance must **not** touch Sofi. If you don't know
+where money actually is, **ask** — never default a claim to Sofi.
+⚠️ **Buying from the Vest balance is the whole reason this exists** — it's money he can reuse directly
+from Vest without it ever reaching a bank. Pass `budgetAccountId: "acc_vest"` and Sofi correctly stays
+put. (Still ask which account paid: purchases have come from One Pay, Sofi *and* Vest.)
+Date each `transfer` to the day the money actually arrived — the claim itself keeps its real claim date
+(the old "misdating the claim by 2 days" workaround is dead, and it should not come back).
+
 **MONEY MODEL — get this right or every number is wrong:**
 - `cost` is a **sunk expense**. The price IS the max drawdown. It is never a deposit and
   never recoverable — Vest funded accounts cannot receive deposits.
