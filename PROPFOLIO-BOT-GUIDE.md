@@ -1001,7 +1001,19 @@ the price actually paid — **never the account size.** The real ladder is far b
 $5k→$200, $10k→$400, $25k→$1,000) and promos change it — a $5,000 account can cost **$190**. Omitting
 `cost` is **refused** (`missing_cost`) rather than inferred: inferring it would book the size as an
 expense, i.e. a $5,000 charge for a $190 purchase. `fundingSource` is `card | crypto | credit`. `firm`
-is a non-empty name, max 60 chars.
+`firm` is a non-empty name, max 60 chars.
+
+**Naming a batch — `startAt` (Nov 20 2026).** `startAt: 108` with `count: 10` creates exactly
+**V108–V117 at creation**. Without it, numbering continues from the highest `V<n>` in the table — which
+is wrong whenever Vest's own numbering has run ahead of ours (accounts bought and never logged), and
+that mismatch is what forced a by-hand renumbering of V96–V105 → V98–V107. **A `startAt` that would
+reuse an existing name is REFUSED** (`nickname_taken`) with the offending numbers listed in `taken`, and
+**nothing is created** — not even a partial batch. Read the numbers off the Vest accounts screen; that's
+the only place the true number exists.
+
+**Attaching an expense to a card that has none:** send `update-account` with **`budgetAccountId` alone**
+— no need to re-send `cost`. (Until Nov 20 2026 the attach was gated behind a money field, so it silently
+did nothing; that was a bug and it's fixed.) Sending it twice does not double-book.
 
 **⚠️ THE MONEY — same mechanism as an eval purchase.** `budgetAccountId` (the ids from
 `GET db-budget-state?action=accounts`) is the account the money came OUT of. The purchase books a

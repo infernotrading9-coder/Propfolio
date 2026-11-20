@@ -184,13 +184,36 @@ export const instantService = {
   },
 
   /**
+   * Which `V<n>` nicknames in a range are already taken.
+   *
+   * Exists so a caller asking for an explicit `startAt` can be REFUSED with the offending
+   * numbers, instead of silently creating two cards with the same name.
+   */
+  async takenNicknames(userId: string, from: number, to: number): Promise<string[]> {
+    const wanted: string[] = [];
+    for (let i = from; i <= to; i++) wanted.push(`V${i}`);
+    if (wanted.length === 0) return [];
+    const { rows } = await db.execute(sql`
+      SELECT nickname FROM instant_accounts
+       WHERE user_id = ${userId}::uuid
+         AND nickname IN (${sql.join(wanted.map((w) => sql`${w}`), sql`, `)})
+       ORDER BY nickname`);
+    return (rows as any[]).map((r) => String(r.nickname));
+  },
+
+  /**
    * Buy N accounts in ONE statement — and book the money, exactly like `buyEval`.
    *
    * A batch, not a loop: `buyEval` taught this the hard way — looping N inserts
    * is N round-trips and N chances to half-succeed.
    *
    * Nicknames continue from the highest existing V<n> so a re-run never
-   * reuses a name that is already on a card.
+   * reuses a name that is already on a card. `startAt` overrides that, because our
+   * numbering can legitimately lag Vest's own: if two accounts were bought and never
+   * logged, every server-generated number after them is off by two, and Vest's screen is
+   * the only place the true number exists. Ticksensei (Nov 20 2026) had to renumber ten
+   * cards by hand for exactly that reason — and renumbering by hand is how a card ends up
+   * carrying the wrong number.
    */
   async buyAccounts(
     userId: string,
@@ -205,12 +228,18 @@ export const instantService = {
       /** Which budget account the money came from. Omit and no expense is booked —
        *  the response says so in `warnings` rather than pretending. */
       budgetAccountId?: string | null;
+      /** First `V<n>` of the batch. Omit to continue from the highest existing number;
+       *  supply it when Vest's own numbering has run ahead of ours (unlogged purchases). */
+      startAt?: number | null;
     },
   ) {
     const count = Math.trunc(input.count);
     const firm = input.firm && input.firm.trim() ? input.firm.trim() : INSTANT_DEFAULT_FIRM;
     const budgetAccountId = input.budgetAccountId && String(input.budgetAccountId).trim()
       ? String(input.budgetAccountId).trim()
+      : null;
+    const startAt = input.startAt != null && Number.isFinite(Number(input.startAt))
+      ? Math.trunc(Number(input.startAt))
       : null;
 
     /**
@@ -229,7 +258,9 @@ export const instantService = {
       const taken = await tx.query<{ maxn: number | string | null }>(
         `SELECT COALESCE(MAX(NULLIF(regexp_replace(nickname, '\\D', '', 'g'), '')::int), 0) AS maxn
            FROM instant_accounts WHERE user_id = $1`, [userId]);
-      let next = n(taken.rows[0]?.maxn);
+      // Explicit `startAt` wins; otherwise continue from the highest number in use. (The
+      // caller has already been refused if startAt would collide with an existing name.)
+      let next = startAt !== null ? startAt - 1 : n(taken.rows[0]?.maxn);
 
       const warnings: string[] = [];
       if (input.cost > 0 && !budgetAccountId) {
@@ -334,18 +365,29 @@ export const instantService = {
       }
 
       // ── keep the expense in step ──────────────────────────────────────────
+      // Two separate reasons to touch the ledger, and conflating them was a BUG
+      // (found by Ticksensei, Nov 20 2026): he sent `budgetAccountId` on its own to
+      // attach rows to ten cards that predated the budget link, and nothing happened —
+      // the attach was gated behind a money field, so he had to re-send `cost` to make
+      // it work. The handler promises `budgetAccountId` alone is meaningful, so:
+      //   - money fields changed → replace/refresh the existing row (or create it)
+      //   - an EXPLICIT account supplied and no row yet → attach one, nothing else needed
       const moneyChanged = patch.cost !== undefined || patch.purchasedAt !== undefined
         || patch.firm !== undefined || patch.nickname !== undefined;
-      const acct = (opts.budgetAccountId && String(opts.budgetAccountId).trim())
-        || (before.budget_account_id as string | null)
-        || null;
+      const explicitAcct = opts.budgetAccountId && String(opts.budgetAccountId).trim()
+        ? String(opts.budgetAccountId).trim()
+        : null;
+      const acct = explicitAcct || (before.budget_account_id as string | null) || null;
       const cost = n(after.cost);
+      const shouldWriteLedger =
+        (moneyChanged && acct !== null && cost > 0)
+        || (explicitAcct !== null && !before.budget_txn_id && cost > 0);
 
-      if (moneyChanged && acct && cost > 0) {
+      if (shouldWriteLedger) {
         const next = {
           name: instantTxnName(String(after.firm), n(after.account_size), String(after.nickname)),
           amount: cost,
-          accountId: acct,
+          accountId: acct as string,
           date: String(after.purchased_at),
           isPropFirm: true,
         };

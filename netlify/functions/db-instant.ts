@@ -91,7 +91,13 @@ export const handler: Handler = async (event) => {
     // 13 dead, 2 alive" stays trackable.
     // Fields: count (1-50), firm (default 'Vest Markets'), accountSize (trading capital:
     // 500/5000/10000/25000), cost (REQUIRED), purchasedAt (YYYY-MM-DD), fundingSource
-    // (card|crypto|credit), notes, budgetAccountId.
+    // (card|crypto|credit), notes, budgetAccountId, startAt.
+    // `startAt` names the batch yourself: the FIRST V<n> to use, e.g. startAt 108 for ten
+    // accounts. Omit it and numbering continues from the highest V<n> in the table, which
+    // is wrong whenever Vest's own numbering has run ahead of ours (accounts bought and
+    // never logged) — Vest's screen is the only place the true number lives. A startAt
+    // that would reuse a name in use is REFUSED with code `nickname_taken` and the
+    // offending numbers, and nothing is created.
     // ⚠️ cost is REQUIRED and is NEVER the account size — it is the price actually paid.
     // Vest's ladder is nominal and promos move it ($500->$10, $5k->$200, but a $5k promo
     // can be $190), so omitting it is REFUSED (missing_cost) rather than inferred:
@@ -154,6 +160,27 @@ export const handler: Handler = async (event) => {
         });
       }
 
+      // `startAt` — the first V<n> of the batch. Needed because Vest's own numbering can
+      // run ahead of ours (accounts bought and never logged), and then every
+      // server-generated number is off by however many were missed. Refused if it would
+      // REUSE a name already in use: two cards called V98 is worse than a gap.
+      let startAt: number | null = null;
+      if (input.startAt != null) {
+        const s = Math.trunc(Number(input.startAt));
+        if (!Number.isFinite(s) || s < 1) {
+          return json(400, { error: 'startAt must be a positive whole number', code: 'bad_start_at' });
+        }
+        const taken = await instantService.takenNicknames(user.id, s, s + count - 1);
+        if (taken.length > 0) {
+          return json(400, {
+            error: `nicknames already in use: ${taken.join(', ')} — choose a startAt that avoids them`,
+            code: 'nickname_taken',
+            taken,
+          });
+        }
+        startAt = s;
+      }
+
       // Wrap an OBJECT, not the bare array: withIdempotency replays a stored
       // response by spreading it, and spreading an array yields a plain object
       // — a replayed buy would then report "created: 0" and look like it failed.
@@ -165,6 +192,7 @@ export const handler: Handler = async (event) => {
           const bought = await instantService.buyAccounts(user.id, {
             count,
             firm: firm.firm,
+            startAt,
             accountSize,
             cost,
             purchasedAt,
