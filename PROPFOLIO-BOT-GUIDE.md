@@ -1011,6 +1011,23 @@ reuse an existing name is REFUSED** (`nickname_taken`) with the offending number
 **nothing is created** — not even a partial batch. Read the numbers off the Vest accounts screen; that's
 the only place the true number exists.
 
+**Renaming a batch — `rename-accounts` (Nov 20 2026).** Vest's numbering doesn't follow purchase
+order, so cards routinely need renumbering afterwards. Do it in **one atomic call**:
+
+```json
+{ "action": "rename-accounts", "renames": [ {"id": "…", "nickname": "V98"}, {"id": "…", "nickname": "V99"} ] }
+```
+
+**Swaps and rotations are legal** — a target name may belong to another card in the *same* request, so
+V96↔V97 exchanges and three-way rotations land in one go. That makes the old one-at-a-time
+"highest-number-first" procedure obsolete: it existed only to dodge collisions, and a half-finished
+renumber is exactly how a card ends up wearing the wrong number. Refusals (all 400): `nickname_taken`
+(the name belongs to a card *outside* the request, listed in `taken`), `duplicate_in_request` (same name
+twice in one call, case-insensitive), `too_many_renames` (cap 200), `no_account`. Renaming a card to the
+name it already has is a no-op (`renamed: 0`). A rename **moves no money** — each card's budget expense
+row is renamed in place with it. `update-account` with `nickname` still works for one card, but now
+**refuses** a name another card holds instead of silently creating a duplicate label.
+
 **Attaching an expense to a card that has none:** send `update-account` with **`budgetAccountId` alone**
 — no need to re-send `cost`. (Until Nov 20 2026 the attach was gated behind a money field, so it silently
 did nothing; that was a bug and it's fixed.) Sending it twice does not double-book.

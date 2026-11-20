@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { json, getUserFromSession } from './_utils';
-import { instantService, INSTANT_FUNDING_SOURCES } from '../../server/db/instantService';
+import { instantService, INSTANT_FUNDING_SOURCES, InstantRenameError } from '../../server/db/instantService';
 import { withIdempotency } from '../../server/db/stateService';
 
 /**
@@ -29,6 +29,10 @@ const positive = (v: unknown): number | null => {
 
 /** Firm names are filter keys, so they are length-capped and never blank. */
 const FIRM_MAX = 60;
+/** A batch rename is a correction, not a bulk import — 200 is generous and bounded. */
+const MAX_RENAME = 200;
+/** `V107` today; capped so nothing can be smuggled in as a label. */
+const NICKNAME_MAX = 24;
 
 /**
  * `undefined` / `null` → "not specified" (the caller applies the default).
@@ -229,6 +233,16 @@ export const handler: Handler = async (event) => {
       if (input.nickname !== undefined) {
         const nickname = String(input.nickname).trim();
         if (!nickname) return json(400, { error: 'nickname cannot be empty', code: 'no_nickname' });
+        // Refuse a name another card already has — two cards labelled the same render as the
+        // same "Account N" and the duplicate is invisible until a number looks wrong.
+        const holder = await instantService.nicknameHolder(user.id, nickname, id);
+        if (holder) {
+          return json(400, {
+            error: `another card is already called ${nickname} (${holder}) — use rename-accounts to swap two names`,
+            code: 'nickname_taken',
+            taken: [nickname],
+          });
+        }
         patch.nickname = nickname;
       }
       const firm = parseFirm(input.firm);
@@ -309,6 +323,53 @@ export const handler: Handler = async (event) => {
         cascadedClaimsCount: deleted.cascadedClaimsCount,
         removedBudgetEntries: deleted.removedBudgetEntries,
       });
+    }
+
+    // ── rename-accounts ──────────────────────────────────────────────────────
+
+    // Rename MANY cards in ONE call. Vest's numbering does not follow purchase order
+    // (Daniel: "I got the 100s, the accounts above 100…"), so a batch routinely needs
+    // renumbering after the fact. Doing that one card at a time — highest number first, to
+    // dodge collisions — is exactly where a half-finished renumber leaves a card wearing the
+    // wrong number.
+    // Fields: renames, a non-empty array of {id, nickname} (max 200 per call).
+    // SWAPS ARE LEGAL: because a target name may belong to another card in the SAME request,
+    // V96 and V97 can be exchanged in one call. A name held by a card OUTSIDE the request is
+    // refused (`nickname_taken`, with the offending names in `taken`), and the same name twice
+    // in one request is refused (`duplicate_in_request`). Names compare case-insensitively,
+    // since the UI renders `V98` and `v98` as the same "Account 98".
+    // ATOMIC: every rename lands or none does. Each card's budget expense row is renamed with
+    // it, in place — no balance moves, because a rename is not a money event.
+    // No idempotencyKey needed: re-running the same list is a no-op.
+    if (input.action === 'rename-accounts') {
+      const raw = Array.isArray(input.renames) ? input.renames : null;
+      if (!raw || raw.length === 0) {
+        return json(400, { error: 'renames must be a non-empty array of {id, nickname}', code: 'bad_renames' });
+      }
+      if (raw.length > MAX_RENAME) {
+        return json(400, { error: `at most ${MAX_RENAME} renames per call`, code: 'too_many_renames' });
+      }
+      const cleaned: { id: string; nickname: string }[] = [];
+      for (const r of raw) {
+        const rid = typeof r?.id === 'string' ? r.id.trim() : '';
+        const nick = typeof r?.nickname === 'string' ? r.nickname.trim() : '';
+        if (!rid) return json(400, { error: 'every rename needs an id', code: 'no_id' });
+        if (!nick) return json(400, { error: `empty nickname for ${rid}`, code: 'no_nickname' });
+        if (nick.length > NICKNAME_MAX) {
+          return json(400, { error: `nickname too long (max ${NICKNAME_MAX}): ${nick}`, code: 'bad_nickname' });
+        }
+        cleaned.push({ id: rid, nickname: nick });
+      }
+      try {
+        const out = await instantService.renameAccounts(user.id, cleaned);
+        return json(200, { renamed: out.renamed, accounts: out.accounts });
+      } catch (err) {
+        // A refused rename is a 400 with the reason, never a 500 — it is a request problem.
+        if (err instanceof InstantRenameError) {
+          return json(400, { error: err.message, code: err.code, taken: err.taken });
+        }
+        throw err;
+      }
     }
 
     // ── log-claim ────────────────────────────────────────────────────────────

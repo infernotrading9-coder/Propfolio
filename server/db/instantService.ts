@@ -1,15 +1,33 @@
 import { db } from './connection';
 import { instantAccounts, instantClaims } from './schema';
 import { and, eq, sql } from 'drizzle-orm';
-// Money writes go through a REAL transaction (the drizzle neon-http driver cannot
-// hold one) and land in the shared budget ledger, so an instant purchase books its
-// expense exactly the way an eval purchase does.
-import { withTransaction } from './txConnection';
+// Money writes go through a REAL transaction (the drizzle neon-http driver cannot do
+// BEGIN/COMMIT), and the ledger maths lives in ONE place so an instant purchase and an eval
+// purchase can never disagree about which way a balance moves.
+import { withTransaction, type TxClient } from './txConnection';
 import {
   applyBudgetTransaction,
   removeBudgetTransactionById,
+  renameBudgetTransactions,
   replaceBudgetTransaction,
 } from './budgetLedger';
+
+/**
+ * A rename that cannot be honoured — carries a `code` and the offending names so the handler
+ * can turn it into a 400 rather than a 500. (A rename is a user mistake far more often than a
+ * server fault: a target name can already belong to another card, or the same name can appear
+ * twice in one request.)
+ */
+export class InstantRenameError extends Error {
+  code: string;
+  taken: string[];
+  constructor(message: string, code: string, taken: string[] = []) {
+    super(message);
+    this.name = 'InstantRenameError';
+    this.code = code;
+    this.taken = taken;
+  }
+}
 // The stats maths lives in shared/ so the service, the dev mock and the UI all
 // use ONE implementation. See the header of that file for why.
 import {
@@ -199,6 +217,118 @@ export const instantService = {
          AND nickname IN (${sql.join(wanted.map((w) => sql`${w}`), sql`, `)})
        ORDER BY nickname`);
     return (rows as any[]).map((r) => String(r.nickname));
+  },
+
+  /**
+   * The id of ANOTHER card holding this nickname, or null if it's free.
+   *
+   * Guards a single rename: without it, `update-account` with a nickname already in use
+   * silently produced two cards with the same label — and the UI renders both as the same
+   * "Account N", so the duplicate is invisible until a number looks wrong. Case-insensitive
+   * for the same reason.
+   */
+  async nicknameHolder(userId: string, nickname: string, exceptId?: string | null): Promise<string | null> {
+    const { rows } = await db.execute(sql`
+      SELECT id FROM instant_accounts
+       WHERE user_id = ${userId}::uuid
+         AND lower(nickname) = lower(${nickname})
+         AND (${exceptId ?? null}::uuid IS NULL OR id <> ${exceptId ?? null}::uuid)
+       LIMIT 1`);
+    return rows.length > 0 ? String((rows[0] as any).id) : null;
+  },
+
+  /**
+   * RENAME a batch of cards in ONE transaction.
+   *
+   * Why this exists: our `V<n>` numbering is generated, but VEST'S numbering does not follow
+   * purchase order (Daniel, Nov 20 2026: *"I got the 100s, the accounts above 100…"*), so a
+   * batch routinely lands with numbers that don't match the firm's screens. Renumbering used
+   * to mean one `update-account` per card, HIGHEST FIRST, because renaming V96→V98 while V98
+   * still existed would collide.
+   *
+   * Two things this does better:
+   *   1. **SWAPS WORK.** Collisions are only checked against cards NOT in the request, so
+   *      V96↔V97 can be exchanged directly. The highest-first dance existed only because the
+   *      old path could not do that, and it is exactly where a half-finished renumber leaves
+   *      wrong numbers behind.
+   *   2. **It is atomic.** Either every rename lands or none does — no half-renumbered batch.
+   *
+   * The ledger rows are renamed in place (name only, no balance movement), because a rename
+   * is not a money event.
+   */
+  async renameAccounts(
+    userId: string,
+    renames: { id: string; nickname: string }[],
+  ): Promise<{ renamed: number; accounts: InstantAccountWithClaims[] }> {
+    const wanted = renames.map((r) => ({ id: String(r.id), nickname: String(r.nickname).trim() }));
+
+    // Duplicate targets INSIDE the request can never be valid — two cards cannot share a
+    // name either. Compared case-INSENSITIVELY, because the UI renders `V98` and `v98` as the
+    // same "Account 98".
+    const seen = new Set<string>();
+    const dupInRequest: string[] = [];
+    for (const w of wanted) {
+      const key = w.nickname.toLowerCase();
+      if (seen.has(key)) dupInRequest.push(w.nickname);
+      seen.add(key);
+    }
+    if (dupInRequest.length > 0) {
+      throw new InstantRenameError(
+        `the same nickname is used twice in this request: ${dupInRequest.join(', ')}`,
+        'duplicate_in_request', dupInRequest);
+    }
+
+    const ids = wanted.map((w) => w.id);
+    const result = await withTransaction(async (tx) => {
+      const found = await tx.query(
+        `SELECT id, nickname, budget_txn_id, firm, account_size, cost, purchased_at
+           FROM instant_accounts WHERE user_id = $1 AND id = ANY($2::uuid[]) FOR UPDATE`,
+        [userId, ids]);
+      const rows = found.rows as any[];
+      const byId = new Map(rows.map((r) => [String(r.id), r]));
+
+      const missing = ids.filter((id) => !byId.has(id));
+      if (missing.length > 0) {
+        throw new InstantRenameError(`these accounts do not exist: ${missing.join(', ')}`, 'no_account', missing);
+      }
+
+      // A target name may only be held by a card that is ALSO being renamed in this request
+      // (that is what makes a swap legal).
+      const movingIds = new Set(ids);
+      const all = await tx.query(
+        `SELECT id, nickname FROM instant_accounts WHERE user_id = $1`, [userId]);
+      const clashes = (all.rows as any[])
+        .filter((r) => seen.has(String(r.nickname).toLowerCase()) && !movingIds.has(String(r.id)))
+        .map((r) => String(r.nickname));
+      if (clashes.length > 0) {
+        throw new InstantRenameError(
+          `nicknames already in use by other cards: ${[...new Set(clashes)].join(', ')}`,
+          'nickname_taken', [...new Set(clashes)]);
+      }
+
+      const ledgerEntries: { txnId: string; name: string }[] = [];
+      let renamed = 0;
+      for (const w of wanted) {
+        const row = byId.get(w.id);
+        if (String(row.nickname) === w.nickname) continue;   // already right — no write
+        await tx.query(`UPDATE instant_accounts SET nickname = $2, updated_at = NOW() WHERE id = $1`,
+          [w.id, w.nickname]);
+        renamed += 1;
+        if (row.budget_txn_id) {
+          ledgerEntries.push({
+            txnId: String(row.budget_txn_id),
+            name: instantTxnName(String(row.firm), n(row.account_size), w.nickname),
+          });
+        }
+      }
+      await renameBudgetTransactions(tx, userId, ledgerEntries);
+      return renamed;
+    });
+
+    // Re-read through the normal path so the response carries claim totals and firm.
+    const accounts = await this.listAccounts(userId);
+    const touched = new Set(ids);
+    return { renamed: result, accounts: accounts.filter((a) => touched.has(a.id)) };
   },
 
   /**

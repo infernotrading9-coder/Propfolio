@@ -163,10 +163,41 @@ export async function removeBudgetTransactionById(
 }
 
 /**
+ * RENAME ledger rows in place — names only, NO balance movement.
+ *
+ * A rename is not a money event: reversing and re-applying the amount (which
+ * `replaceBudgetTransaction` does) would leave the balances correct but shuffle row ids and
+ * touch accounts for no reason. One read, one write, only the `name` fields change.
+ *
+ * Returns how many rows were renamed, so a caller can tell "the card had no row" (0) apart
+ * from "renamed".
+ */
+export async function renameBudgetTransactions(
+  tx: TxClient, userId: string, entries: { txnId: string; name: string }[],
+): Promise<number> {
+  if (entries.length === 0) return 0;
+  const wanted = new Map(entries.map((e) => [e.txnId, e.name]));
+  const state = await readState(tx, userId);
+  if (!state) return 0;
+
+  let renamed = 0;
+  for (const t of state.transactions) {
+    const next = wanted.get(t.id);
+    if (next && t.name !== next) {
+      t.name = next;
+      renamed += 1;
+    }
+  }
+  if (renamed > 0) await writeState(tx, userId, state);
+  return renamed;
+}
+
+/**
  * Replace one transaction: reverse the old effect, then apply the new one.
- * Used when a card's price or date is edited — the alternative (patching the
- * amount in place) has to re-derive the balance delta and gets the liability sign
- * wrong sooner or later.
+ * Used when a card's price or date is edited — the alternative (patching the amount in
+ * place) has to re-derive the balance delta and gets the liability sign wrong sooner or
+ * later. For a NAME-only change use renameBudgetTransactions instead: a rename is not a
+ * money event and should not touch a balance.
  */
 export async function replaceBudgetTransaction(
   tx: TxClient, userId: string, oldTxnId: string | null | undefined, next: LedgerEntry,
