@@ -253,6 +253,89 @@ const Dashboard: React.FC = () => {
   const [budgetNotice, setBudgetNotice] = React.useState<string | null>(null);
   const [budgetLoaded, setBudgetLoaded] = React.useState(false);
   const [cockpitActive, setCockpitActive] = React.useState(false);
+
+  /**
+   * The two floating action buttons (Cockpit = red, Agenda/Mindset = blue) are DRAGGABLE.
+   *
+   * Why: on mobile they sit over the top-right of whatever tab is open — on the Instant tab
+   * that is the firm filter — and no single fixed position avoids every tab's controls.
+   * Daniel: *"I think they're draggable, right? Make them draggable so I can at least have
+   * them away from the instant tab."*
+   *
+   * Position persists in localStorage, and is CLAMPED to the viewport on drag and on load so
+   * a rotation (or a resize) can never strand them off-screen. Uses POINTER events rather
+   * than mouse events so it works under touch on the iPad — mouse-only drag was a real bug
+   * elsewhere in this app.
+   */
+  const [fabPos, setFabPos] = React.useState<{ x: number; y: number } | null>(() => {
+    try {
+      const raw = window.localStorage.getItem('propfolio:fabPos');
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && Number.isFinite(parsed.x) && Number.isFinite(parsed.y)) return parsed;
+    } catch { /* a corrupt value just means "use the default corner" */ }
+    return null;
+  });
+  const [fabDragging, setFabDragging] = React.useState(false);
+  const fabDrag = React.useRef<{
+    id: number; dx: number; dy: number; sx: number; sy: number;
+    w: number; h: number; lx: number; ly: number; moved: boolean;
+  } | null>(null);
+  /** A drag ends with a click; swallow exactly that one so dragging never opens a panel. */
+  const fabJustDragged = React.useRef(false);
+
+  /** Keep both axes inside the viewport, with a small margin to grab them again. */
+  const clampFab = React.useCallback((x: number, y: number, w: number, h: number) => ({
+    x: Math.max(4, Math.min(x, window.innerWidth - w - 4)),
+    y: Math.max(4, Math.min(y, window.innerHeight - h - 4)),
+  }), []);
+
+  const onFabDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const r = el.getBoundingClientRect();
+    fabDrag.current = {
+      id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top,
+      sx: r.left, sy: r.top, w: r.width, h: r.height, lx: r.left, ly: r.top, moved: false,
+    };
+    el.setPointerCapture(e.pointerId);
+  };
+
+  const onFabMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const st = fabDrag.current;
+    if (!st || st.id !== e.pointerId) return;
+    const next = clampFab(e.clientX - st.dx, e.clientY - st.dy, st.w, st.h);
+    // A few pixels of travel is a TAP, not a drag — otherwise every tap would nudge them.
+    if (!st.moved && Math.hypot(next.x - st.sx, next.y - st.sy) < 6) return;
+    st.moved = true;
+    st.lx = next.x;
+    st.ly = next.y;
+    setFabDragging(true);
+    setFabPos(next);
+  };
+
+  const onFabUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const st = fabDrag.current;
+    if (!st || st.id !== e.pointerId) return;
+    fabDrag.current = null;
+    setFabDragging(false);
+    if (!st.moved) return;
+    fabJustDragged.current = true;
+    window.setTimeout(() => { fabJustDragged.current = false; }, 350);
+    try {
+      window.localStorage.setItem('propfolio:fabPos', JSON.stringify({ x: st.lx, y: st.ly }));
+    } catch { /* private mode: the drag still works, it just won't persist */ }
+  };
+
+  // Rotating the iPad (or resizing) must not leave the saved position off-screen. Worst-case
+  // size is used rather than measuring, so this stays a cheap state update with no ref.
+  React.useEffect(() => {
+    const reclamp = () => setFabPos((p) => (p ? clampFab(p.x, p.y, 96, 220) : p));
+    window.addEventListener('resize', reclamp);
+    window.addEventListener('orientationchange', reclamp);
+    return () => {
+      window.removeEventListener('resize', reclamp);
+      window.removeEventListener('orientationchange', reclamp);
+    };
+  }, [clampFab]);
   const [cockpitPropMode, setCockpitPropMode] = React.useState(false);
   const [showCockpitMode, setShowCockpitMode] = React.useState(false);
   const [showAgenda, setShowAgenda] = React.useState(false);
@@ -1269,23 +1352,37 @@ const Dashboard: React.FC = () => {
         )}
 
         {!cockpitActive && (
-          <div className="flex flex-col items-center fixed right-4 top-24 z-40 gap-3">
-            <div className="lg:hidden"><button onClick={() => setShowArcadeMenu(v => !v)}
-              className="relative w-14 h-14 rounded-full flex items-center justify-center select-none active:scale-95 transition-all duration-200 hover:scale-105 lg:hidden"
+          <div
+            onPointerDown={onFabDown}
+            onPointerMove={onFabMove}
+            onPointerUp={onFabUp}
+            onPointerCancel={onFabUp}
+            className={`fixed z-40 flex flex-col items-center gap-3 touch-none select-none ${fabDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+            style={fabPos ? { left: fabPos.x, top: fabPos.y, right: 'auto' } : { right: 16, top: 112 }}
+          >
+            {/* A grip, so "these can be moved" is visible on a device with no hover cursor. */}
+            <div className="flex items-center gap-0.5 rounded-full border border-white/10 bg-black/40 px-2 py-1"
+                 title="Drag to move">
+              <span className="h-1 w-1 rounded-full bg-white/45" />
+              <span className="h-1 w-1 rounded-full bg-white/45" />
+              <span className="h-1 w-1 rounded-full bg-white/45" />
+            </div>
+            <div className="lg:hidden"><button onClick={() => { if (fabJustDragged.current) return; setShowArcadeMenu(v => !v); }}
+              className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center select-none active:scale-95 transition-all duration-200 hover:scale-105 lg:hidden"
               style={{
                 background: 'radial-gradient(circle at 40% 35%, #60a5fa, #3b82f6 55%, #1d4ed8 100%)',
                 borderRadius: '50%',
-                boxShadow: '0 3px 0 #1e3a8a, 0 5px 12px rgba(59,130,246,0.35), inset 0 -2px 4px rgba(0,0,0,0.2), inset 0 2px 4px rgba(255,255,255,0.15)',
+                boxShadow: '0 4px 0 #1e3a8a, 0 6px 15px rgba(59,130,246,0.35), inset 0 -2px 4px rgba(0,0,0,0.2), inset 0 2px 4px rgba(255,255,255,0.15)',
                 transform: 'perspective(300px) rotateX(15deg)',
-                border: '3px solid #1e3a8a',
+                border: '4px solid #1e3a8a',
               }}
               title="Agenda / Mindset"
             >
-              <div className="absolute inset-0 pointer-events-none rounded-full" style={{ background: 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 55%)' }} />
+              <div className="absolute inset-0 pointer-events-none rounded-full" style={{ background: 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 55%)' }} />
             </button>
             </div>
             <button
-              onClick={() => setShowCockpitMode(true)}
+              onClick={() => { if (fabJustDragged.current) return; setShowCockpitMode(true); }}
               className="relative w-16 h-16 sm:w-20 sm:h-20 transition-all duration-200 hover:scale-105
                 flex items-center justify-center select-none active:scale-95"
               title="Trading Cockpit"
