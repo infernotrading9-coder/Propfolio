@@ -43,10 +43,18 @@ try {
  * the same ones the bot sends, so a cookie check would reject the real UI
  * whenever the cookie is absent and break the Budget tab.
  *
- *   GET                      -> { state }
+ *   GET                      -> { state, updatedAt }
  *   GET  ?action=accounts    -> { accounts }  (valid budgetAccountId values)
  *   POST { action: 'log-expense' | 'log-income' | 'transfer' }
  *   PUT  { state }           -> requires X-Client: propfolio-web
+ *
+ * STALE-SAVE GUARD (Nov 21 2026). `upsert` merges by id and the CLIENT WINS on rows both
+ * sides hold — right for a real edit, wrong for a tab left open for weeks, whose stale
+ * `accounts[].balance` would silently undo a reconcile the bot had already applied.
+ * So the UI echoes the `updatedAt` it loaded as `X-Base-Updated-At`, and a PUT built on a
+ * stale read is refused with 409 `stale_state` + the current document, which the client
+ * adopts while telling Daniel his edit needs redoing. A PUT with NO revision keeps the old
+ * behaviour, so the bot and older clients cannot start failing.
  */
 
 const WEB_CLIENT = 'propfolio-web'
@@ -90,6 +98,42 @@ function normalizeRecurring(raw: any): any[] {
     }));
 }
 
+/**
+ * The REVISION TOKEN for optimistic concurrency: this row's `updated_at`, normalised to an
+ * ISO string so it can be compared as text.
+ *
+ * Why it works: every write path bumps it — the browser's whole-state PUT, the bot's POST
+ * cascade actions (`upsert` sets updatedAt), the budget ledger (`writeState`), and
+ * `reconcileBalances`. So "did the document change since you read it?" is exactly this.
+ *
+ * Why it's needed: `upsert` merges by id and the CLIENT WINS on any row both sides hold.
+ * That is right for a real edit and wrong for a tab that has been open for three weeks —
+ * a stale tab would push its old `accounts[].balance` over a balance the bot had since
+ * reconciled, silently undoing it. Rows are never lost (the merge keeps them), but stale
+ * VALUES win, and balances are the ones that matter.
+ */
+async function readRevision(userId: string): Promise<string | null> {
+  const rows = await db
+    .select({ updatedAt: budgetState.updatedAt })
+    .from(budgetState)
+    .where(eq(budgetState.userId, userId))
+    .limit(1);
+  const t: any = rows[0]?.updatedAt;
+  if (!t) return null;
+  const d = t instanceof Date ? t : new Date(t);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+}
+
+/** The client's claim about which revision it edited, from header or body. */
+function baseRevision(event: any, body: any): string | null {
+  const h = event.headers || {};
+  const raw = h['x-base-updated-at'] || h['X-Base-Updated-At'] || body?.baseUpdatedAt || '';
+  const v = String(raw).trim();
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+}
+
 export const handler: Handler = async (event) => {
   try {
     const user = await getUserFromSession(event)
@@ -107,7 +151,8 @@ export const handler: Handler = async (event) => {
       }
 
       const state = await budgetStateService.getByUserId(user.id)
-      return json(200, { state: state ?? null })
+      // `updatedAt` is the revision token the web UI echoes back on PUT (see readRevision).
+      return json(200, { state: state ?? null, updatedAt: await readRevision(user.id) })
     }
 
     if (event.httpMethod === 'POST') {
@@ -456,8 +501,32 @@ export const handler: Handler = async (event) => {
       if (!incoming || typeof incoming !== 'object') {
         return json(400, { error: 'state object required' })
       }
+
+      // ── STALE-SAVE GUARD (see readRevision) ────────────────────────────────
+      // The UI sends the revision it loaded. If the document has moved on since then,
+      // this save is built on a stale read: refuse it and hand back the current state so
+      // the client can reload and redo the one change, rather than letting stale values
+      // (balances above all) overwrite what the bot wrote in the meantime.
+      //
+      // A client that sends NO revision is unaffected — it keeps the old merge behaviour.
+      // That is deliberate: the bot and older clients must not start failing.
+      const base = baseRevision(event, body)
+      if (base) {
+        const current = await readRevision(user.id)
+        if (current && current !== base) {
+          const fresh = await budgetStateService.getByUserId(user.id)
+          return json(409, {
+            error: 'This page was out of date — the budget changed since it was loaded. ' +
+                   'Reloaded to the current version; please redo your last change.',
+            code: 'stale_state',
+            state: fresh ?? null,
+            updatedAt: current,
+          })
+        }
+      }
+
       const saved = await budgetStateService.upsert(user.id, incoming)
-      return json(200, { state: saved })
+      return json(200, { state: saved, updatedAt: await readRevision(user.id) })
     }
 
     return json(405, { error: 'Method Not Allowed' })

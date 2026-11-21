@@ -242,6 +242,15 @@ const Dashboard: React.FC = () => {
 
   // ─── Budget tab state (BudgetFlow), persisted server-side as JSONB ─────────
   const [budgetState, setBudgetState] = React.useState<BudgetState | undefined>(undefined);
+  /**
+   * Optimistic-concurrency token for the budget document — the `updatedAt` the UI last saw
+   * (see db-budget-state's readRevision). Sent back on every PUT so a page that has been
+   * open for days cannot silently overwrite what the bot wrote in the meantime.
+   */
+  const budgetRevisionRef = React.useRef<string | null>(null);
+  const budgetSaveInFlightRef = React.useRef(false);
+  /** Shown when a save was refused for being stale, so the dropped edit is never silent. */
+  const [budgetNotice, setBudgetNotice] = React.useState<string | null>(null);
   const [budgetLoaded, setBudgetLoaded] = React.useState(false);
   const [cockpitActive, setCockpitActive] = React.useState(false);
   const [cockpitPropMode, setCockpitPropMode] = React.useState(false);
@@ -333,41 +342,83 @@ const Dashboard: React.FC = () => {
     return headers;
   }, []);
 
+  /** Load the budget document AND its revision token. Reused by the focus refresh below. */
+  const loadBudgetState = React.useCallback(async () => {
+    try {
+      const res = await fetch('/.netlify/functions/db-budget-state', {
+        headers: budgetAuthHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.state) setBudgetState(data.state as BudgetState);
+        budgetRevisionRef.current = data?.updatedAt ?? null;
+      }
+    } catch (e) {
+      console.error('Failed to load budget state', e);
+    }
+  }, [budgetAuthHeaders]);
+
   React.useEffect(() => {
     if (!effectiveUserKey || budgetLoaded) return;
     (async () => {
-      try {
-        const res = await fetch('/.netlify/functions/db-budget-state', {
-          headers: budgetAuthHeaders(),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data?.state) setBudgetState(data.state as BudgetState);
-        }
-      } catch (e) {
-        console.error('Failed to load budget state', e);
-      } finally {
-        setBudgetLoaded(true);
-      }
+      await loadBudgetState();
+      setBudgetLoaded(true);
     })();
-  }, [effectiveUserKey, budgetLoaded, budgetAuthHeaders]);
+  }, [effectiveUserKey, budgetLoaded, loadBudgetState]);
+
+  /**
+   * Coming back to the tab after days or weeks must not act on a stale read, so refresh
+   * when the window regains focus. Skipped while a save is in flight so it cannot race it.
+   * (The revision guard on the server is the real protection; this keeps it from firing.)
+   */
+  React.useEffect(() => {
+    if (!effectiveUserKey) return;
+    const refresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (budgetSaveInFlightRef.current) return;
+      void loadBudgetState();
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [effectiveUserKey, loadBudgetState]);
 
   const handleBudgetChange = React.useCallback((next: BudgetState) => {
     setBudgetState(next);
+    budgetSaveInFlightRef.current = true;
+    const headers = budgetAuthHeaders();
+    // Tell the server which revision this edit was built on. Without it the server keeps
+    // its old merge behaviour, so nothing else can break by omission.
+    if (budgetRevisionRef.current) headers['X-Base-Updated-At'] = budgetRevisionRef.current;
     fetch('/.netlify/functions/db-budget-state', {
       method: 'PUT',
-      headers: budgetAuthHeaders(),
+      headers,
       body: JSON.stringify({ state: next }),
-    }).then((res) => {
+    }).then(async (res) => {
+      const data = await res.json().catch(() => null);
+      if (res.status === 409 && data?.code === 'stale_state') {
+        // The page was out of date, so this edit was refused rather than allowed to revert
+        // a balance the bot had already moved. Adopt the server's version and SAY SO —
+        // silently dropping the edit would look like the app ignored him.
+        budgetSaveInFlightRef.current = false;
+        if (data.state) setBudgetState(data.state as BudgetState);
+        budgetRevisionRef.current = data.updatedAt ?? null;
+        setBudgetNotice(String(data.error || 'This page was out of date — reloaded to the current version. Please redo your last change.'));
+        return;
+      }
+      budgetSaveInFlightRef.current = false;
       if (!res.ok) throw new Error(`PUT returned ${res.status}`);
+      if (data?.updatedAt) budgetRevisionRef.current = data.updatedAt;
+      setBudgetNotice(null);
     }).catch((e) => {
+      budgetSaveInFlightRef.current = false;
       console.error('Budget save failed — reverting to server state', e);
-      fetch('/.netlify/functions/db-budget-state', { headers: budgetAuthHeaders() })
-        .then((r) => r.ok && r.json())
-        .then((data) => { if (data?.state) setBudgetState(data.state as BudgetState); })
-        .catch(() => {});
+      void loadBudgetState();
     });
-  }, [budgetAuthHeaders]);
+  }, [budgetAuthHeaders, loadBudgetState]);
 
   // Load server calendar accounts + entries, and migrate localStorage data
   React.useEffect(() => {
@@ -1367,7 +1418,21 @@ const Dashboard: React.FC = () => {
 
         <div className="space-y-6">
           {view === 'budget' && (
-            <BudgetTab state={budgetState} onChange={handleBudgetChange} />
+            <>
+              {budgetNotice && (
+                <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+                  <span>{budgetNotice}</span>
+                  <button
+                    onClick={() => setBudgetNotice(null)}
+                    className="shrink-0 text-amber-200/60 hover:text-amber-100"
+                    aria-label="Dismiss"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+              <BudgetTab state={budgetState} onChange={handleBudgetChange} />
+            </>
           )}
           {view === 'personal' && (
             <PersonalTab />
