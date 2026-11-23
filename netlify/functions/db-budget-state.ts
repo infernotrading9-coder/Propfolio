@@ -213,6 +213,21 @@ export const handler: Handler = async (event) => {
           }
           // Remove the transaction
           state.transactions = txns.filter((t: any) => String(t.id) !== String(transactionId));
+          // _deleted is REQUIRED — omitting a row does NOT delete it.
+          //
+          // The store merges arrays by id, and _mergeById seeds its map with every row the
+          // SERVER already has before overlaying the incoming ones (service.ts _mergeById),
+          // because "a row the server has and the client doesn't see is deliberately kept".
+          // So a removal has to be DECLARED. Without this the balance was reversed but the row
+          // came straight back — the ledger and the balance then disagreed, silently.
+          // Same idiom as delete-recurring below and account removal above.
+          state._deleted = {
+            ...(state._deleted || {}),
+            transactions: [
+              ...((state._deleted && state._deleted.transactions) || []),
+              String(transactionId),
+            ],
+          };
           const saved = await budgetStateService.upsert(user.id, JSON.parse(JSON.stringify(state)));
           return json(200, { ok: true, deleted: transactionId });
         } catch (e: any) {
