@@ -75,6 +75,7 @@ export const handler: Handler = async (event) => {
                ch.payout_count, ch.went_live_at, ch.source_challenge_id,
                ch.highest_milestone, ch.outcome_type, ch.failure_reason, ch.failure_date,
                ch.total_phases, ch.phase1_completed, ch.live_account, ch.firm_id,
+               ch.firm_type,
                ta.display_label, ta.firm, ta.balance, ta.phase AS card_phase,
                ta.status AS card_status, ta.max_drawdown, ta.daily_drawdown, ta.rules
           FROM challenges ch

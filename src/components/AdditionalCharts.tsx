@@ -7,6 +7,22 @@ type ChartView = 'firmAnalysis' | 'strategyPerformance' | 'challengeType' | 'top
 type FirmView = 'exposure' | 'roi' | 'profit';
 type ChallengeTypeView = 'phases' | 'evalType';
 
+/**
+ * Colour per FIRM TYPE, for firms with no brand of their own.
+ *
+ * Table rather than inline ternaries: with three types a `firmType === 'cfd' ? purple : cyan`
+ * silently gives the third one someone else's colour, and the chart becomes unreadable
+ * without anything looking broken. Unknown values fall back to futures, matching the old
+ * behaviour for anything untyped.
+ */
+const TYPE_COLOUR: Record<string, { accent: string; glow: string }> = {
+  futures: { accent: '#22d3ee', glow: 'rgba(34,211,238,0.28)' },
+  cfd:     { accent: '#a855f7', glow: 'rgba(168,85,247,0.28)' },
+  perps:   { accent: '#f59e0b', glow: 'rgba(245,158,11,0.28)' },
+};
+const typeColour = (firmType?: string | null) =>
+  TYPE_COLOUR[String(firmType || 'futures').toLowerCase()] ?? TYPE_COLOUR.futures;
+
 export const AdditionalCharts: React.FC<{ 
   challenges: Challenge[];
   firms: PropFirm[];
@@ -102,8 +118,8 @@ export const AdditionalCharts: React.FC<{
 
     return {
       logo: known?.logo || initials,
-      accent: known?.accent || (firmType === 'cfd' ? '#a855f7' : '#22d3ee'),
-      glow: known?.glow || (firmType === 'cfd' ? 'rgba(168,85,247,0.28)' : 'rgba(34,211,238,0.28)'),
+      accent: known?.accent || typeColour(firmType).accent,
+      glow: known?.glow || typeColour(firmType).glow,
       label: known?.label || firmName,
       kind: known?.kind || 'initials',
       typeLabel: firmType ? firmType.toUpperCase() : 'FIRM'

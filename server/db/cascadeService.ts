@@ -338,7 +338,7 @@ export interface BuyEvalInput {
   accountFirst4?: string;
   brokerName?: string;
   evalType?: string;
-  firmType?: 'futures' | 'cfd';
+  firmType?: 'futures' | 'cfd' | 'perps';
   maxDrawdown?: number;
   dailyDrawdown?: number;
   riskPerTrade?: number;

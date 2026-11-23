@@ -786,7 +786,7 @@ export const ChallengeForm: React.FC<{
               <WalletCards className="h-3.5 w-3.5" />
               Firm Type
             </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => setFirmType('futures')}
@@ -802,6 +802,18 @@ export const ChallengeForm: React.FC<{
                 className={optionCardClasses(firmType === 'cfd', 'purple')}
               >
                 CFD
+              </button>
+              {/* Perpetual futures — Vest Markets' 1-step / 2-step evals. Not futures
+                  (no daily session for the loss limit to reset at) and not CFD, so it
+                  needs its own choice or it gets filed under the wrong rules. */}
+              <button
+                type="button"
+                onClick={() => setFirmType('perps')}
+                disabled={formDisabled}
+                className={optionCardClasses(firmType === 'perps', 'amber')}
+                title="Perpetual futures (Vest Markets 1-step / 2-step)"
+              >
+                Perps
               </button>
             </div>
           </div>

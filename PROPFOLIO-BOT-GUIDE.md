@@ -111,7 +111,30 @@ Spawns: challenge + account card + budget expense + rule-calendar row.
 }
 ```
 
-**`budgetAccountId` is required whenever `cost > 0`.** If Daniel doesn't say which account paid, **ask him** — the API rejects it with `code: "no_funding_source"` rather than guessing. Valid ids: `acc_sofi`, `acc_cash`, `acc_affirm`, `acc_klarna`, `acc_sezzle`, `acc_premier`, `acc_aspire`, `acc_destiny`, `acc_capitalone`, `acc_cashapp`, `acc_christian`, `acc_atlas`, `acc_one_pay`, `acc_revel`.
+**`firmType` is one of `futures` | `cfd` | `perps` — and it is NOT cosmetic.** It decides what a DAILY
+drawdown breach means, so a wrong value misreports a flagged account:
+
+- `futures` — session-based. A daily-DD breach is a **LOCKOUT**: no more trades until the settle, but
+  the account survives. Max DD is what kills it.
+- `cfd` — continuous, no session. A daily-DD breach is **FATAL**: the account is gone.
+- **`perps`** — **perpetual futures, i.e. Vest Markets' 1-step and 2-step evals.** Also continuous
+  (24/7, nothing resets), so a daily breach is fatal — but filed separately because it's its own
+  market with its own price ladder and payout mechanics. **Any Vest Markets evaluation is `perps`.**
+  Never file one as futures or CFD: it would be bucketed with the wrong firms and judged by the
+  wrong breach rule.
+
+**`budgetAccountId` is required whenever `cost > 0`.** If Daniel doesn't say which account paid, **ask
+him** — the API rejects it with `code: "no_funding_source"` rather than guessing. The live ids
+(authoritative source: `GET db-budget-state?action=accounts`):
+
+`acc_sofi` (Sofi) · `acc_vest` (Vest balance) · `acc_kast` (Kast) · `acc_kraken` (Kraken) ·
+`acc_one_pay` · `acc_cash` · `acc_affirm` · `acc_klarna` · `acc_sezzle` · `acc_premier` ·
+`acc_aspire` · `acc_destiny` · `acc_capitalone` · `acc_cashapp` · `acc_christian` · `acc_dave` ·
+`acc_mom` · `acc_reflex` · `acc_revel` · `6tdzumg` (SplitPay) · `pkqdn66` (American Water) ·
+`acc_bills_held_v2` · `acc_rent_held`
+
+⚠️ **Never guess an id, and never invent one** — a wrong id books real money against the wrong
+account. Query the list if unsure.
 
 Also prompt him for the **rules** if he doesn't give them — an account with no rules gives the Rule Calendar nothing to check, and the response will warn you about it.
 

@@ -283,8 +283,10 @@ export const tradingAccounts = pgTable('trading_accounts', {
   /** Who last set it: 'daniel' (reported) or 'trades' (derived fallback). */
   greenDaysSource: text('green_days_source'),
   evalType: text('eval_type'), // product variant: Builder, Flex, Daily, Rapid, Zero...
-  // 'futures' | 'cfd'. Decides what a daily-DD breach MEANS: futures = session
-  // lockout (account survives), CFD = account lost.
+  // 'futures' | 'cfd' | 'perps'. Decides what a daily-DD breach MEANS: futures = session
+  // lockout (account survives), CFD = account lost. 'perps' (perpetual futures, e.g. Vest
+  // Markets 1-step/2-step) trades 24/7 with no session boundary, so a daily breach is fatal
+  // there too — same handling as CFD, kept as its own value so it is identifiable.
   firmType: text('firm_type'),
   riskPerTrade: decimal('risk_per_trade', { precision: 12, scale: 2 }).default('0'),
   rules: text('rules').array(), // array of rule strings

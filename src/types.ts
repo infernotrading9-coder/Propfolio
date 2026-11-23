@@ -81,7 +81,22 @@ export interface Challenge {
   }; // trading rules per phase
 }
 
-export type FirmType = 'futures' | 'cfd';
+/**
+ * What kind of market a firm's accounts trade — and it is NOT cosmetic: it decides what a
+ * DAILY drawdown breach means (see `AccountsView`), how prices compare, and how the firm is
+ * bucketed in analytics.
+ *
+ * - `futures`  — session-based. A daily-DD breach is a LOCKOUT: no more trades until the
+ *                session settles, but the account survives. Max DD is what kills it.
+ * - `cfd`      — continuous. A daily-DD breach is FATAL: the account is gone.
+ * - `perps`    — perpetual futures (Vest Markets' 1-step/2-step products). Also continuous
+ *                and 24/7, so there is no session boundary for a daily limit to reset at →
+ *                treated as FATAL like a CFD. Filed separately because the price ladder,
+ *                the products and the payout mechanics are their own thing, and Daniel
+ *                asked to be able to tell them apart: *"it's not futures or CFDs... I'm
+ *                going to start trying the one and two-step accounts from them."*
+ */
+export type FirmType = 'futures' | 'cfd' | 'perps';
 
 export interface PropFirm {
   id: string;

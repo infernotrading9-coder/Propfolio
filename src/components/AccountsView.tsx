@@ -126,11 +126,14 @@ const HolographicAccountCard: React.FC<{
   });
   const ddPercent = maxDD > 0 ? Math.min(100, (drawdown / maxDD) * 100) : 0;
   const profit = balance - hwm;
-  // A daily-DD breach is only fatal on CFD firms. On futures it's a session
-  // lockout — no more trades until the 5pm settle, but the account survives.
-  // Max DD is what actually kills a futures account.
-  const isCfd = ['cfd', 'forex'].includes(String(acct.firmType || 'futures').toLowerCase());
-  const isFuturesDailyLockout = dd.breached && dd.binding === 'daily' && !isCfd;
+  // A daily-DD breach is only survivable where the market has SESSIONS. Futures reset the
+  // daily loss limit at the settle, so a breach there means LOCKED OUT until then — the
+  // account survives, and Max DD is what actually kills it. CFD and PERPS are continuous
+  // with no session boundary for the limit to reset at, so the account is gone.
+  // (Named for what it decides rather than "isCfd": the answer now has three inputs.)
+  const dailyBreachIsFatal = ['cfd', 'forex', 'perps']
+    .includes(String(acct.firmType || 'futures').toLowerCase());
+  const isFuturesDailyLockout = dd.breached && dd.binding === 'daily' && !dailyBreachIsFatal;
   const acctSizeNum = parseFloat(acct.accountSize);
   const sizeLabel = acctSizeNum >= 1000 ? `$${(acctSizeNum / 1000).toFixed(0)}K` : `$${acctSizeNum}`;
 

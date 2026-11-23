@@ -403,12 +403,18 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
     glow: (stats.totalPayouts - stats.totalSpent) >= 0 ? 'green' : 'red',
     textColor: (stats.totalPayouts - stats.totalSpent) >= 0 ? 'text-green-300' : 'text-red-300',
   });
-  // Avg cost per eval split by firm type — futures and CFD prices are very different
+  // Avg cost per eval split by firm type — the prices are very different per type, so a
+  // blended average would describe none of them. A type's card only appears once he owns
+  // one: an "—" card for a type he never buys is just clutter.
   const yearEvals = challenges.filter(c => c?.startDate?.slice(0, 4) === selectedYear);
+  const avgCostOf = (list: Challenge[]) =>
+    list.length > 0 ? list.reduce((s, c) => s + (c?.cost ?? 0), 0) / list.length : 0;
   const futuresEvals = yearEvals.filter(c => (c?.firmType || 'futures') === 'futures');
   const cfdEvals = yearEvals.filter(c => c?.firmType === 'cfd');
-  const futuresAvgCost = futuresEvals.length > 0 ? futuresEvals.reduce((s, c) => s + (c?.cost ?? 0), 0) / futuresEvals.length : 0;
-  const cfdAvgCost = cfdEvals.length > 0 ? cfdEvals.reduce((s, c) => s + (c?.cost ?? 0), 0) / cfdEvals.length : 0;
+  const perpsEvals = yearEvals.filter(c => c?.firmType === 'perps');
+  const futuresAvgCost = avgCostOf(futuresEvals);
+  const cfdAvgCost = avgCostOf(cfdEvals);
+  const perpsAvgCost = avgCostOf(perpsEvals);
   statItems.push({
     title: `Avg Futures Eval (${selectedYear})`,
     value: futuresEvals.length > 0 ? `$${futuresAvgCost.toFixed(2)}` : '—',
@@ -423,6 +429,15 @@ export const DashboardStats: React.FC<{ challenges: Challenge[]; selectedYear: s
     glow: 'amber',
     textColor: 'text-amber-300',
   });
+  if (perpsEvals.length > 0) {
+    statItems.push({
+      title: `Avg Perps Eval (${selectedYear})`,
+      value: `$${perpsAvgCost.toFixed(2)}`,
+      icon: <Calculator className="w-8 h-8 text-orange-300 drop-shadow-neon-amber" />,
+      glow: 'amber',
+      textColor: 'text-orange-300',
+    });
+  }
 
   return (
     <div>
