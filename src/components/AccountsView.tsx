@@ -3,6 +3,7 @@ import { Wallet, GripVertical, Edit3, Save, X, Trash2, ChevronLeft, ChevronRight
 import { NeonCard } from './NeonCard';
 import { toLocalISODate, todayLocalISO, parseLocalDate } from '../utils/dates';
 import { computeDrawdown } from '../../server/db/drawdownModel';
+import { resolveDailyBreach } from '../../shared/firmBreach.mts';
 
 interface TradingAccount {
   id: string;
@@ -24,6 +25,11 @@ interface TradingAccount {
   floorLockLevel?: string | null;
   evalType?: string | null;
   firmType?: string | null;
+  /**
+   * 'soft' | 'hard' | null — how severe a DAILY drawdown breach is, when it differs from the
+   * market's default (futures/perps = soft, cfd/forex = hard). See the breach block above.
+   */
+  dailyBreach?: string | null;
   riskPerTrade?: string;
   rules?: string[] | null;
   notes?: string | null;
@@ -126,14 +132,17 @@ const HolographicAccountCard: React.FC<{
   });
   const ddPercent = maxDD > 0 ? Math.min(100, (drawdown / maxDD) * 100) : 0;
   const profit = balance - hwm;
-  // A daily-DD breach is only survivable where the market has SESSIONS. Futures reset the
-  // daily loss limit at the settle, so a breach there means LOCKED OUT until then — the
-  // account survives, and Max DD is what actually kills it. CFD and PERPS are continuous
-  // with no session boundary for the limit to reset at, so the account is gone.
-  // (Named for what it decides rather than "isCfd": the answer now has three inputs.)
-  const dailyBreachIsFatal = ['cfd', 'forex', 'perps']
-    .includes(String(acct.firmType || 'futures').toLowerCase());
-  const isFuturesDailyLockout = dd.breached && dd.binding === 'daily' && !dailyBreachIsFatal;
+  // SEVERITY of a daily-DD breach. An explicit per-account setting wins; otherwise the MARKET
+  // TYPE decides — futures and perps are SOFT (locked out until the limit resets, account
+  // survives), cfd/forex are HARD (the account is gone).
+  //
+  // The two are deliberately separate: Vest announced on Nov 23 2026 that daily DD on their
+  // perps accounts becomes a soft breach, which the old type-only rule got wrong. Severity is
+  // a property of the FIRM's rules, not of the market it trades.
+  // Resolution lives in shared/firmBreach.mts so it can be tested as a pure function — it
+  // was inline here, which made the most consequential rule in this view unreachable.
+  const isSoftDailyBreach = dd.breached && dd.binding === 'daily'
+    && resolveDailyBreach(acct.dailyBreach, acct.firmType) === 'soft';
   const acctSizeNum = parseFloat(acct.accountSize);
   const sizeLabel = acctSizeNum >= 1000 ? `$${(acctSizeNum / 1000).toFixed(0)}K` : `$${acctSizeNum}`;
 
@@ -263,8 +272,8 @@ const HolographicAccountCard: React.FC<{
                   <span className="text-white/40">
                     Stop-out <span className="text-white/30">({dd.binding === 'daily' ? 'daily' : 'max DD'} binding)</span>
                   </span>
-                  <span className={dd.breached ? (isFuturesDailyLockout ? 'text-amber-400 font-semibold' : 'text-red-400 font-semibold') : dd.room < (dailyDD || maxDD) * 0.25 ? 'text-amber-400' : 'text-white/50'}>
-                    ${dd.stopOutLevel.toFixed(0)} · {dd.breached ? (isFuturesDailyLockout ? `LOCKED OUT ${Math.abs(dd.room).toFixed(0)} over` : `BREACHED ${Math.abs(dd.room).toFixed(0)}`) : `${dd.room.toFixed(0)} room`}
+                  <span className={dd.breached ? (isSoftDailyBreach ? 'text-amber-400 font-semibold' : 'text-red-400 font-semibold') : dd.room < (dailyDD || maxDD) * 0.25 ? 'text-amber-400' : 'text-white/50'}>
+                    ${dd.stopOutLevel.toFixed(0)} · {dd.breached ? (isSoftDailyBreach ? `LOCKED OUT ${Math.abs(dd.room).toFixed(0)} over` : `BREACHED ${Math.abs(dd.room).toFixed(0)}`) : `${dd.room.toFixed(0)} room`}
                   </span>
                 </div>
                 <div className="h-2 bg-white/5 rounded-full overflow-hidden">

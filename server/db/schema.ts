@@ -283,11 +283,23 @@ export const tradingAccounts = pgTable('trading_accounts', {
   /** Who last set it: 'daniel' (reported) or 'trades' (derived fallback). */
   greenDaysSource: text('green_days_source'),
   evalType: text('eval_type'), // product variant: Builder, Flex, Daily, Rapid, Zero...
-  // 'futures' | 'cfd' | 'perps'. Decides what a daily-DD breach MEANS: futures = session
-  // lockout (account survives), CFD = account lost. 'perps' (perpetual futures, e.g. Vest
-  // Markets 1-step/2-step) trades 24/7 with no session boundary, so a daily breach is fatal
-  // there too — same handling as CFD, kept as its own value so it is identifiable.
+  // 'futures' | 'cfd' | 'perps'. Only the MARKET, and the default source of breach severity:
+  // futures = soft (locked out until the limit resets, account survives), cfd/forex = hard
+  // (account gone). 'perps' (perpetual futures, e.g. Vest Markets 1-step/2-step) is its own
+  // market because it is neither — see `dailyBreach` for how severe a breach actually is.
   firmType: text('firm_type'),
+  /**
+   * 'soft' | 'hard' | null. What a DAILY drawdown breach DOES to this account, when that
+   * differs from the market type's default.
+   *
+   * `null` (default) DERIVES it: futures/perps = soft, cfd/forex = hard.
+   *
+   * Why its own field rather than more type values: the MARKET and the SEVERITY of a breach
+   * are independent facts. Vest announced on Nov 23 2026 that daily DD on their perps accounts
+   * becomes a SOFT breach — which only looks like a contradiction if you assume the market
+   * decides the consequence.
+   */
+  dailyBreach: text('daily_breach'),
   riskPerTrade: decimal('risk_per_trade', { precision: 12, scale: 2 }).default('0'),
   rules: text('rules').array(), // array of rule strings
   notes: text('notes'),

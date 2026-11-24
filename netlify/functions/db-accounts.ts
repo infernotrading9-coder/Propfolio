@@ -854,6 +854,16 @@ export const handler: Handler = async (event) => {
       if (updates.settledHighWaterMark !== undefined) dbUpdates.settledHighWaterMark = updates.settledHighWaterMark === null || updates.settledHighWaterMark === '' ? null : String(updates.settledHighWaterMark)
       if (updates.evalType !== undefined) dbUpdates.evalType = updates.evalType || null
       if (updates.firmType !== undefined) dbUpdates.firmType = updates.firmType || null
+      // Breach SEVERITY, independent of the market type: 'soft' (locked out, account lives)
+      // or 'hard' (account gone). Null = derive from firmType. Anything else is rejected
+      // rather than stored, so a typo cannot silently become "hard" by falling through.
+      if (updates.dailyBreach !== undefined) {
+        const severity = String(updates.dailyBreach || '').toLowerCase()
+        if (severity && severity !== 'soft' && severity !== 'hard') {
+          return json(400, { error: "dailyBreach must be 'soft', 'hard' or null", code: 'bad_daily_breach' })
+        }
+        dbUpdates.dailyBreach = severity || null
+      }
       if (updates.riskPerTrade !== undefined) dbUpdates.riskPerTrade = String(updates.riskPerTrade)
       if (updates.rules !== undefined) dbUpdates.rules = updates.rules
       if (updates.notes !== undefined) dbUpdates.notes = updates.notes

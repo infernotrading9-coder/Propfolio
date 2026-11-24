@@ -111,17 +111,22 @@ Spawns: challenge + account card + budget expense + rule-calendar row.
 }
 ```
 
-**`firmType` is one of `futures` | `cfd` | `perps` — and it is NOT cosmetic.** It decides what a DAILY
-drawdown breach means, so a wrong value misreports a flagged account:
+**`firmType` is one of `futures` | `cfd` | `perps` — the MARKET, not the consequence.**
 
-- `futures` — session-based. A daily-DD breach is a **LOCKOUT**: no more trades until the settle, but
-  the account survives. Max DD is what kills it.
-- `cfd` — continuous, no session. A daily-DD breach is **FATAL**: the account is gone.
-- **`perps`** — **perpetual futures, i.e. Vest Markets' 1-step and 2-step evals.** Also continuous
-  (24/7, nothing resets), so a daily breach is fatal — but filed separately because it's its own
-  market with its own price ladder and payout mechanics. **Any Vest Markets evaluation is `perps`.**
-  Never file one as futures or CFD: it would be bucketed with the wrong firms and judged by the
-  wrong breach rule.
+- `futures` — session-based (the daily limit resets at the settle).
+- `cfd` — continuous, no session.
+- **`perps`** — **perpetual futures: Vest Markets' 1-step and 2-step evals.** Its own market
+  because it is neither of the other two, with its own price ladder and payout mechanics.
+  **Any Vest Markets evaluation is `perps`** — never file one as futures or CFD.
+
+**Breach SEVERITY is separate** (`dailyBreach`: `soft` | `hard` | null) and is a property of the
+FIRM's rules, not the market. `null` derives it from `firmType`: **futures and perps = `soft`**
+(hit daily DD → locked out until the limit resets, account survives), **cfd/forex = `hard`**
+(account gone). Set it explicitly only when a firm differs from its market's default — e.g. a
+futures firm that terminates on a daily breach would be `firmType: futures, dailyBreach: hard`.
+
+⚠️ **Vest announced on Nov 23 2026 that hitting daily DD on their perps accounts is a SOFT
+breach** — which is exactly what the perps default already does. No special handling needed.
 
 **`budgetAccountId` is required whenever `cost > 0`.** If Daniel doesn't say which account paid, **ask
 him** — the API rejects it with `code: "no_funding_source"` rather than guessing. The live ids
