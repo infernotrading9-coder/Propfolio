@@ -33,9 +33,10 @@ import InstantTab from './InstantTab';
 import PropTradesTab from "./PropTradesTab";
 import { PersonalTab } from './PersonalTab';
 import { GoalsTab } from './GoalsTab';
+import { LifeCalendar } from './LifeCalendar';
 
 
-type ViewMode = 'prop' | 'accounts' | 'budget' | 'personal' | 'goals' | 'cockpit' | 'prop_trades' | 'instant';
+type ViewMode = 'prop' | 'accounts' | 'budget' | 'personal' | 'goals' | 'cockpit' | 'prop_trades' | 'instant' | 'calendar';
 
 /**
  * THE NAV IS GROUPED, NOT FLAT (Nov 14 2026).
@@ -80,6 +81,7 @@ const NAV_GROUPS: { key: string; label: string; items: { view: ViewMode; label: 
     label: 'Life',
     items: [
       { view: 'budget', label: 'Budget' },
+      { view: 'calendar', label: 'Calendar' },
       { view: 'goals', label: 'Goals' },
     ],
   },
@@ -338,13 +340,10 @@ const Dashboard: React.FC = () => {
   }, [clampFab]);
   const [cockpitPropMode, setCockpitPropMode] = React.useState(false);
   const [showCockpitMode, setShowCockpitMode] = React.useState(false);
-  const [showAgenda, setShowAgenda] = React.useState(false);
-  const [agendaData, setAgendaData] = React.useState<any>(null);
-  const [agendaLoading, setAgendaLoading] = React.useState(false);
-  const [agendaError, setAgendaError] = React.useState(false);
-
-  // ── Arcade: the blue button opens a chooser — Agenda or Mindset ────────────
-  const [showArcadeMenu, setShowArcadeMenu] = React.useState(false);
+  // ── Arcade: the blue button opens Mindset directly.
+  //    The day-by-day Agenda that used to share this button moved into the
+  //    Life tab's Calendar (Nov 26 2026) — see src/components/LifeCalendar.tsx.
+  //    The Obsidian-pushed agenda still shows there, in its own read-only layer.
   const [showMindset, setShowMindset] = React.useState(false);
   const [moodMsg, setMoodMsg] = React.useState<string>('');
   const moodAudioRef = React.useRef<HTMLAudioElement | null>(null);
@@ -382,27 +381,6 @@ const Dashboard: React.FC = () => {
     setTimeout(() => setMoodMsg(''), 4000);
   };
 
-  /** Opens the agenda modal and loads today's entries. */
-  const openAgenda = async () => {
-    setShowArcadeMenu(false);
-    setShowAgenda(true); setAgendaLoading(true); setAgendaError(false);
-    try {
-      const h: Record<string, string> = {};
-      try { const u = JSON.parse(localStorage.getItem('user') || '{}'); if (u?.id) { h['X-User-Id'] = String(u.id); h['X-User-Email'] = String(u.email); } } catch {}
-      const res = await fetch('/.netlify/functions/daily-agenda', { headers: h });
-      const d = await res.json();
-      setAgendaData(d); setAgendaLoading(false);
-    } catch { setAgendaError(true); setAgendaLoading(false); }
-  };
-
-  const formatTime12 = (t: string) => {
-    if (!t) return '';
-    const [h, m] = t.split(':').map(Number);
-    if (isNaN(h)) return t;
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const h12 = h % 12 || 12;
-    return `${h12}:${m?.toString().padStart(2, '0') || '00'} ${ampm}`;
-  };
   const budgetAuthHeaders = React.useCallback(() => {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -1279,7 +1257,7 @@ const Dashboard: React.FC = () => {
         }
       `}</style>
       <div className="min-h-screen bg-[#020408] text-white overflow-x-hidden">
-      <div className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
+      <div className={`mx-auto px-4 py-6 sm:py-8 ${view === 'calendar' ? 'max-w-[1500px]' : 'max-w-6xl'}`}>
         <header className="mb-6 text-center relative">
           {/* Settings Panel */}
           <div className="mb-4 flex justify-end sm:absolute sm:right-0 sm:top-0 sm:mb-0">
@@ -1323,12 +1301,12 @@ const Dashboard: React.FC = () => {
           )}
           {(!activeGroup || activeGroup.items.length === 1) && <div className="mb-4" />}
           <a href="/" className="inline-block mb-2 hover:scale-105 transition-transform duration-200">
-            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='accounts' ? 'Trading Accounts' : view==='budget' ? 'Budget' : view==='personal' ? 'Personal Trades' : view==='goals' ? 'Goals' : view==='prop_trades' ? 'Prop Trade Log' : view==='instant' ? 'Instant Accounts' : 'Propfolio'}</h1>
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight neon-title cursor-pointer">{view==='accounts' ? 'Trading Accounts' : view==='budget' ? 'Budget' : view==='personal' ? 'Personal Trades' : view==='goals' ? 'Goals' : view==='calendar' ? 'Calendar' : view==='prop_trades' ? 'Prop Trade Log' : view==='instant' ? 'Instant Accounts' : 'Propfolio'}</h1>
           </a>
-          <p className="text-white/70 mt-2">{view==='accounts' ? 'Manage your trading accounts and daily order' : view==='budget' ? 'Track income, expenses, accounts, debts, and savings goals' : view==='personal' ? 'Your personal NinjaTrader trade journal' : view==='goals' ? 'Long, mid and short-term goals, broken into steps' : view==='prop_trades' ? 'Every prop trade logged in R — win rate and expectancy by strategy, variant and timeframe' : view==='instant' ? 'Vest Markets instant accounts — no evaluation, no pass rate. Spending, payouts, and how many accounts it takes to land one' : 'Track Challenges, Trading Rules, and ROI'}</p>
+          <p className="text-white/70 mt-2">{view==='accounts' ? 'Manage your trading accounts and daily order' : view==='budget' ? 'Track income, expenses, accounts, debts, and savings goals' : view==='personal' ? 'Your personal NinjaTrader trade journal' : view==='goals' ? 'Long, mid and short-term goals, broken into steps' : view==='calendar' ? 'Your month, week and day — events and todos you can drag anywhere' : view==='prop_trades' ? 'Every prop trade logged in R — win rate and expectancy by strategy, variant and timeframe' : view==='instant' ? 'Vest Markets instant accounts — no evaluation, no pass rate. Spending, payouts, and how many accounts it takes to land one' : 'Track Challenges, Trading Rules, and ROI'}</p>
         </header>
 
-        {view !== 'budget' && (
+        {view !== 'budget' && view !== 'calendar' && (
           <TradingModeWidget
             apiBase="/.netlify/functions"
             getAuthHeaders={() => {
@@ -1367,7 +1345,7 @@ const Dashboard: React.FC = () => {
               <span className="h-1 w-1 rounded-full bg-white/45" />
               <span className="h-1 w-1 rounded-full bg-white/45" />
             </div>
-            <div className="lg:hidden"><button onClick={() => { if (fabJustDragged.current) return; setShowArcadeMenu(v => !v); }}
+            <div className="lg:hidden"><button onClick={() => { if (fabJustDragged.current) return; setShowMindset(true); }}
               className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center select-none active:scale-95 transition-all duration-200 hover:scale-105 lg:hidden"
               style={{
                 background: 'radial-gradient(circle at 40% 35%, #60a5fa, #3b82f6 55%, #1d4ed8 100%)',
@@ -1376,7 +1354,7 @@ const Dashboard: React.FC = () => {
                 transform: 'perspective(300px) rotateX(15deg)',
                 border: '4px solid #1e3a8a',
               }}
-              title="Agenda / Mindset"
+              title="Mindset"
             >
               <div className="absolute inset-0 pointer-events-none rounded-full" style={{ background: 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 55%)' }} />
             </button>
@@ -1401,29 +1379,6 @@ const Dashboard: React.FC = () => {
                 }}
               />
             </button>
-          </div>
-        )}
-
-        {/* Arcade chooser — Agenda or Mindset (mobile only) */}
-        {showArcadeMenu && !cockpitActive && (
-          <div className="fixed inset-0 z-[58] flex items-center justify-center bg-black/70 backdrop-blur-sm lg:hidden"
-               onClick={() => setShowArcadeMenu(false)}>
-            <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl"
-                 onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-lg font-bold text-white mb-6 text-center">Agenda or Mindset?</h3>
-              <div className="flex flex-col gap-4">
-                <button onClick={openAgenda}
-                  className="w-full px-6 py-5 rounded-2xl border-2 text-lg font-bold transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-3"
-                  style={{ background: '#22d3ee15', color: '#22d3ee', borderColor: '#22d3ee50', boxShadow: '0 0 30px #22d3ee20' }}>
-                  <span className="text-2xl">📋</span> Agenda
-                </button>
-                <button onClick={() => { setShowArcadeMenu(false); setShowMindset(true); }}
-                  className="w-full px-6 py-5 rounded-2xl border-2 text-lg font-bold transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-3"
-                  style={{ background: '#a855f715', color: '#a855f7', borderColor: '#a855f750', boxShadow: '0 0 30px #a855f720' }}>
-                  <span className="text-2xl">🗣️</span> Mindset
-                </button>
-              </div>
-            </div>
           </div>
         )}
 
@@ -1459,36 +1414,6 @@ const Dashboard: React.FC = () => {
         )}
 
         {/* Cockpit mode selector */}
-        {/* Agenda Modal */}
-        {showAgenda && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="bg-[#020408] border border-white/15 rounded-2xl p-5 w-full max-w-md mx-4 shadow-2xl" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-white">📋 <span className="text-sm font-normal text-white/40">Today's Agenda</span></h3>
-                <button onClick={() => setShowAgenda(false)} className="text-white/30 hover:text-white/60 text-sm">✕</button>
-              </div>
-              {agendaLoading ? (
-                <div className="text-center text-white/30 py-8">Loading...</div>
-              ) : agendaError ? (
-                <div className="text-center text-white/30 py-8">Could not load agenda</div>
-              ) : agendaData?.entries?.length > 0 ? (
-                agendaData.entries.map((e: any, i: number) => (
-                  <div key={i} className="flex items-start gap-3 p-4 rounded-xl border border-white/10 bg-white/5 mb-2">
-                    <span className="text-2xl">{e.icon || '📌'}</span>
-                    <div className="flex-1">
-                      <div className="text-base font-bold text-white">{e.title}</div>
-                      <div className="text-sm text-white/40 mt-1">{e.startTime ? `${formatTime12(e.startTime)} - ${formatTime12(e.endTime) || '?'}` : 'All day'}</div>
-                      <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full ${e.category === 'workouts' || e.category === 'push' || e.category === 'pull' || e.category === 'legs' ? 'bg-cyan-500/20 text-cyan-200' : e.category === 'light' ? 'bg-emerald-500/20 text-emerald-200' : 'bg-purple-500/20 text-purple-200'}`}>{e.category}</span>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center text-white/30 py-8">Nothing scheduled today</div>
-              )}
-            </div>
-          </div>
-        )}
-
         {showCockpitMode && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm">
             <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl text-center">
@@ -1536,6 +1461,9 @@ const Dashboard: React.FC = () => {
           )}
           {view === 'goals' && (
             <GoalsTab />
+          )}
+          {view === 'calendar' && (
+            <LifeCalendar />
           )}
           {view === 'prop_trades' && (
             <PropTradesTab />

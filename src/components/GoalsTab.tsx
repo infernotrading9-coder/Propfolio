@@ -83,6 +83,35 @@ const HORIZON_LABEL: Record<Horizon, string> = {
 
 const API = '/.netlify/functions/db-notes';
 
+// ── Milestone math ───────────────────────────────────────────────────────────
+// Daniel's goals already ARE a ladder of money milestones: "Grow personal account
+// to $20K" has mid-term children "First $500" → "Reach $1,000" → "Scale to $5K" →
+// "Scale to $10K" → "Scale to $20K". Those children are the notches, so the bar is
+// derived from the tree and needs no schema change. A goal whose titles carry no
+// money still works — its children just become plain named steps.
+
+/** The first money amount in a title: "Scale to $5K" → 5000, "Reach $1,000" → 1000. */
+function moneyFromTitle(title: string): number | null {
+  const m = title.match(/\$\s?(\d[\d,]*(?:\.\d+)?)\s*([kK])?/);
+  if (!m) return null;
+  const n = parseFloat(m[1].replace(/,/g, ''));
+  if (!isFinite(n)) return null;
+  return m[2] ? n * 1000 : n;
+}
+
+function fmtMoney(n: number): string {
+  return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+/** Short label for a milestone chip / bar segment: the money, else the name. */
+function milestoneLabel(title: string): string {
+  const v = moneyFromTitle(title);
+  return v == null ? title : fmtMoney(v);
+}
+
+/** The chip shown on a step: the nearest mid-term milestone above it. */
+const MILESTONE_CHIP = 'border border-amber-400/30 bg-amber-400/10 text-amber-200';
+
 
 
 export const GoalsTab: React.FC = () => {
@@ -95,6 +124,9 @@ export const GoalsTab: React.FC = () => {
   const [modalParent, setModalParent] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  // The execution column shows what's still open; finished steps fold away behind
+  // a counter so they never push today's work down the screen.
+  const [showDoneSteps, setShowDoneSteps] = useState(false);
 
   const getAuthHeaders = useCallback(() => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -258,6 +290,100 @@ export const GoalsTab: React.FC = () => {
     return notes.filter(n => !n.parentId).sort((a, b) => (horizonOrder[a.horizon] ?? 99) - (horizonOrder[b.horizon] ?? 99));
   }, [notes]);
 
+  // ── Split view (35 / 65) ──────────────────────────────────────────────────
+  // Strategy on the left, execution on the right, so opening the tab shows what
+  // to do today with no scrolling and no accordions.
+  //
+  // ⚠️ The columns cut the tree DIFFERENTLY on purpose:
+  //   left  = long/mid ROUNDS (the goals themselves), milestones nested inside;
+  //   right = every daily/short_term note ANYWHERE in the tree, flattened.
+  // Flattening is what makes the right column work at all: in Daniel's real data
+  // a daily item sits three levels down (mid "First $500" → short "Hit first $100
+  // green day" → that daily trade), so there is NO daily/short_term root to show.
+
+  /** The North Star: the goals — long-term first, then mid-term. */
+  const northStar = useMemo(
+    () => rootNotes.filter((n) => n.horizon === 'long_term' || n.horizon === 'mid_term'),
+    [rootNotes],
+  );
+
+  /** Everything actionable, flat, open before done, today before this week. */
+  const allSteps = useMemo(() => {
+    const horizonRank: Record<string, number> = { daily: 0, short_term: 1 };
+    return notes
+      .filter((n) => n.horizon === 'daily' || n.horizon === 'short_term')
+      .sort((a, b) => {
+        const d = (horizonRank[a.horizon] ?? 9) - (horizonRank[b.horizon] ?? 9);
+        if (d !== 0) return d;
+        const ad = effectiveDone(a.id) ? 1 : 0;
+        const bd = effectiveDone(b.id) ? 1 : 0;
+        if (ad !== bd) return ad - bd;
+        return (a.priority ?? 99) - (b.priority ?? 99) || sortSiblings(a, b);
+      });
+  }, [notes, effectiveDone]);
+
+  const openSteps = useMemo(() => allSteps.filter((n) => !effectiveDone(n.id)), [allSteps, effectiveDone]);
+  const doneSteps = useMemo(() => allSteps.filter((n) => effectiveDone(n.id)), [allSteps, effectiveDone]);
+
+  /** Walk up to the nearest mid-term milestone, else the long-term goal. */
+  const milestoneFor = useCallback((id: string): PlanNote | null => {
+    let cur = byId.get(id);
+    let goal: PlanNote | null = null;
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      if (cur.horizon === 'mid_term') return cur;
+      if (cur.horizon === 'long_term' && !goal) goal = cur;
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    return goal;
+  }, [byId]);
+
+  /** The chip for a step: its milestone label, with the whole chain as a tooltip. */
+  const tagFor = useCallback((n: PlanNote) => {
+    const m = milestoneFor(n.id);
+    if (!m) return undefined;
+    const chain: string[] = [];
+    let cur: PlanNote | undefined = m;
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      chain.unshift(cur.title);
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    return { id: m.id, label: milestoneLabel(m.title), className: MILESTONE_CHIP, title: chain.join('  →  ') };
+  }, [milestoneFor, byId]);
+
+  /** One card renderer for both columns — only the extras differ. */
+  const card = (n: PlanNote, opts: { extra?: React.ReactNode; withTag?: boolean } = {}) => (
+    <NoteCard
+      key={n.id}
+      note={n}
+      byId={byId}
+      childrenOf={childrenOf}
+      progress={progressOf(n.id)}
+      done={effectiveDone(n.id)}
+      isBusy={!!busy[n.id]}
+      isOpen={!!expanded[n.id]}
+      onToggleExpand={() => setExpanded((e) => ({ ...e, [n.id]: !e[n.id] }))}
+      onToggleComplete={() => toggleComplete(n)}
+      onEdit={() => openEdit(n)}
+      onDelete={() => remove(n)}
+      onAddStep={() => openCreate(nextHorizonBelow(n.horizon), n.id)}
+      onBreakdown={() => requestBreakdown(n)}
+      expanded={expanded}
+      setExpanded={setExpanded}
+      toggleComplete={toggleComplete}
+      openEdit={openEdit}
+      remove={remove}
+      openCreate={openCreate}
+      progressOf={progressOf}
+      effectiveDone={effectiveDone}
+      extra={opts.extra}
+      tag={opts.withTag ? tagFor(n) : undefined}
+    />
+  );
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
@@ -295,56 +421,101 @@ export const GoalsTab: React.FC = () => {
         {rootNotes.length === 0 ? (
           <div className="text-center py-12"><p className="text-sm text-white/30">No goals yet — click + to add one.</p></div>
         ) : (
-          <div className="space-y-6">
-            {HORIZONS.map((h) => {
-              const horizonRoots = rootNotes.filter(n => n.horizon === h.key);
-              
-              const Icon = h.icon;
-              return (
-                <div key={h.key} className={`rounded-xl border ${h.accentBorder} bg-white/[0.03] p-3`}>
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2">
-                      <span className={`flex items-center justify-center w-7 h-7 rounded-md shrink-0 ${h.accentBg}`}>
-                        <Icon className={`w-4 h-4 ${h.accentText}`} />
-                      </span>
-                      <div>
-                        <h3 className={`text-sm font-bold ${h.accentText}`}>{h.label}</h3>
-                        <p className="text-[11px] text-white/40">{h.blurb} · {horizonRoots.length} open</p>
-                      </div>
-                    </div>
-                    <button onClick={() => openCreate(h.key)} title={`Add ${h.label} item`} className="p-1.5 rounded-md border border-white/10 hover:bg-white/10 text-white/60 hover:text-white transition-colors shrink-0"><Plus className="w-4 h-4" /></button>
-                  </div>
-                  <div className="space-y-2">
-                    {horizonRoots.map((n) => (
-              <NoteCard
-                      key={n.id}
-                      note={n}
-                      byId={byId}
-                      childrenOf={childrenOf}
-                      progress={progressOf(n.id)}
-                      done={effectiveDone(n.id)}
-                      isBusy={!!busy[n.id]}
-                      isOpen={!!expanded[n.id]}
-                      onToggleExpand={() => setExpanded((e) => ({ ...e, [n.id]: !e[n.id] }))}
-                      onToggleComplete={() => toggleComplete(n)}
-                      onEdit={() => openEdit(n)}
-                      onDelete={() => remove(n)}
-                      onAddStep={() => openCreate(nextHorizonBelow(n.horizon), n.id)}
-                      onBreakdown={() => requestBreakdown(n)}
-                      expanded={expanded}
-                      setExpanded={setExpanded}
-                      toggleComplete={toggleComplete}
-                      openEdit={openEdit}
-                      remove={remove}
-                      openCreate={openCreate}
-                      progressOf={progressOf}
-                      effectiveDone={effectiveDone}
-                    />
-                  ))}
-                  </div>
+          /* ── The Active HUD: strategy left, execution right ────────────────────
+             Daniel: "your current layout stacks everything vertically, pushing the
+             most important goal to the bottom of the screen." Splitting strategy
+             from execution means opening the tab shows what to do NOW.
+
+             Mobile stacks ORDER-FIRST — execution on top. Start with one column
+             and leading with the North Star would mean scrolling past the goal to
+             reach today's work, which is the exact problem being fixed. */
+          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[35fr_65fr] lg:gap-6">
+            {/* ── LEFT (35%) — The North Star: long-term + mid-term goals ─────── */}
+            <section className="order-2 space-y-3 lg:order-1">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Mountain className="w-4 h-4 text-violet-300" />
+                  <h3 className="text-sm font-bold text-violet-300">The North Star</h3>
                 </div>
-              );
-            })}
+                <button
+                  onClick={() => openCreate('long_term')}
+                  title="Add a long-term goal"
+                  className="rounded-md border border-white/10 p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+
+              {northStar.length === 0 ? (
+                <p className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-[11px] text-white/35">
+                  No long-term or mid-term goals yet.
+                </p>
+              ) : (
+                northStar.map((n) => {
+                  const kids = childrenOf.get(n.id) || [];
+                  return card(n, {
+                    extra: kids.length > 0 ? (
+                      <MilestoneBar note={n} kids={kids} progressOf={progressOf} effectiveDone={effectiveDone} />
+                    ) : undefined,
+                  });
+                })
+              )}
+            </section>
+
+            {/* ── RIGHT (65%) — Today's Execution: the do-now list ────────────── */}
+            <section className="order-1 space-y-4 lg:order-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-emerald-300" />
+                  <h3 className="text-sm font-bold text-emerald-300">Today’s Execution</h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-white/35">{openSteps.length} open</span>
+                  <button
+                    onClick={() => openCreate('daily')}
+                    title="Add today’s item"
+                    className="rounded-md border border-white/10 p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {openSteps.length === 0 ? (
+                <p className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-[11px] text-white/35">
+                  {doneSteps.length > 0
+                    ? 'Everything due today and this week is done. 🎯'
+                    : 'Nothing due today or this week yet — add a daily step.'}
+                </p>
+              ) : (
+                ([
+                  { key: 'daily' as Horizon, label: 'Today', accent: 'text-emerald-300' },
+                  { key: 'short_term' as Horizon, label: 'This week', accent: 'text-cyan-300' },
+                ]).map((g) => {
+                  const items = openSteps.filter((n) => n.horizon === g.key);
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={g.key} className="space-y-2">
+                      <div className={`text-[10px] font-semibold uppercase tracking-wider ${g.accent}`}>{g.label}</div>
+                      {items.map((n) => card(n, { withTag: true }))}
+                    </div>
+                  );
+                })
+              )}
+
+              {doneSteps.length > 0 && (
+                <div className="pt-1">
+                  <button
+                    onClick={() => setShowDoneSteps((v) => !v)}
+                    className="flex items-center gap-1 text-[11px] text-white/40 transition-colors hover:text-white/70"
+                  >
+                    {showDoneSteps ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    {doneSteps.length} finished
+                  </button>
+                  {showDoneSteps && <div className="mt-2 space-y-2">{doneSteps.map((n) => card(n, { withTag: true }))}</div>}
+                </div>
+              )}
+            </section>
           </div>
         )}
         </>)
@@ -366,6 +537,62 @@ export const GoalsTab: React.FC = () => {
   );
 };
 
+// ─── Milestone bar ───────────────────────────────────────────────────────────
+
+/**
+ * A goal's segmented progress bar: one segment per direct child (milestone), each
+ * filled by that milestone's own step completion. So the bar shows the LADDER —
+ * "$500 · $1K · $5K · $10K · $20K" — rather than one opaque percentage. When the
+ * milestone titles carry money it also reads out how far up the ladder is banked.
+ *
+ * Only segments are money where the money is real: `banked` is the highest
+ * milestone actually reached, never an interpolated guess at a balance.
+ */
+const MilestoneBar: React.FC<{
+  note: PlanNote;
+  kids: PlanNote[];
+  progressOf: (id: string) => { done: number; total: number } | null;
+  effectiveDone: (id: string, seen?: Set<string>) => boolean;
+}> = ({ note, kids, progressOf, effectiveDone }) => {
+  const parts = kids.map((k) => {
+    const p = progressOf(k.id);
+    const ratio = p && p.total > 0 ? p.done / p.total : (effectiveDone(k.id) ? 1 : 0);
+    return { note: k, ratio, reached: effectiveDone(k.id), value: moneyFromTitle(k.title) };
+  });
+  const reachedCount = parts.filter((p) => p.reached).length;
+  const allMoney = parts.length > 0 && parts.every((p) => p.value != null);
+  const target = moneyFromTitle(note.title) ?? (allMoney ? Math.max(...parts.map((p) => p.value as number)) : null);
+  const banked = parts.reduce((acc, p) => (p.reached && p.value != null ? Math.max(acc, p.value) : acc), 0);
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-stretch gap-1">
+        {parts.map((p) => (
+          <div key={p.note.id} className="min-w-0 flex-1" title={`${p.note.title} — ${Math.round(p.ratio * 100)}%`}>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+              <div
+                className={`h-full rounded-full transition-all ${p.reached ? 'bg-emerald-400' : 'bg-cyan-400'}`}
+                style={{ width: `${Math.round(p.ratio * 100)}%` }}
+              />
+            </div>
+            <div className={`mt-1 truncate text-center text-[9px] leading-tight ${p.reached ? 'text-emerald-300' : 'text-white/35'}`}>
+              {milestoneLabel(p.note.title)}
+            </div>
+          </div>
+        ))}
+      </div>
+      {target != null ? (
+        <div className="mt-1 flex items-center justify-between text-[10px]">
+          <span className="text-white/45">{fmtMoney(banked)} of {fmtMoney(target)}</span>
+          <span className="text-white/35">{reachedCount}/{parts.length} milestones</span>
+        </div>
+      ) : (
+        <div className="mt-1 text-[10px] text-white/35">{reachedCount}/{parts.length} steps done</div>
+      )}
+    </div>
+  );
+};
+
 // ─── Card ────────────────────────────────────────────────────────────────────
 
 const NoteCard: React.FC<{
@@ -382,6 +609,10 @@ const NoteCard: React.FC<{
   onDelete: () => void;
   onAddStep: () => void;
   onBreakdown?: (note: PlanNote) => void;
+  /** Optional context chip beside the title — e.g. the milestone this step feeds. */
+  tag?: { id?: string; label: string; className: string; title?: string };
+  /** Replaces the plain progress bar with a richer visual (the milestone bar). */
+  extra?: React.ReactNode;
   expanded: Record<string, boolean>;
   setExpanded: (fn: (prev: Record<string, boolean>) => Record<string, boolean>) => void;
   toggleComplete: (note: PlanNote) => void;
@@ -392,7 +623,7 @@ const NoteCard: React.FC<{
   effectiveDone: (id: string, seen?: Set<string>) => boolean;
 }> = ({
   note, byId, childrenOf, progress, done, isBusy, isOpen,
-  onToggleExpand, onToggleComplete, onEdit, onDelete, onAddStep, onBreakdown,
+  onToggleExpand, onToggleComplete, onEdit, onDelete, onAddStep, onBreakdown, tag, extra,
   expanded, setExpanded, toggleComplete, openEdit, remove, openCreate,
   progressOf, effectiveDone,
 }) => {
@@ -420,16 +651,27 @@ const NoteCard: React.FC<{
             {note.title}
           </div>
 
-          {/* The domino: this step belongs to a goal */}
-          {parent && (
+          {/* Which milestone this step feeds — so a naked "trade today" reads as
+              part of the ladder instead of a floating instruction. */}
+          {tag && (
+            <div className="mt-1">
+              <span title={tag.title} className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${tag.className}`}>
+                {tag.label}
+              </span>
+            </div>
+          )}
+
+          {/* The domino: this step belongs to a goal. Skipped when the tag above IS
+              that parent, so the same milestone isn't named twice on one card. */}
+          {parent && parent.id !== tag?.id && (
             <div className="flex items-center gap-1 text-[10px] text-white/35 mt-0.5">
               <CornerDownRight className="w-3 h-3 shrink-0" />
               <span className="truncate">{parent.title}</span>
             </div>
           )}
 
-          {/* Progress toward a goal from its steps */}
-          {progress && (
+          {/* Progress: the caller can hand in a richer visual (the milestone bar). */}
+          {extra ?? (progress && (
             <div className="mt-1.5">
               <div className="flex items-center justify-between text-[10px] text-white/45 mb-0.5">
                 <span>{progress.done}/{progress.total} steps</span>
@@ -442,7 +684,7 @@ const NoteCard: React.FC<{
                 />
               </div>
             </div>
-          )}
+          ))}
 
           {(hasKids || note.body) && (
             <div className="flex items-center gap-1 text-[10px] text-white/35 mt-1">

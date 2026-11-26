@@ -489,6 +489,58 @@ export const dailyAgenda = pgTable('daily_agenda', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+// ─── Life calendar — Daniel's own month view (events + todos) ──────────────
+// THREE calendar-ish things exist and they must not be conflated:
+//   - `calendar_entries` — the TRADING rule calendar (per trading account, followed-rules ticks)
+//   - `daily_agenda`     — the day-by-day agenda Whispersonalbot PUSHES from Obsidian
+//   - `life_calendar_items` (this one) — Daniel's OWN calendar: events he can drag
+//     between days and todos he can tick off. Owned by the Life tab only.
+// Kept in its own table so an Obsidian re-push of `daily_agenda` can never wipe
+// items he created by hand (that endpoint replaces a whole date's entries).
+export const lifeCalendarItems = pgTable('life_calendar_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(),
+  kind: text('kind').notNull(), // 'event' | 'todo'
+  title: text('title').notNull(),
+  notes: text('notes'),
+  date: text('date').notNull(), // YYYY-MM-DD, LOCAL day (do not store a timestamptz)
+  startTime: text('start_time'), // 'HH:MM' 24h. null = all-day (and always null for todos)
+  endTime: text('end_time'), // 'HH:MM' 24h
+  category: text('category'), // free text: trading | work | health | study | personal | ...
+  done: boolean('done').default(false).notNull(), // todos only
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// ─── Agenda overrides — Daniel's site-side edits to an Obsidian agenda entry ─
+// WHY THIS EXISTS (and why the site does NOT just rewrite `daily_agenda`):
+// `daily_agenda` belongs to Whispersonalbot, whose POST replaces a whole date's
+// `entries`. If the site edited that array directly, the bot's next push would
+// SILENTLY REVERT Daniel's drag — and he would have no way to tell why.
+//
+// So a drag writes an OVERRIDE here instead. The calendar renders
+// `agenda entry + override`, which means:
+//   - his edit always wins, even after the bot re-pushes the original;
+//   - the bot can read the overrides, fix the Obsidian file to match, then clear
+//     them — which is the whole reconciliation loop (see the bot's
+//     `daily-agenda-push` skill).
+//
+// KEYED BY (user_id, date, title) — NOT by array index. The bot rewrites the
+// array wholesale, so an index points at a different entry the moment anything
+// is added or removed; a title is stable across pushes. (Assumes one entry per
+// title per day, which is true of Daniel's real agenda.)
+export const agendaOverrides = pgTable('agenda_overrides', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(),
+  date: text('date').notNull(), // the agenda day the entry belongs to
+  title: text('title').notNull(), // matches the entry's title in daily_agenda
+  movedToDate: text('moved_to_date'), // null = stayed on `date`; set by a cross-day drag
+  startTime: text('start_time'), // null = all-day
+  endTime: text('end_time'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 // Deliberately NOT linked to accounts or challenges: a note survives an account
 // being archived or failed.
 export const planNotes = pgTable('plan_notes', {
