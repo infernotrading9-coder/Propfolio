@@ -112,6 +112,31 @@ function milestoneLabel(title: string): string {
 /** The chip shown on a step: the nearest mid-term milestone above it. */
 const MILESTONE_CHIP = 'border border-amber-400/30 bg-amber-400/10 text-amber-200';
 
+// ── Balance-tracked goals ────────────────────────────────────────────────────
+// A goal whose body carries `[balance]` is measured by the LIVE account balance
+// rather than by ticked steps. Daniel: "cut the $50,000 into $100 deposits … when
+// the account gets updated, if I start at $1,200 and end at $1,700 it'll
+// auto-complete five $100 deposits … if I have a bad day it's going to add more
+// $100 deposits, so it equals the $50,000."
+//
+// So the balance is authoritative and moves BOTH WAYS, and the unit count is just
+// floor(balance / unit). Nothing is written back to the notes — this is a pure
+// view derivation, like `effectiveDone`.
+const BALANCE_MARKER = /\[balance\b[^\]]*\]/i;
+const DEFAULT_UNIT = 100;
+const NOTCH = 1000; // one bar segment per $1,000
+
+function isBalanceGoal(body: string | null | undefined): boolean {
+  return BALANCE_MARKER.test(body || '');
+}
+
+/** Optional `unit:$100` override inside the marker; defaults to $100. */
+function unitFromBody(body: string | null | undefined): number {
+  const m = (body || '').match(/unit:\s*\$?\s*([\d,]+)/i);
+  const v = m ? parseFloat(m[1].replace(/,/g, '')) : NaN;
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_UNIT;
+}
+
 
 
 export const GoalsTab: React.FC = () => {
@@ -127,6 +152,10 @@ export const GoalsTab: React.FC = () => {
   // The execution column shows what's still open; finished steps fold away behind
   // a counter so they never push today's work down the screen.
   const [showDoneSteps, setShowDoneSteps] = useState(false);
+  // Live personal-account balance for balance-tracked money goals. Starts null and
+  // STAYS null if the call fails, so the bar falls back to step progress instead of
+  // rendering a fake $0 of $50,000.
+  const [personalBalance, setPersonalBalance] = useState<number | null>(null);
 
   const getAuthHeaders = useCallback(() => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -141,6 +170,32 @@ export const GoalsTab: React.FC = () => {
     } catch {}
     return headers;
   }, []);
+
+  // ── Balance-tracked money goals ───────────────────────────────────────────
+  // A goal whose body carries `[balance]` measures the LIVE account balance rather
+  // than ticked steps, because the increments are far too fine to be notes: $50,000
+  // in $100 units is 500 of them, and 50 $1,000 milestones. Creating those as rows
+  // is absurd AND would hit exactly the ordering bug that made the weekly notes read
+  // $1,250 before $500. Derived progress cannot be out of order and cannot go stale.
+  //
+  // The balance is authoritative and moves BOTH ways: a losing day lowers it and the
+  // units un-complete themselves, which is the intent — "a bad day adds more $100
+  // deposits" is just the arithmetic of a balance that went down.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch('/.netlify/functions/db-personal-trades?action=stats', { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const d = await res.json();
+        const b = d?.stats?.balance;
+        if (alive && typeof b === 'number' && Number.isFinite(b)) setPersonalBalance(b);
+      } catch {
+        /* leave it null — the bar degrades to step progress */
+      }
+    })();
+    return () => { alive = false; };
+  }, [getAuthHeaders]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -317,8 +372,12 @@ export const GoalsTab: React.FC = () => {
         if (d !== 0) return d;
         const ad = effectiveDone(a.id) ? 1 : 0;
         const bd = effectiveDone(b.id) ? 1 : 0;
-        if (ad !== bd) return ad - bd;
-        return (a.priority ?? 99) - (b.priority ?? 99) || sortSiblings(a, b);
+        if (ad !== bd) return ad - bd; // open before finished
+        // ⚠️ Delegate to sortSiblings() — ONE definition of sibling order for the
+        // whole tab. This used to invert priority here (lowest first) while the
+        // tree used highest-first, so the same notes ordered two different ways
+        // and Daniel caught the right column reading $1,250 before $500.
+        return sortSiblings(a, b);
       });
   }, [notes, effectiveDone]);
 
@@ -383,6 +442,19 @@ export const GoalsTab: React.FC = () => {
       tag={opts.withTag ? tagFor(n) : undefined}
     />
   );
+
+  /**
+   * Which bar a goal gets: the balance-tracked one when its body says `[balance]`
+   * AND its title carries a parseable target, otherwise the step-based milestone bar.
+   */
+  const goalBar = (n: PlanNote, kids: PlanNote[]): React.ReactNode => {
+    const target = moneyFromTitle(n.title);
+    if (isBalanceGoal(n.body) && target != null && target > 0) {
+      return <BalanceBar target={target} unit={unitFromBody(n.body)} balance={personalBalance} milestones={kids} />;
+    }
+    if (kids.length === 0) return undefined;
+    return <MilestoneBar note={n} kids={kids} progressOf={progressOf} effectiveDone={effectiveDone} />;
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -453,11 +525,7 @@ export const GoalsTab: React.FC = () => {
               ) : (
                 northStar.map((n) => {
                   const kids = childrenOf.get(n.id) || [];
-                  return card(n, {
-                    extra: kids.length > 0 ? (
-                      <MilestoneBar note={n} kids={kids} progressOf={progressOf} effectiveDone={effectiveDone} />
-                    ) : undefined,
-                  });
+                  return card(n, { extra: goalBar(n, kids) });
                 })
               )}
             </section>
@@ -533,6 +601,85 @@ export const GoalsTab: React.FC = () => {
           getAuthHeaders={getAuthHeaders}
         />
       )}
+    </div>
+  );
+};
+
+// ─── Balance bar ─────────────────────────────────────────────────────────────
+
+/**
+ * Progress for a balance-tracked goal: ONE SEGMENT PER $1,000, filled from the live
+ * balance, with the goal's own children shown as the labelled majors.
+ *
+ * Everything here is derived, which is the point — a computed ladder physically
+ * cannot read $1,250 before $500, and it needs no 500 rows of notes to stay in step
+ * with the account. A losing day simply lowers the balance and segments un-fill.
+ *
+ * The labelled majors are used as chips in a wrapping row rather than as captions
+ * aligned under the strip: at 50 segments each is ~2% of a 340px card, so captions
+ * would collide into an unreadable smear.
+ */
+const BalanceBar: React.FC<{
+  target: number;
+  unit: number;
+  balance: number | null;
+  milestones: PlanNote[];
+}> = ({ target, unit, balance, milestones }) => {
+  const notchCount = Math.max(1, Math.ceil(target / NOTCH));
+  const have = balance ?? 0;
+  const unitsTotal = Math.max(1, Math.ceil(target / unit));
+  const unitsDone = balance == null ? null : Math.max(0, Math.floor(have / unit));
+
+  const majors = milestones
+    .map((m) => ({ note: m, value: moneyFromTitle(m.title) }))
+    .filter((x): x is { note: PlanNote; value: number } => x.value != null && x.value > 0 && x.value <= target)
+    .sort((a, b) => a.value - b.value);
+
+  return (
+    <div className="mt-2">
+      <div className="flex h-2 items-stretch gap-px overflow-hidden rounded-full bg-white/[0.07]">
+        {Array.from({ length: notchCount }, (_, i) => {
+          const fill = Math.max(0, Math.min(1, (have - i * NOTCH) / NOTCH));
+          return (
+            <div key={i} className="relative min-w-0 flex-1">
+              <div
+                className="absolute inset-y-0 left-0 bg-cyan-400/80"
+                style={{ width: `${fill * 100}%` }}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      {majors.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+          {majors.map((m) => {
+            const passed = have >= m.value;
+            return (
+              <span
+                key={m.note.id}
+                title={m.note.title}
+                className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                  passed ? 'bg-emerald-400/15 text-emerald-300' : 'bg-white/5 text-white/40'
+                }`}
+              >
+                {passed ? '✓ ' : ''}{milestoneLabel(m.note.title)}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="mt-1 flex items-center justify-between gap-2 text-[10px]">
+        <span className={balance == null ? 'text-amber-300/70' : 'text-white/50'}>
+          {balance == null ? 'waiting on account balance' : `${fmtMoney(have)} of ${fmtMoney(target)}`}
+        </span>
+        <span className="text-white/35">
+          {unitsDone == null
+            ? `${notchCount} × ${fmtMoney(NOTCH)} milestones`
+            : `next ${fmtMoney((unitsDone + 1) * unit)} · ${unitsDone.toLocaleString()}/${unitsTotal.toLocaleString()} × ${fmtMoney(unit)}`}
+        </span>
+      </div>
     </div>
   );
 };
