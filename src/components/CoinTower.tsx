@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Coins, Volume2, VolumeX } from 'lucide-react';
 import { TierTrack } from './TierTrack';
+import { ProgressLabs, LAB_ORDER, LAB_LABEL, LAB_TITLE, type LabKind } from './ProgressLabs';
 
 /**
  * The Coin Tower — the climb to the target, as ONE column of coins that compacts into titanium.
@@ -422,6 +423,10 @@ export const CoinTower: React.FC<{
   const [barTall, setBarTall] = useState(false);
   /** DEV ONLY: draw every piece at ONE scale, so the two $10,000 shapes can be judged side by side. */
   const [showShapes, setShowShapes] = useState(false);
+  /** DEV ONLY: which progress mechanism is on trial in the bottom strip. null = the tier track. */
+  const [lab, setLab] = useState<LabKind | null>(null);
+  /** DEV ONLY: a full-screen sheet with all four mechanisms at his real numbers, to choose from. */
+  const [showSheet, setShowSheet] = useState(false);
 
   // ── the numbers ───────────────────────────────────────────────────────────
   const PER = Math.max(2, Math.round(coinsPerTower));          // coins per ingot — 10
@@ -1088,15 +1093,74 @@ export const CoinTower: React.FC<{
         Compact in game mode because the TOWER is the hero there and the track is a caption; full
         size in the card, where there is room to spell each rung out.
       */}
+      {/*
+        DEV ONLY — THE COMPARISON SHEET. Every mechanism drawn at his REAL numbers, one above the
+        other, so the choice can be made by looking rather than by imagining. Each row is the same
+        component that would sit at the bottom of the tower, so nothing here is a mockup.
+      */}
+      {import.meta.env.DEV && onNudge && showSheet && (
+        <div className="fixed inset-0 z-[90] overflow-auto bg-[#04060a]/98 px-4 py-5 sm:px-8">
+          <div className="mx-auto max-w-[880px] space-y-7">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-black uppercase tracking-[0.18em] text-rose-200">
+                  Progress mechanisms
+                </h2>
+                <p className="mt-0.5 text-[11px] text-white/45">
+                  All four, at {fmt(Math.round(have))} of {fmt(target)} — the same numbers the tower
+                  is reading. Tap one in the strip to try it in place.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowSheet(false)}
+                className="shrink-0 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-white/70 hover:bg-white/10 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            {LAB_ORDER.map((k, i) => (
+              <div key={k} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                <div className="mb-2.5 flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-rose-400/25 text-[10px] font-black text-rose-100">
+                    {i + 1}
+                  </span>
+                  <span className="text-[11px] font-black uppercase tracking-wider text-rose-200/90">
+                    {LAB_TITLE[k]}
+                  </span>
+                </div>
+                <ProgressLabs
+                  kind={k}
+                  value={Math.max(0, have)}
+                  target={target}
+                  notch={NOTCH}
+                  format={fmt}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="mt-2.5 shrink-0 border-t border-white/10 pt-2">
-        <TierTrack
-          unit={unit}
-          target={target}
-          value={Math.max(0, have)}
-          format={fmt}
-          rungs={rungs}
-          compact={fill}
-        />
+        {import.meta.env.DEV && lab ? (
+          <ProgressLabs
+            kind={lab}
+            value={Math.max(0, have)}
+            target={target}
+            notch={NOTCH}
+            format={fmt}
+            compact={fill}
+          />
+        ) : (
+          <TierTrack
+            unit={unit}
+            target={target}
+            value={Math.max(0, have)}
+            format={fmt}
+            rungs={rungs}
+            compact={fill}
+          />
+        )}
       </div>
 
       {/*
@@ -1132,6 +1196,30 @@ export const CoinTower: React.FC<{
           >
             shapes {showShapes ? '▾' : '▸'}
           </button>
+          {/* Which progress mechanism is on trial in the bottom strip — this is the one that
+              actually decides the design, so it gets its own row. */}
+          <button
+            onClick={() => setShowSheet(true)}
+            title="All four mechanisms side by side"
+            className="rounded border border-rose-200/60 bg-rose-400/25 px-1.5 py-0.5 font-black text-rose-50"
+          >
+            sheet
+          </button>
+          <span className="mx-0.5 opacity-40">|</span>
+          <span className="opacity-70">progress:</span>
+          {([null, ...LAB_ORDER] as (LabKind | null)[]).map((k) => (
+            <button
+              key={k ?? 'track'}
+              onClick={() => setLab(k)}
+              className={`rounded border px-1.5 py-0.5 font-bold transition-colors ${
+                lab === k
+                  ? 'border-rose-200/70 bg-rose-400/30 text-rose-50'
+                  : 'border-rose-300/30 hover:bg-rose-400/20'
+              }`}
+            >
+              {k ? LAB_LABEL[k] : 'track'}
+            </button>
+          ))}
         </div>
       )}
 
