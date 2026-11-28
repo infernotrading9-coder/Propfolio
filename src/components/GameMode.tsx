@@ -321,9 +321,11 @@ export const GameMode: React.FC<{
         peak: personalPeak,
         formatValue: money,
         headlineFormat: money,
-        // Ten $100 coins to a tower, so a tower IS a $1,000 milestone and one appears per notch.
+        // The tier ladder: a $1,000 ingot is the notch, a $10,000 bar is the ★ award. They match
+        // CoinTower's TIERS exactly — a notch that does not line up with a forge would celebrate a
+        // moment that has no piece to show for it.
         notch: 1000,
-        bigNotch: 5000,
+        bigNotch: 10000,
         formatMilestone: money,
       },
       {
@@ -351,7 +353,7 @@ export const GameMode: React.FC<{
         formatMilestone: money,
         headlineFormat: signedMoney,
         notch: 1000,
-        bigNotch: 5000,
+        bigNotch: 10000,
         detail: book.cost > 0
           ? `${money(book.paid)} paid − ${money(book.cost)} spent · ${pct(book.roi)} ROI · break-even at $0`
           : 'No money spent with the firms yet — the tower starts at the first eval.',
@@ -486,8 +488,7 @@ export const GameMode: React.FC<{
               <div className="min-w-0">
                 <p className="text-[11px] text-white/30">
                   {held.toLocaleString()} / {totalCoins.toLocaleString()} coins · 1 coin ={' '}
-                  {tower.formatValue(tower.unit)} · 10 coins forge 1 titanium ingot ={' '}
-                  {tower.formatValue(tower.unit * 10)}
+                  {tower.formatValue(tower.unit)}
                 </p>
                 {tower.detail && <p className="mt-0.5 text-[11px] text-white/25">{tower.detail}</p>}
               </div>

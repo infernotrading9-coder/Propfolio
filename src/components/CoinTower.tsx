@@ -64,6 +64,35 @@ const GOLD_ASPECT = 2.4;
 const CARD_MAX_VH = 0.45;
 /** Gap between stacked pieces, as a fraction of a coin height. */
 const GAP_F = 0.15;
+
+/**
+ * ═══ THE TIERS: base ten, all the way down ═══
+ *
+ * Daniel, on the single column shrinking as it grows: *"they shrink as more are stacked against
+ * each other … i guess we will need more towers or is there a different design?"*
+ *
+ * Not more towers — 50 towers is 50 slivers, the same problem five times further out. The fix is
+ * that **every ten of one thing forges into one of the next thing up**, so the stack can never
+ * hold more than a handful of pieces per level however much money exists:
+ *
+ *     10 coins  → 1 INGOT   ($1,000)    gold disc     · 2.4 : 1
+ *     10 ingots → 1 BAR     ($10,000)   platinum bar  · ~4 : 1
+ *
+ * Because the ratio is TEN at every step, the digits of the coin count ARE the stack — 347 coins is
+ * 3 bars + 4 ingots + 7 coins — and because a bar occupies about the same slice of height as the
+ * ten ingots it replaces, **the tower looks the same at every decade**: the coin height stays in
+ * one band from $1,000 past $50,000 instead of slowly turning into a barcode. (Measured: at $50,000
+ * the coin is 5px without tiers and 22px with them.)
+ *
+ * Widths are in units of a COIN HEIGHT, so the column's width is simply `widest · H`.
+ * A third tier is one more entry in `tiers` — nothing else in the geometry has to change.
+ */
+const COIN_WF = GOLD_ASPECT;               // one coin: 2.4
+const INGOT_WF = INGOT_W_F * GOLD_ASPECT;  // one ingot: 6.96 — a wide plate
+const BAR_WF = 10.5;                       // one bar — ~4:1 against its own height
+/** A bar's height in coin heights. TALL is the "big ingot" shape, on trial against the flat bar. */
+const BAR_H = 2.6;
+const BAR_H_TALL = 3.4;
 /**
  * Card mode (the Personal tab's panel) has no height to fill, so this is its CEILING — the actual
  * coin is the smaller of this, what the width allows, and a cut of the viewport (see `geo`).
@@ -167,6 +196,21 @@ const INGOT_SHADOW =
   + 'inset 0 3px 0 rgba(255,255,255,0.32), '
   + 'inset 0 -4px 8px rgba(46,16,101,0.75)';
 
+/**
+ * One $10,000 bar — PLATINUM. The vertical gradient is what makes a rectangle read as a polished
+ * bar (bright top face, dark base) rather than a plain box, and the cool cyan/violet sheen is what
+ * says "different metal" next to titanium's purple.
+ */
+const PLAT_FILL =
+  'linear-gradient(180deg, #ffffff 0%, #eef2f8 20%, #c3cedd 48%, #7d8ca1 78%, #3b4757 100%)';
+const PLAT_IRID =
+  'conic-gradient(from 200deg, #cbd5e1 0%, #67e8f9 22%, #e2e8f0 44%, #a5b4fc 66%, #cbd5e1 100%)';
+const PLAT_SHADOW =
+  '0 0 22px -3px rgba(226,232,240,0.55), '
+  + 'inset 0 0 0 1px rgba(255,255,255,0.72), '
+  + 'inset 0 3px 0 rgba(255,255,255,0.55), '
+  + 'inset 0 -5px 10px rgba(24,33,47,0.85)';
+
 /** One rail segment per $1,000 — the same notch GoalsTab's money goals used. */
 const NOTCH = 1000;
 
@@ -229,14 +273,16 @@ const getAudio = (): AudioContext | null => {
  * Three figures, and the FORGE one is deliberately the brightest: a milestone should be
  * recognisable with your eyes closed.
  */
-const playChime = (kind: 'coin' | 'ingot' | 'split') => {
+const playChime = (kind: 'coin' | 'ingot' | 'bar' | 'split') => {
   const ctx = getAudio();
   if (!ctx) return;
   const notes = kind === 'coin' ? [1568, 2093]
+    // The bar is the biggest forge in the game so far, so it gets the longest run: a full octave up.
+    : kind === 'bar' ? [523, 659, 784, 1047, 1319, 1568]
     : kind === 'ingot' ? [784, 1047, 1319, 1568, 2093]
     : [1319, 988, 784];
   const step = kind === 'coin' ? 0 : kind === 'split' ? 0.1 : 0.055;
-  const tail = kind === 'coin' ? 0.22 : 0.5;
+  const tail = kind === 'coin' ? 0.22 : kind === 'bar' ? 0.62 : 0.5;
   const peakBase = kind === 'coin' ? 0.13 : 0.15;
   notes.forEach((freq, i) => {
     const osc = ctx.createOscillator();
@@ -257,13 +303,86 @@ const playChime = (kind: 'coin' | 'ingot' | 'split') => {
 
 /** One piece of the stack, resolved. */
 interface Piece {
-  /** 'ingot' = a forged $1,000, 'gold' = a filled coin, 'empty' = a slot still to earn. */
-  kind: 'ingot' | 'gold' | 'empty';
+  /** A forged tier, or a live slot. 'empty' is a socket he has not earned yet. */
+  kind: 'ingot' | 'bar' | 'gold' | 'empty';
+  tier: 'ingot' | 'bar' | 'coin';
   /** The coin index range this piece stands for, so the record rule can be placed on it. */
   from: number;
   to: number;
   /** Height in coin heights — the single number the whole layout is a multiple of. */
   units: number;
+  /** Width in coin heights. The column is as wide as its WIDEST piece. */
+  wf: number;
+  /** Position in the stack and the height below it — exact, so a flare can be placed on it. */
+  idx: number;
+  belowUnits: number;
+}
+
+/** A piece's identity, for diffing one stack against the last — the only thing that tells the
+ *  component what just happened, and the reason it does not need to know which tier it happened on. */
+const pieceKey = (p: Piece): string => `${p.kind}:${p.from}:${p.to}`;
+
+/** One step of the ladder. `per` is in COINS. A third tier is one more entry here. */
+interface TierDef { kind: 'bar' | 'ingot'; per: number; units: number; wf: number }
+
+/** The ladder, biggest first. */
+export const tierDefs = (per: number, barUnits: number): TierDef[] => ([
+  { kind: 'bar', per: per * per, units: barUnits, wf: BAR_WF },
+  { kind: 'ingot', per, units: INGOT_H, wf: INGOT_WF },
+]);
+
+/**
+ * THE STACK, ground up: every forged piece from the biggest tier down, then the ingot in progress
+ * (its filled coins, then its empty sockets). Nothing is drawn that is not banked or earnable.
+ *
+ * ⚠️ `filled - base`, NOT `filled`, when counting a tier — see the comment at the loop. That single
+ * omission drew $50,000 as five bars AND fifty ingots.
+ *
+ * `belowUnits` and `idx` ride along so a piece's exact distance off the ground is known: the split
+ * flare is placed with it, and it is exact because every piece below contributes its own height plus
+ * exactly one gap.
+ *
+ * Pure and exported so `migration/scripts/test-tiers.mts` can pin it — the shrinking Daniel asked
+ * about is a property of THIS function, and eyeballing a browser is how the double-count survived
+ * the first pass.
+ */
+export function buildStack(
+  filled: number,
+  unitsTotal: number,
+  per: number,
+  barUnits: number,
+): Piece[] {
+  const tiers = tierDefs(per, barUnits);
+  const ingotsDone = Math.floor(filled / per);
+  const mileStart = ingotsDone * per;
+  const frameSlots = Math.max(0, Math.min(per, unitsTotal - mileStart));
+  const goldInFrame = Math.max(0, filled - mileStart);
+
+  const out: Piece[] = [];
+  let base = 0;      // the coin index this tier's run starts at
+  let units = 0;     // the height below the next piece, in coin heights
+  for (const t of tiers) {
+    const n = Math.floor((filled - base) / t.per);
+    for (let k = 0; k < n; k++) {
+      out.push({
+        kind: t.kind, tier: t.kind, wf: t.wf, units: t.units,
+        from: base + k * t.per, to: base + (k + 1) * t.per - 1,
+        idx: out.length, belowUnits: units,
+      });
+      units += t.units;
+    }
+    base += n * t.per;
+  }
+  for (let k = 0; k < frameSlots; k++) {
+    const idx = mileStart + k;
+    out.push({
+      kind: k < goldInFrame ? 'gold' : 'empty',
+      tier: 'coin', wf: COIN_WF, units: 1,
+      from: idx, to: idx, idx: out.length, belowUnits: units,
+    });
+    units += 1;
+  }
+  return out;
 }
 
 export const CoinTower: React.FC<{
@@ -295,6 +414,12 @@ export const CoinTower: React.FC<{
   const fmtMile = formatMilestone ?? fmtMoney;
   const have = balance ?? 0;
 
+  /**
+   * DEV ONLY, and structurally so: this flips the $10,000 tier between the flat BAR and the taller
+   * "big ingot" shape so Daniel can look at both and pick. Nothing in production can set it.
+   */
+  const [barTall, setBarTall] = useState(false);
+
   // ── the numbers ───────────────────────────────────────────────────────────
   const PER = Math.max(2, Math.round(coinsPerTower));          // coins per ingot — 10
   const unitsTotal = Math.max(1, Math.ceil(target / unit));    // the whole climb, in coins
@@ -303,32 +428,25 @@ export const CoinTower: React.FC<{
     : Math.max(0, Math.min(unitsTotal, Math.floor(have / unit)));
   const ingotsDone = Math.floor(filled / PER);
   const ingotsTotal = Math.max(1, Math.ceil(unitsTotal / PER));
-  /** The slot the current milestone starts at, and how many slots it has (usually 10). */
-  const mileStart = ingotsDone * PER;
-  const frameSlots = Math.max(0, Math.min(PER, unitsTotal - mileStart));
-  const goldInFrame = Math.max(0, filled - mileStart);
+  const barsDone = Math.floor(filled / (PER * PER));
+  const barsTotal = Math.max(1, Math.ceil(unitsTotal / (PER * PER)));
+  /** Which coin inside the current ingot he is on — the frame's filled sockets (see `buildStack`). */
+  const goldInFrame = Math.max(0, filled - ingotsDone * PER);
 
-  /**
-   * THE STACK, ground up: the ingots he has forged, then the milestone in progress (its filled
-   * coins, then its empty sockets). Nothing is drawn that is not either banked or earnable.
-   */
-  const pieces: Piece[] = React.useMemo(() => {
-    const out: Piece[] = [];
-    for (let i = 0; i < ingotsDone; i++) {
-      out.push({ kind: 'ingot', from: i * PER, to: Math.min(i * PER + PER - 1, unitsTotal - 1), units: INGOT_H });
-    }
-    for (let k = 0; k < frameSlots; k++) {
-      const idx = mileStart + k;
-      out.push({
-        kind: k < goldInFrame ? 'gold' : 'empty',
-        from: idx, to: idx, units: 1,
-      });
-    }
-    return out;
-  }, [ingotsDone, frameSlots, goldInFrame, mileStart, PER, unitsTotal]);
+  /** The ladder for this render — the one thing the shape trial changes is the bar's height. */
+  const barUnits = barTall ? BAR_H_TALL : BAR_H;
+  const pieces: Piece[] = React.useMemo(
+    () => buildStack(filled, unitsTotal, PER, barUnits),
+    [filled, unitsTotal, PER, barUnits],
+  );
 
   /** Everything above the ground, in coin heights. */
   const totalUnits = pieces.reduce((a, p) => a + p.units, 0) || 1;
+  /** The column is as wide as its widest piece — once a bar exists, the bars set the width. */
+  const widestWf = React.useMemo(
+    () => pieces.reduce((m, p) => Math.max(m, p.wf), COIN_WF),
+    [pieces],
+  );
 
   // ── geometry ──────────────────────────────────────────────────────────────
   const guardRef = useRef<HTMLDivElement | null>(null);
@@ -364,14 +482,14 @@ export const CoinTower: React.FC<{
    *
    *    total height = totalUnits·h + (count − 1)·GAP_F·h
    *
-   * Then cap it by the width: the column is `INGOT_W_F` gold-coins wide, so at a coin aspect of
-   * GOLD_ASPECT the widest it may stand is `INGOT_W_F · GOLD_ASPECT · h`.
+   * Then cap it by the width: the column is as wide as its widest piece (`widestWf` coin heights),
+   * so the tallest it may stand is `availW / widestWf`.
    */
   const geo = React.useMemo(() => {
     const count = pieces.length;
     const gaps = Math.max(0, count - 1);
     const availW = (box.w || 0) - 8;                 // a little breathing room off the edges
-    const widthCap = availW > 0 ? availW / (INGOT_W_F * GOLD_ASPECT) : Infinity;
+    const widthCap = availW > 0 ? availW / widestWf : Infinity;
     /** The gap the layout will actually use, for a coin height of `h`. */
     const gapOf = (h: number) => Math.max(0, Math.floor(GAP_F * h));
     if (!fill) {
@@ -398,16 +516,27 @@ export const CoinTower: React.FC<{
     const h0 = availH / (totalUnits + GAP_F * gaps);
     const gap = gapOf(Math.min(h0, widthCap));
     let h = Math.min((availH - gap * gaps) / totalUnits, widthCap);
-    h = Math.max(2, Math.floor(h * 100) / 100);
+    /*
+     * ⚠️ THE FLOOR MUST NOT PUSH THE STACK OUT OF THE BOX. `max(2, …)` is a readability guard, and
+     * when the box is too short for the piece count it silently wins over the solve — 108 units at
+     * a 204px box solved to 1.89, got floored to 2, and came out 216px tall (106% of its box).
+     * The floor is 1 now and `STACK_H` is clamped below, so the degenerate case clips rather than
+     * overlapping whatever sits under the tower.
+     */
+    h = Math.max(1, Math.floor(h * 100) / 100);
     return { h, gap };
-  }, [fill, box.w, box.h, pieces.length, totalUnits, coinPx]);
+  }, [fill, box.w, box.h, pieces.length, totalUnits, coinPx, widestWf]);
 
   const H = geo.h;                                   // one gold coin's height
   /** Both come straight out of the solve — never re-derived here, or the two disagree. */
   const GAP = geo.gap;
-  const COL_W = Math.max(6, Math.round(INGOT_W_F * GOLD_ASPECT * H));   // the column's width
-  const GOLD_W = Math.floor((COL_W / INGOT_W_F) * 10) / 10;
-  const STACK_H = Math.floor(totalUnits * H + (pieces.length - 1) * GAP);
+  const COL_W = Math.max(6, Math.round(widestWf * H));                  // the column's width
+  /** A piece's width, as a percentage of the column — so nothing needs its own pixel maths. */
+  const wfPct = (wf: number) => `${(wf / widestWf) * 100}%`;
+  const STACK_H = Math.min(
+    Math.floor(totalUnits * H + (pieces.length - 1) * GAP),
+    fill && box.h > 0 ? Math.floor(box.h) : Infinity,
+  );
 
   // ── animation triggers, held in STATE ─────────────────────────────────────
   /**
@@ -418,45 +547,55 @@ export const CoinTower: React.FC<{
    * life of the animation and then clears it.
    */
   const [freshRange, setFreshRange] = useState<{ from: number; count: number } | null>(null);
-  /** The ingot index just forged, and whether an ingot was just SPLIT (he went back under). */
-  const [justForged, setJustForged] = useState<number | null>(null);
-  const [splitAt, setSplitAt] = useState<number | null>(null);
+  /** The piece just forged (an ingot or a bar) by identity, and the pieces a split handed back. */
+  const [forgedKey, setForgedKey] = useState<string | null>(null);
+  const [restoredKeys, setRestoredKeys] = useState<Set<string> | null>(null);
   const prevFilled = useRef<number | null>(null);
-  const prevIngots = useRef<number | null>(null);
+  const prevKeys = useRef<string[] | null>(null);
 
   const shown = useCountUp(balance);
 
+  /**
+   * ONE diff, two directions. The stack's own identity is what says what just happened, so this
+   * works for every tier without knowing which one it is:
+   *
+   *   UP   → the coins that landed, and any TIER piece that appeared — that appearance is a forge
+   *   DOWN → the pieces the stack got back — that is a split, whatever broke gave them back
+   *
+   * ⚠️ Reading the verdict off the piece list is what fixed the split, which keyed off a coin index
+   * no piece could ever match and so played as a silent vanish. It also means a BAR splitting into
+   * ten ingots animates those ten INGOTS, not ten coins — the old version could only ever animate
+   * coins, because it assumed the only thing that breaks is an ingot.
+   */
   useEffect(() => {
     if (balance == null) return;
-    const prevIng = prevIngots.current;
-    prevIngots.current = ingotsDone;
-    if (prevIng == null || ingotsDone === prevIng) return;   // first paint is not an arrival
-    if (ingotsDone > prevIng) {
-      setJustForged(ingotsDone - 1);
-      const t = window.setTimeout(() => setJustForged(null), 1500);
-      return () => window.clearTimeout(t);
-    }
-    /*
-     * Going UNDER a milestone: the ingot breaks back into its ten coins.
-     * ⚠️ A bare flag, not an index. The restored coins live in the NEW frame (`mileStart` is the
-     * first of them), and an earlier version stored `mileStart + goldHeld` — the index AFTER the
-     * last one — so no coin ever matched and the split played as a silent vanish.
-     */
-    setSplitAt(Date.now());
-    const t = window.setTimeout(() => setSplitAt(null), 1200);
-    return () => window.clearTimeout(t);
-  }, [balance, ingotsDone, PER]);
-
-  useEffect(() => {
-    if (balance == null) return;
-    const prev = prevFilled.current;
+    const keys = pieces.map(pieceKey);
+    const prev = prevKeys.current;
+    const prevF = prevFilled.current;
+    prevKeys.current = keys;
     prevFilled.current = filled;
-    if (prev == null || filled <= prev) return;
-    const count = filled - prev;
-    setFreshRange({ from: filled - count, count });
-    const t = window.setTimeout(() => setFreshRange(null), 900 + count * 40);
-    return () => window.clearTimeout(t);
-  }, [balance, filled]);
+    if (prev == null || prevF == null) return;      // the first paint is not an arrival
+
+    const had = new Set(prev);
+    const timers: number[] = [];
+    if (filled > prevF) {
+      setFreshRange({ from: prevF, count: filled - prevF });
+      timers.push(window.setTimeout(() => setFreshRange(null), 900 + (filled - prevF) * 40));
+      const forge = pieces.find((pc) => pc.tier !== 'coin' && !had.has(pieceKey(pc)));
+      if (forge) {
+        setForgedKey(pieceKey(forge));
+        timers.push(window.setTimeout(() => setForgedKey(null), 1700));
+      }
+    } else if (filled < prevF) {
+      // An empty socket coming back is a re-arrangement, not something he lost — only real pieces.
+      const back = new Set(keys.filter((k) => !had.has(k) && !k.startsWith('empty:')));
+      if (back.size) {
+        setRestoredKeys(back);
+        timers.push(window.setTimeout(() => setRestoredKeys(null), 1300));
+      }
+    }
+    return () => timers.forEach(window.clearTimeout);
+  }, [balance, pieces, filled]);
 
   /**
    * The big coin at the top of the page — the NEXT COIN, with a ring for how far the whole
@@ -523,9 +662,10 @@ export const CoinTower: React.FC<{
       ? { label: `${fmtMile(bigLvl * bigNotch)} banked`, big: true, id: Date.now() }
       : { label: `${fmtMile(lvl * notch)} forged`, big: false, id: Date.now() });
     setBurst(Date.now());
-    // The FORGE figure is the bright one; it lands with the ingot, not with the banner.
+    // The FORGE figure is the bright one; it lands with the piece, not with the banner — and the
+    // bar gets the longest run of notes, because it is the rarest thing in the game.
     const s = window.setTimeout(() => {
-      if (soundRef.current) playChime(hitLvl && !hitBig ? 'ingot' : 'ingot');
+      if (soundRef.current) playChime(hitBig ? 'bar' : 'ingot');
     }, 120);
     const t = window.setTimeout(() => { setAward(null); setBurst(null); }, hitBig ? 3200 : 2600);
     return () => { window.clearTimeout(s); window.clearTimeout(t); };
@@ -534,23 +674,37 @@ export const CoinTower: React.FC<{
   /** One clink per deposit — a batch of five coins is ONE sound, not five overlapping ones. */
   useEffect(() => {
     if (!freshRange || !soundRef.current) return;
-    // A batch that FORGED an ingot gets the forge sound instead; two chimes on top of each other
-    // is just noise.
-    if (justForged != null) return;
+    // A batch that FORGED a piece gets the forge sound instead; two chimes on top of each other is
+    // just noise.
+    if (forgedKey != null) return;
     playChime('coin');
-  }, [freshRange, justForged]);
+  }, [freshRange, forgedKey]);
 
   /** The split gets its own figure — a descending one, so it is not mistaken for a win. */
   useEffect(() => {
-    if (splitAt == null || !soundRef.current) return;
+    if (restoredKeys == null || !soundRef.current) return;
     playChime('split');
-  }, [splitAt]);
+  }, [restoredKeys]);
 
   /** Which piece holds the record, by coin index — arithmetic, so it cannot drift. */
   const peakUnits = peak == null || !Number.isFinite(peak)
     ? 0
     : Math.max(0, Math.min(unitsTotal, Math.floor(peak / unit)));
   const recordAt = peakUnits > filled && peakUnits > 0 ? peakUnits - 1 : -1;
+
+  /**
+   * The pieces a split handed back, in stack order. The flare sits at the base of the LOWEST of
+   * them, and that position is exact because every piece carries the height below it and its own
+   * index (one gap per piece below).
+   */
+  const restored = restoredKeys ? pieces.filter((p) => restoredKeys.has(pieceKey(p))) : [];
+  const restoreOrder = new Map(restored.map((p, i) => [pieceKey(p), i]));
+  const flare = restored[0] ?? null;
+
+  /** The biggest thing he actually holds is what names the count: "2 / 5 bars", else ingots. */
+  const tierChip = barsDone > 0
+    ? `${barsDone.toLocaleString()} / ${barsTotal.toLocaleString()} bars`
+    : `${ingotsDone.toLocaleString()} / ${ingotsTotal.toLocaleString()} ingots`;
 
   return (
     <div
@@ -598,7 +752,7 @@ export const CoinTower: React.FC<{
         </div>
         <div className="flex items-center gap-1.5">
           <span className="mr-1 hidden text-[10px] uppercase tracking-wider text-white/30 sm:inline">
-            {ingotsDone} / {ingotsTotal} ingots
+            {tierChip}
           </span>
           <button
             onClick={toggleSound}
@@ -703,37 +857,62 @@ export const CoinTower: React.FC<{
             gap: GAP,
           }}
         >
-          {pieces.map((p, i) => {
+          {pieces.map((p) => {
+            const isBar = p.kind === 'bar';
             const isIngot = p.kind === 'ingot';
+            const isTier = p.tier !== 'coin';
             const isGold = p.kind === 'gold';
-            const isFreshIngot = isIngot && justForged === i;
             const isEmpty = p.kind === 'empty';
+            const key = pieceKey(p);
+            const isForged = forgedKey === key;
+            const restoredIdx = restoreOrder.get(key) ?? -1;
             const isNext = isEmpty && p.from === filled;
             const freshIdx = isGold && freshRange
               && p.from >= freshRange.from && p.from < freshRange.from + freshRange.count
               ? p.from - freshRange.from
               : -1;
-            // Going under: every coin of the new frame rises out of the ingot that broke.
-            const risingIdx = isGold && splitAt != null ? Math.min(11, p.from - mileStart) : -1;
             const holdsRecord = !isEmpty && recordAt >= p.from && recordAt <= p.to;
+            const px = Math.max(1, Math.floor(p.units * H * 10) / 10);
+            /*
+             * THE BAR IS A RECTANGLE. Its corners are what make it read as a forged bar rather than
+             * just a bigger disc — the same trick as the gradient, and the reason the ladder is
+             * legible without reading a number: disc, wide plate, flat bar.
+             */
+            const radius = isBar && !barTall ? Math.max(3, Math.round(px * 0.16)) : 999;
+            /*
+             * THE RECORD sits at the exact boundary, which for a single coin is its top edge. A
+             * forged piece holds a whole run of coins, so snapping the rule to its top would
+             * overstate the high-water mark by up to the piece itself ($999 on an ingot); marking
+             * it proportionally up the piece is the honest place, and reads as a fine line across
+             * the metal.
+             */
+            const span = p.to - p.from + 1;
+            const recordFrac = span <= 1 ? 1 : Math.min(1, Math.max(0, (peakUnits - p.from) / span));
 
             return (
               <div
-                key={`${p.kind}-${p.from}`}
+                key={key}
                 data-piece={p.kind}
+                data-tier={p.tier}
                 data-coin={p.from}
-                title={isIngot
-                  ? `Ten coins forged · ${fmtMile(p.to * unit + unit)}`
+                title={isBar ? `Ten ingots forged · ${fmtMile(p.to * unit + unit)}`
+                  : isIngot ? `Ten coins forged · ${fmtMile(p.to * unit + unit)}`
                   : `${fmt(p.from * unit)} → ${fmt((p.from + 1) * unit)}`}
                 className="pf-anim relative shrink-0"
                 style={{
-                  height: Math.max(1, Math.floor(p.units * H * 10) / 10),
-                  width: isIngot ? '100%' : GOLD_W,
-                  borderRadius: 999,
-                  ...(isIngot ? {
+                  height: px,
+                  width: wfPct(p.wf),
+                  borderRadius: radius,
+                  ...(isBar ? {
+                    background: PLAT_FILL,
+                    boxShadow: PLAT_SHADOW,
+                    ...(isForged
+                      ? { animation: 'pfIngotForge 760ms cubic-bezier(.16,1,.3,1) both' }
+                      : null),
+                  } : isIngot ? {
                     background: INGOT_FILL,
                     boxShadow: INGOT_SHADOW,
-                    ...(isFreshIngot
+                    ...(isForged
                       ? { animation: 'pfIngotForge 620ms cubic-bezier(.16,1,.3,1) both' }
                       : null),
                   } : isGold ? {
@@ -743,8 +922,10 @@ export const CoinTower: React.FC<{
                       animation: `pfCoinDrop 340ms cubic-bezier(.16,1,.3,1) ${Math.min(freshIdx, 12) * 34}ms both, `
                                + `pfCoinShine 520ms ease-out ${Math.min(freshIdx, 12) * 34}ms both`,
                     } : null),
-                    ...(risingIdx >= 0 ? {
-                      animation: `pfCoinRise 420ms cubic-bezier(.16,1,.3,1) ${Math.min(risingIdx, 11) * 42}ms both`,
+                    // A split hands back real pieces — coins out of an ingot, or INGOTS out of a
+                    // bar — and every one of them rises out of the line it broke along.
+                    ...(restoredIdx >= 0 ? {
+                      animation: `pfCoinRise 420ms cubic-bezier(.16,1,.3,1) ${Math.min(restoredIdx, 11) * 42}ms both`,
                     } : null),
                   } : {
                     // Empty sockets stay quiet, but not invisible: his whole tower is empty at $17
@@ -757,70 +938,75 @@ export const CoinTower: React.FC<{
                       animation: 'pfNextPulse 1.9s ease-in-out infinite',
                     } : null),
                   }),
+                  // A restored forged piece (a bar breaking into ingots) rises too, on the same clock.
+                  ...(isTier && restoredIdx >= 0 ? {
+                    animation: `pfCoinRise 420ms cubic-bezier(.16,1,.3,1) ${Math.min(restoredIdx, 11) * 42}ms both`,
+                  } : null),
                 }}
               >
-                {/* The iridescence, clipped to the ingot's own shape. */}
-                {isIngot && (
+                {/* The iridescence, clipped to the piece's own shape. */}
+                {isTier && (
                   <div
                     aria-hidden
-                    className="pointer-events-none absolute inset-0 rounded-full"
+                    className="pointer-events-none absolute inset-0"
                     style={{
-                      background: INGOT_IRID,
-                      opacity: 0.22,
+                      background: isBar ? PLAT_IRID : INGOT_IRID,
+                      opacity: isBar ? 0.16 : 0.22,
+                      borderRadius: radius,
                       mixBlendMode: 'overlay',
                       animation: 'pfIrid 16s linear infinite',
                     }}
                   />
                 )}
-                {/* The specular sweep across a just-forged ingot. */}
-                {isFreshIngot && (
+                {/* The specular sweep across a just-forged piece. */}
+                {isForged && (
                   <div
                     aria-hidden
-                    className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+                    className="pointer-events-none absolute inset-0 overflow-hidden"
+                    style={{ borderRadius: radius }}
                   >
                     <div
                       className="h-full w-1/3"
                       style={{
                         background: 'linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.95) 50%, rgba(255,255,255,0) 100%)',
-                        animation: 'pfIngotShine 760ms cubic-bezier(.3,.7,.2,1) 90ms both',
+                        animation: `pfIngotShine ${isBar ? 900 : 760}ms cubic-bezier(.3,.7,.2,1) 90ms both`,
                       }}
                     />
                   </div>
                 )}
-                {/* The ten coins falling INTO it — the merge gets a direction. */}
-                {isFreshIngot && Array.from({ length: 7 }, (_, k) => (
+                {/* The pieces that merged INTO it, falling — so the merge has a direction. They take
+                    the colour of the tier BELOW: ten gold coins into an ingot, ten ingots into a bar. */}
+                {isForged && Array.from({ length: isBar ? 9 : 7 }, (_, k) => (
                   <div
                     key={`m${k}`}
                     aria-hidden
                     className="pf-anim pointer-events-none absolute h-1.5 w-3 rounded-full"
                     style={{
-                      left: `${8 + k * 13}%`,
+                      left: `${6 + k * (88 / (isBar ? 9 : 7))}%`,
                       top: -6,
-                      background: GOLD_FILL,
+                      background: isBar ? INGOT_FILL : GOLD_FILL,
                       animation: `pfMergeIn 480ms cubic-bezier(.3,.7,.2,1) ${k * 26}ms both`,
                     }}
                   />
                 ))}
-                {/* The ring when a milestone is forged. */}
-                {isFreshIngot && (
+                {/* The ring when a piece is forged. */}
+                {isForged && (
                   <div
                     aria-hidden
-                    className="pf-anim pointer-events-none absolute inset-0 rounded-full border-2 border-violet-300/80"
-                    style={{ animation: 'pfIngotPulse 800ms cubic-bezier(.16,1,.3,1) both' }}
+                    className="pf-anim pointer-events-none absolute inset-0 border-2 border-violet-300/80"
+                    style={{ borderRadius: radius, animation: 'pfIngotPulse 800ms cubic-bezier(.16,1,.3,1) both' }}
                   />
                 )}
                 {/*
-                  THE RECORD. A gold hairline at the top edge of the piece that holds it — which is
-                  exactly the boundary where the best fill ever reached, because the record is
-                  always at a coin boundary and a piece ends at one. Anchored to `100%` rather than
-                  computed from offsets, so no gap or rounding can drift it.
-                  `h-px` is load-bearing: let the label size the box and the rule floats up.
+                  THE RECORD, placed off the piece's own geometry rather than a running offset, so no
+                  gap or rounding can drift it. `h-px` is load-bearing: let the label size the box
+                  and the rule floats up by half the text height.
                 */}
                 {holdsRecord && (
                   <div
                     aria-hidden
                     className="pointer-events-none absolute inset-x-0 z-10 flex h-px items-center gap-1.5"
-                    style={{ bottom: '100%' }}
+                    style={{ bottom: `${recordFrac * 100}%` }}
                   >
                     <div className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-300/80 to-amber-300/50" />
                     <span className="whitespace-nowrap rounded px-1 text-[9px] font-black uppercase tracking-wider text-amber-300/90">
@@ -833,9 +1019,9 @@ export const CoinTower: React.FC<{
           })}
         </div>
 
-        {/* The break, when an ingot gave its coins back: a flare at the line it split along, which
-            is the base of the frame that now sits where the ingot was. */}
-        {splitAt != null && (
+        {/* THE BREAK: a flare at the line it split along — the base of the lowest piece that came
+            back, sized to that piece. Exact, because the piece carries the height below it. */}
+        {flare != null && (
           <div
             aria-hidden
             className="pf-anim pointer-events-none absolute rounded-full border-2 border-violet-300/70"
@@ -843,9 +1029,9 @@ export const CoinTower: React.FC<{
               left: '50%',
               // marginLeft, not -translate-x-1/2: the animation below owns `transform`.
               marginLeft: -(COL_W + 8) / 2,
-              bottom: Math.round(ingotsDone * (INGOT_H * H + GAP)),
+              bottom: Math.round(flare.belowUnits * H + flare.idx * GAP),
               width: COL_W + 8,
-              height: Math.max(6, Math.round(INGOT_H * H)),
+              height: Math.max(6, Math.round(flare.units * H)),
               animation: 'pfIngotPulse 700ms cubic-bezier(.16,1,.3,1) both',
             }}
           />
@@ -859,16 +1045,50 @@ export const CoinTower: React.FC<{
         )}
       </div>
 
-      <div className="mt-2.5 flex shrink-0 items-center justify-between gap-2 text-[10px]">
-        <span className={balance == null ? 'text-amber-300/70' : 'text-white/50'}>
-          {balance == null
-            ? 'waiting on account balance'
-            : `${fmt(Math.round(shown))} of ${fmt(target)}`}
-        </span>
-        <span className="text-white/35">
-          {ingotsDone.toLocaleString()} of {ingotsTotal.toLocaleString()} ingots · {PER} × {fmt(unit)} = {fmt(PER * unit)}
+      <div className="mt-2.5 flex shrink-0 flex-col gap-1 text-[10px]">
+        <div className="flex items-center justify-between gap-2">
+          <span className={balance == null ? 'text-amber-300/70' : 'text-white/50'}>
+            {balance == null
+              ? 'waiting on account balance'
+              : `${fmt(Math.round(shown))} of ${fmt(target)}`}
+          </span>
+          <span className="font-bold text-white/40">{tierChip}</span>
+        </div>
+        {/* The ladder, stated once, because the whole point of a tier is that ten of one become one
+            of the next — a rule you should not have to work out from the picture. */}
+        <span className="text-white/25">
+          {PER} coins = 1 ingot ({fmt(PER * unit)}) · {PER} ingots = 1 bar ({fmt(PER * PER * unit)})
         </span>
       </div>
+
+      {/*
+        DEV ONLY — jump the balance to any decade, and toggle which shape the $10,000 tier wears so
+        Daniel can look at both on his own device and pick. Gated on `import.meta.env.DEV` AND
+        `onNudge` (production passes neither), so this compiles away to `void 0` in the bundle.
+      */}
+      {import.meta.env.DEV && onNudge && (
+        <div className="mt-2 flex shrink-0 flex-wrap items-center gap-1 rounded-md border border-dashed border-rose-400/40 px-2 py-1.5 text-[10px] text-rose-200/80">
+          <span className="mr-0.5 font-black uppercase tracking-wider text-rose-300/90">Dev</span>
+          {[0, 1000, 10000, 25000, 50000].map((v) => (
+            <button
+              key={v}
+              onClick={() => onNudge(v - have)}
+              title={`Jump to ${fmt(v)}`}
+              className="rounded border border-rose-300/30 px-1.5 py-0.5 font-bold transition-colors hover:bg-rose-400/20"
+            >
+              {v === 0 ? 'reset' : `$${v / 1000}k`}
+            </button>
+          ))}
+          <span className="mx-0.5 opacity-40">|</span>
+          <button
+            onClick={() => setBarTall((v) => !v)}
+            title="Compare the two shapes for the $10,000 tier"
+            className="rounded border border-rose-300/30 px-1.5 py-0.5 font-bold transition-colors hover:bg-rose-400/20"
+          >
+            $10k shape: <span className="text-rose-100">{barTall ? 'big ingot' : 'bar'}</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };
