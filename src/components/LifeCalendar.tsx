@@ -37,6 +37,10 @@ export interface LifeItem {
   startTime: string | null;
   endTime: string | null;
   category: string | null;
+  /** Todos only — 'soon' | 'mid' | 'long', null = unfiled. */
+  bucket: string | null;
+  /** Events only — a PALETTE key ('teal'…), null = use the category colour. */
+  color: string | null;
   done: boolean;
 }
 
@@ -109,19 +113,81 @@ const EXTRA_CHIP = [
 ];
 const EXTRA_DOT = ['bg-rose-400', 'bg-teal-400', 'bg-lime-400', 'bg-orange-400', 'bg-indigo-400', 'bg-fuchsia-400'];
 
+/**
+ * The colour palette Daniel picks from, deliberately separate from CATS.
+ *
+ * CATS answers "what KIND of thing is this" (Trading, Work, Health…) and drives the
+ * category picker. This answers "what colour do I want" — he asked for "a lot of
+ * colour options" on top of the ones he already had, and pinning a colour to a
+ * category would mean renaming Trading to recolour a single event.
+ *
+ * Keys are stored per item ('teal'), never hex, so the theme stays re-tunable.
+ * Classes are written out in full because Tailwind's JIT scans source literals.
+ * The first six mirror the CATS colours, so a hand-picked 'cyan' matches Trading.
+ */
+const PALETTE: { key: string; label: string; dot: string; chip: string }[] = [
+  { key: 'cyan', label: 'Cyan', dot: 'bg-cyan-400', chip: 'bg-cyan-500/20 border-cyan-400/40 text-cyan-100' },
+  { key: 'teal', label: 'Teal', dot: 'bg-teal-400', chip: 'bg-teal-500/20 border-teal-400/40 text-teal-100' },
+  { key: 'emerald', label: 'Emerald', dot: 'bg-emerald-400', chip: 'bg-emerald-500/20 border-emerald-400/40 text-emerald-100' },
+  { key: 'lime', label: 'Lime', dot: 'bg-lime-400', chip: 'bg-lime-500/20 border-lime-400/40 text-lime-100' },
+  { key: 'yellow', label: 'Yellow', dot: 'bg-yellow-400', chip: 'bg-yellow-500/20 border-yellow-400/40 text-yellow-100' },
+  { key: 'amber', label: 'Amber', dot: 'bg-amber-400', chip: 'bg-amber-500/20 border-amber-400/40 text-amber-100' },
+  { key: 'orange', label: 'Orange', dot: 'bg-orange-400', chip: 'bg-orange-500/20 border-orange-400/40 text-orange-100' },
+  { key: 'red', label: 'Red', dot: 'bg-red-400', chip: 'bg-red-500/20 border-red-400/40 text-red-100' },
+  { key: 'rose', label: 'Rose', dot: 'bg-rose-400', chip: 'bg-rose-500/20 border-rose-400/40 text-rose-100' },
+  { key: 'pink', label: 'Pink', dot: 'bg-pink-400', chip: 'bg-pink-500/20 border-pink-400/40 text-pink-100' },
+  { key: 'fuchsia', label: 'Fuchsia', dot: 'bg-fuchsia-400', chip: 'bg-fuchsia-500/20 border-fuchsia-400/40 text-fuchsia-100' },
+  { key: 'purple', label: 'Purple', dot: 'bg-purple-400', chip: 'bg-purple-500/20 border-purple-400/40 text-purple-100' },
+  { key: 'violet', label: 'Violet', dot: 'bg-violet-400', chip: 'bg-violet-500/20 border-violet-400/40 text-violet-100' },
+  { key: 'indigo', label: 'Indigo', dot: 'bg-indigo-400', chip: 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100' },
+  { key: 'sky', label: 'Sky', dot: 'bg-sky-400', chip: 'bg-sky-500/20 border-sky-400/40 text-sky-100' },
+  { key: 'slate', label: 'Slate', dot: 'bg-slate-400', chip: 'bg-slate-500/20 border-slate-400/40 text-slate-100' },
+];
+const PALETTE_BY_KEY = new Map(PALETTE.map((p) => [p.key, p]));
+
+/**
+ * Todo horizons, in Daniel's own words: "do soon ... midterm to do's and long term
+ * to do's". '' is the unfiled state, kept as an explicit choice so a todo can be
+ * taken back OUT of a folder instead of being stuck in one.
+ */
+const BUCKET_OPTS = [
+  { key: 'soon', label: 'Soon' },
+  { key: 'mid', label: 'Mid-term' },
+  { key: 'long', label: 'Long-term' },
+  { key: '', label: 'Unfiled' },
+];
+
 const nameHash = (s: string) => {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return Math.abs(h);
 };
 
-const catOf = (c?: string | null) => {
+/**
+ * Resolve an item's chip styling.
+ *
+ * `color` is an OPTIONAL explicit palette choice. When present it wins over the
+ * category colour but keeps the category's label, so the legend still reads
+ * "Trading" whether that event is cyan (Trading's own hue) or, say, red because he
+ * wanted it to stand out. Omitting `color` reproduces the old behaviour exactly,
+ * which is why every pre-existing call site still works untouched.
+ */
+const catOf = (c?: string | null, color?: string | null) => {
   const known = CATS.find((x) => x.key === c);
-  if (known) return known;
-  const k = (c || '').trim().toLowerCase();
-  if (!k) return CATS[CATS.length - 1]; // no category at all -> "Other"
-  const i = nameHash(k) % EXTRA_CHIP.length;
-  return { key: k, label: k, dot: EXTRA_DOT[i], chip: EXTRA_CHIP[i] };
+  let base: { key: string; label: string; dot: string; chip: string };
+  if (known) {
+    base = known;
+  } else {
+    const k = (c || '').trim().toLowerCase();
+    if (!k) {
+      base = CATS[CATS.length - 1]; // no category at all -> "Other"
+    } else {
+      const i = nameHash(k) % EXTRA_CHIP.length;
+      base = { key: k, label: k, dot: EXTRA_DOT[i], chip: EXTRA_CHIP[i] };
+    }
+  }
+  const pick = color ? PALETTE_BY_KEY.get(color) : undefined;
+  return pick ? { ...base, dot: pick.dot, chip: pick.chip } : base;
 };
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -211,6 +277,8 @@ type EditorState = {
   startTime: string;          // '' = all-day
   endTime: string;
   category: string;
+  bucket: string;   // todos: 'soon' | 'mid' | 'long' | '' (unfiled)
+  color: string;    // events: PALETTE key, '' = auto (category colour)
   notes: string;
 };
 
@@ -221,6 +289,11 @@ const blankEditor = (date: string, kind: 'event' | 'todo' = 'event', startTime =
   // block instead of a zero-length one.
   endTime: startTime ? fromMin((toMin(startTime) ?? 0) + 60) : '',
   category: 'other', notes: '',
+  // A new todo starts in "Soon" — that is where most day-to-day items belong, and
+  // it beats everything landing in Unfiled. A new event starts on 'auto', i.e. the
+  // category colour it already had, so nothing changes until he picks one.
+  bucket: kind === 'todo' ? 'soon' : '',
+  color: '',
 });
 
 export const LifeCalendar: React.FC = () => {
@@ -261,6 +334,13 @@ export const LifeCalendar: React.FC = () => {
   const evDragRef = useRef<{
     key: string; source: 'item' | 'agenda'; id: string; title: string; sourceDate: string;
     origDate: string; origStartMin: number | null; durMin: number; grabMin: number;
+    /**
+     * 'move' drags the whole block; 'resize' drags only its bottom edge. Both share
+     * this one gesture record and the same window listeners — a resize is just a move
+     * whose start is pinned, so giving it a separate code path would duplicate the
+     * re-parenting fix documented on `hitTestGrid` for no gain.
+     */
+    mode: 'move' | 'resize' | 'resize-top'; origEndMin: number | null;
     x: number; y: number; moved: boolean; pid: number;
   } | null>(null);
 
@@ -445,6 +525,8 @@ export const LifeCalendar: React.FC = () => {
     startTime: it.startTime || '',
     endTime: it.endTime || '',
     category: it.category || 'other',
+    bucket: it.bucket || '',
+    color: it.color || '',
     notes: it.notes || '',
   });
 
@@ -459,6 +541,11 @@ export const LifeCalendar: React.FC = () => {
       title,
       date: editor.date,
       category: editor.category || null,
+      // A horizon only means something on a todo; a colour only on a timed event.
+      // Sending the other side as null keeps a converted item from carrying stale
+      // state — switch an event to a todo and its colour goes with it.
+      bucket: editor.kind === 'todo' ? (editor.bucket || null) : null,
+      color: editor.kind === 'todo' ? null : (editor.color || null),
       notes: editor.notes || null,
       startTime: editor.kind === 'todo' ? null : (editor.startTime || null),
       endTime: editor.kind === 'todo' ? null : (editor.endTime || null),
@@ -665,8 +752,29 @@ export const LifeCalendar: React.FC = () => {
       d.moved = true;
       justDragged.current = true;
     }
-    const hit = hitTestGrid(e.clientX, e.clientY, d.grabMin);
+    // Resize passes grabMin 0 on purpose: a move offsets by where the finger landed
+    // inside the block, but a resize puts the END where the fingertip is.
+    const hit = hitTestGrid(e.clientX, e.clientY, d.mode === 'resize' ? 0 : d.grabMin);
     if (!hit) return;
+    if (d.mode === 'resize' || d.mode === 'resize-top') {
+      // A resize pins ONE edge and lets the other follow the fingertip: the bottom
+      // handle moves the end, the top handle moves the start. The day never changes.
+      if (d.mode === 'resize-top') {
+        const endMin = d.origEndMin ?? hit.startMin + SNAP_MIN;
+        const startMin = Math.max(0, Math.min(endMin - SNAP_MIN, hit.startMin));
+        const next = { key: d.key, date: d.origDate, startMin, endMin };
+        dragEvRef.current = next;
+        setDragEv(next);
+        return;
+      }
+      const startMin = d.origStartMin ?? hit.startMin;
+      // Never shorter than one snap step, never past midnight. The day stays put.
+      const endMin = Math.max(startMin + SNAP_MIN, Math.min(DAY_MINUTES, hit.startMin));
+      const next = { key: d.key, date: d.origDate, startMin, endMin };
+      dragEvRef.current = next;
+      setDragEv(next);
+      return;
+    }
     const startMin = Math.max(0, Math.min(DAY_MINUTES - d.durMin, hit.startMin));
     const next = { key: d.key, date: hit.date, startMin, endMin: startMin + d.durMin };
     dragEvRef.current = next; // read by onEvUp, which may run before React re-renders
@@ -684,6 +792,24 @@ export const LifeCalendar: React.FC = () => {
     if (!d.moved) return; // a tap, not a drag — let the click handler do its thing
     window.setTimeout(() => { justDragged.current = false; }, 300);
     if (!live) return;
+
+    // ── resize: one edge moved, so the day stays put and the times are committed ──
+    if (d.mode === 'resize' || d.mode === 'resize-top') {
+      let startMin = d.mode === 'resize-top' ? live.startMin : (d.origStartMin ?? live.startMin);
+      let endMin = d.mode === 'resize-top' ? (d.origEndMin ?? live.endMin) : live.endMin;
+      startMin = Math.max(0, Math.min(endMin - SNAP_MIN, startMin));
+      endMin = Math.min(DAY_MINUTES, Math.max(startMin + SNAP_MIN, endMin));
+      if (startMin === d.origStartMin && endMin === d.origEndMin) return; // grabbed an edge and let go
+      const startTime = fromMin(startMin);
+      const endTime = fromMin(endMin);
+      if (d.source === 'item') {
+        void moveItemTo(d.id, d.origDate, startTime, endTime);
+      } else {
+        // movedToDate stays null: resizing never changes which day the entry is on.
+        void overrideAgendaEntry(d.sourceDate, d.title, null, startTime, endTime);
+      }
+      return;
+    }
 
     const dayChanged = live.date !== d.origDate;
     const timeChanged = live.startMin !== d.origStartMin;
@@ -714,6 +840,7 @@ export const LifeCalendar: React.FC = () => {
       sourceDate: string; origDate: string;
       startTime?: string | null; endTime?: string | null;
     },
+    mode: 'move' | 'resize' | 'resize-top' = 'move',
   ) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -729,6 +856,8 @@ export const LifeCalendar: React.FC = () => {
       origDate: payload.origDate,
       origStartMin: startMin,
       durMin,
+      mode,
+      origEndMin: endMin,
       // Where inside the block the finger landed, so it doesn't jump on the first move.
       grabMin: startMin === null ? 0 : ((e.clientY - rect.top) / HOUR_PX) * 60,
       x: e.clientX, y: e.clientY, moved: false, pid: e.pointerId,
@@ -853,7 +982,7 @@ export const LifeCalendar: React.FC = () => {
         onClick={(e) => { e.stopPropagation(); if (justDragged.current) return; openEdit(it); }}
         title={`${it.title} — drag to another day`}
         className={`flex touch-none select-none items-center gap-1 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight ${
-          catOf(it.category).chip
+          catOf(it.category, it.color).chip
         } ${draggingId === it.id ? 'pointer-events-none opacity-40' : 'cursor-grab'} ${
           isTodo && it.done ? 'opacity-50 line-through' : ''
         } ${cls}`}
@@ -897,6 +1026,17 @@ export const LifeCalendar: React.FC = () => {
     const imported = agenda[date] || [];
     const doneCount = todos.filter((t) => t.done).length;
 
+    /**
+     * Todos grouped by horizon, in Daniel's order — Soon, Mid-term, Long-term, then
+     * Unfiled. Empty groups are dropped so a quiet day never renders three blank
+     * headers, and when only ONE group has rows its label is hidden too: a lone
+     * "Soon" above a lone todo is just noise.
+     */
+    const todoGroups = BUCKET_OPTS
+      .map((g) => ({ ...g, rows: todos.filter((t) => (t.bucket || '') === g.key) }))
+      .filter((g) => g.rows.length > 0);
+    const showGroupLabels = todoGroups.length > 1;
+
     return (
       <>
         {/* Events */}
@@ -911,7 +1051,7 @@ export const LifeCalendar: React.FC = () => {
           ) : (
             <div className="space-y-1.5">
               {events.map((it) => (
-                <div key={it.id} className={`group flex items-start gap-2 rounded-lg border px-3 py-2 ${catOf(it.category).chip}`}>
+                <div key={it.id} className={`group flex items-start gap-2 rounded-lg border px-3 py-2 ${catOf(it.category, it.color).chip}`}>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold">{it.title}</div>
                     <div className="mt-0.5 flex items-center gap-1 text-[11px] opacity-80">
@@ -949,8 +1089,17 @@ export const LifeCalendar: React.FC = () => {
               No todos for this day
             </div>
           ) : (
-            <div className="space-y-1">
-              {todos.map((it) => (
+            <div className="space-y-3">
+              {todoGroups.map((g) => (
+                <div key={g.key || 'none'}>
+                  {showGroupLabels && (
+                    <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-white/35">
+                      {g.label}
+                      <span className="font-normal normal-case tracking-normal text-white/25">{g.rows.length}</span>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+              {g.rows.map((it) => (
                 <div
                   key={it.id}
                   onPointerDown={(e) => onChipDown(e, it)}
@@ -976,7 +1125,7 @@ export const LifeCalendar: React.FC = () => {
                   >
                     {it.title}
                   </button>
-                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${catOf(it.category).dot}`} />
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${catOf(it.category, it.color).dot}`} />
                   <button
                     onClick={() => removeItem(it)}
                     aria-label="Delete"
@@ -984,6 +1133,9 @@ export const LifeCalendar: React.FC = () => {
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
+                </div>
+              ))}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1051,6 +1203,8 @@ export const LifeCalendar: React.FC = () => {
         return [{
           key: it.id, source: 'item' as const, id: it.id, title: it.title,
           sourceDate: date, origDate: date, category: it.category ?? null,
+          // Grid blocks honour a picked colour too, not just the panel rows.
+          color: it.color ?? null,
           notes: it.notes ?? null, startMin: s, endMin: e !== null && e > s ? e : s + 60,
         }];
       }),
@@ -1061,10 +1215,23 @@ export const LifeCalendar: React.FC = () => {
         return [{
           key: `ag:${a.sourceDate}::${a.title}`, source: 'agenda' as const, id: '', title: a.title,
           sourceDate: a.sourceDate, origDate: date, category: a.category ?? null,
+          color: null, // an imported agenda entry carries no colour of its own
           notes: null, startMin: s, endMin: e !== null && e > s ? e : s + 60,
         }];
       }),
     ]);
+
+    /**
+     * The all-day strip carries UNTIMED EVENTS only. Todos are deliberately excluded:
+     * they already have tickable rows in the day panel beside the grid, and a second
+     * copy running across the top of the calendar was just clutter. Daniel: "on top of
+     * the calendar, on the actual calendar, I have to-dos as well and it's messing up
+     * the actual calendar." When nothing untimed is in the window, the strip is
+     * dropped entirely so the hour grid gets its vertical space back.
+     */
+    const untimedEventRows = (date: string) => (byDate[date] || []).filter((i) => !i.startTime && i.kind !== 'todo');
+    const untimedAgendaRows = (date: string) => (agenda[date] || []).filter((a) => !a.startTime);
+    const showAllDayStrip = dates.some((d) => untimedEventRows(d).length > 0 || untimedAgendaRows(d).length > 0);
 
     /**
      * A day's rows WITH the drag preview applied: the dragged block is removed from
@@ -1111,17 +1278,17 @@ export const LifeCalendar: React.FC = () => {
           </div>
         )}
 
-        {/* ALL-DAY STRIP — everything with no clock time, so nothing is lost. */}
+        {/* ALL-DAY STRIP — untimed EVENTS only, and only when there are some. */}
+        {showAllDayStrip && (
         <div className="flex border-b border-white/10 bg-white/[0.02]">
           <div className={`${gutter} px-1 py-1.5 text-right text-[9px] font-bold uppercase tracking-wider text-white/35 sm:text-[10px]`}>
             all-day
           </div>
           {dates.map((date) => {
-            // ⚠️ Filtered to UNTIMED only. Without this every timed event renders
-            // twice — once in the strip and once in the grid — and the strip looks
-            // like an unsorted duplicate of the day.
-            const untimed = (byDate[date] || []).filter((i) => !i.startTime);
-            const untimedAgenda = (agenda[date] || []).filter((a) => !a.startTime);
+            // Untimed EVENTS only — never timed rows (they'd render twice, once here
+            // and once in the grid) and never todos (those are the day panel's job).
+            const untimed = untimedEventRows(date);
+            const untimedAgenda = untimedAgendaRows(date);
             return (
               <div
                 key={date}
@@ -1142,6 +1309,7 @@ export const LifeCalendar: React.FC = () => {
             );
           })}
         </div>
+        )}
 
         {/* HOUR GRID — the long part. Scrolls internally; opens at 07:00. */}
         <div ref={gridScrollRef} className={dates.length > 1 ? 'max-h-[62vh] overflow-y-auto' : 'max-h-[70vh] overflow-y-auto'}>
@@ -1216,7 +1384,7 @@ export const LifeCalendar: React.FC = () => {
                           ? `${r.title} — from your Obsidian agenda; drag to change the time or day`
                           : `${r.title} — drag to change the time or day`}
                         className={`absolute z-10 cursor-grab touch-none select-none overflow-hidden border px-1 py-0.5 text-[10px] leading-tight ${
-                          catOf(r.category).chip
+                          catOf(r.category, r.color).chip
                         } ${r.source === 'agenda' ? 'border-dashed' : ''} ${
                           isDragging ? 'pointer-events-none z-30 opacity-90 shadow-lg ring-2 ring-cyan-300/60' : ''
                         }`}
@@ -1236,6 +1404,39 @@ export const LifeCalendar: React.FC = () => {
                             {r.notes ? r.notes : fmt12(fromMin(r.endMin))}
                           </div>
                         )}
+                        {/* TOP HANDLE — drag the top edge to change the START time. */}
+                        <div
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            onEvDown(e, {
+                              source: r.source, id: r.id || undefined, title: r.title,
+                              sourceDate: r.sourceDate, origDate: r.origDate,
+                              startTime: fromMin(r.startMin), endTime: fromMin(r.endMin),
+                            }, 'resize-top');
+                          }}
+                          title="Drag to change the start time"
+                          className="group absolute inset-x-0 top-0 z-20 flex h-2 cursor-ns-resize touch-none items-start justify-center"
+                        >
+                          <span className="mt-px h-[3px] w-7 rounded-full bg-white/30 transition-colors group-hover:bg-white/80" />
+                        </div>
+                        {/* RESIZE HANDLE — drag the bottom edge to change the end time.
+                            The stopPropagation is load-bearing: without it the block's own
+                            onPointerDown fires as well and starts a MOVE, so the block
+                            would slide instead of grow. */}
+                        <div
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            onEvDown(e, {
+                              source: r.source, id: r.id || undefined, title: r.title,
+                              sourceDate: r.sourceDate, origDate: r.origDate,
+                              startTime: fromMin(r.startMin), endTime: fromMin(r.endMin),
+                            }, 'resize');
+                          }}
+                          title="Drag to change the end time"
+                          className="group absolute inset-x-0 bottom-0 z-20 flex h-2 cursor-ns-resize touch-none items-end justify-center"
+                        >
+                          <span className="mb-px h-[3px] w-7 rounded-full bg-white/30 transition-colors group-hover:bg-white/80" />
+                        </div>
                       </div>
                     );
                   })}
@@ -1451,6 +1652,56 @@ export const LifeCalendar: React.FC = () => {
                 </select>
               </div>
             </div>
+
+            {/* A todo's horizon. Three named folders plus the unfiled state. */}
+            {editor.kind === 'todo' && (
+              <div className="mb-4">
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-white/45">When</label>
+                <div className="flex gap-2">
+                  {BUCKET_OPTS.map((b) => (
+                    <button
+                      key={b.key || 'none'}
+                      onClick={() => setEditor((ed) => (ed ? { ...ed, bucket: b.key } : ed))}
+                      className={`flex-1 rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                        editor.bucket === b.key ? 'border-cyan-400/60 bg-cyan-400/15 text-cyan-100' : 'border-white/15 bg-white/5 text-white/60 hover:text-white'
+                      }`}
+                    >
+                      {b.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* An event's colour. "Auto" keeps the category hue, so doing nothing
+                preserves exactly what the calendar looked like before. */}
+            {editor.kind === 'event' && (
+              <div className="mb-4">
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-white/45">Colour</label>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    onClick={() => setEditor((ed) => (ed ? { ...ed, color: '' } : ed))}
+                    title="Match the category colour"
+                    className={`rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+                      editor.color === '' ? 'border-cyan-400/60 bg-cyan-400/15 text-cyan-100' : 'border-white/15 bg-white/5 text-white/55 hover:text-white'
+                    }`}
+                  >
+                    Auto
+                  </button>
+                  {PALETTE.map((p) => (
+                    <button
+                      key={p.key}
+                      onClick={() => setEditor((ed) => (ed ? { ...ed, color: p.key } : ed))}
+                      title={p.label}
+                      aria-label={`Colour ${p.label}`}
+                      className={`h-7 w-7 rounded-md border transition-transform hover:scale-110 ${
+                        editor.color === p.key ? 'border-white ring-2 ring-white/40' : 'border-white/20'
+                      } ${p.dot}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
             {editor.kind === 'event' && (
               <div className="mb-4 grid grid-cols-2 gap-3">

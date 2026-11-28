@@ -2,6 +2,7 @@ import type { Handler } from '@netlify/functions';
 import { and, eq, sql, desc } from 'drizzle-orm';
 import { json, getUserFromSession } from './_utils';
 import { personalTradeService, strategyLog, strategyPromptOptions } from '../../server/db/service';
+import { personalAccountBalance } from '../../server/db/schema';
 import { db } from '../../server/db/connection';
 
 export const handler: Handler = async (event) => {
@@ -15,7 +16,24 @@ export const handler: Handler = async (event) => {
       // Get stats
       if (params.action === 'stats') {
         const stats = await personalTradeService.getStats(user.id);
-        return json(200, { stats });
+        /**
+         * The all-time high balance, merged in HERE rather than inside
+         * `getStats`, so it survives whichever implementation of the stats block
+         * is live and needs no change to shared/personalStats.mts.
+         *
+         * It is read straight off the row the balance feed maintains (migration 70)
+         * — NOT reconstructed from trades, which cannot see a deposit and would
+         * understate the peak. Null when the account has no record yet; the coin
+         * tower simply draws no line then.
+         */
+        const peakRows = await db
+          .select({ peak: personalAccountBalance.peakBalance })
+          .from(personalAccountBalance)
+          .where(eq(personalAccountBalance.userId, user.id))
+          .limit(1);
+        const rawPeak = peakRows[0]?.peak;
+        const peakBalance = rawPeak == null ? null : parseFloat(String(rawPeak));
+        return json(200, { stats: { ...stats, peakBalance } });
       }
 
       // Get trades (optionally limited)
@@ -94,7 +112,26 @@ export const handler: Handler = async (event) => {
           return json(400, { error: 'balance required' });
         }
         const rows = await personalTradeService.upsertBalance(user.id, String(balance));
-        return json(200, { balance: rows[0] ?? null });
+        /**
+         * THE ONLY PLACE THE ALL-TIME HIGH IS OBSERVABLE.
+         *
+         * The balance feed is what moves the account, so it is also the only
+         * thing that can witness a new record — a trade-ledger walk cannot see a
+         * deposit at all. `GREATEST` is evaluated in SQL against the COLUMN, so
+         * the peak can only ever rise and this is correct even if two pushes
+         * race. COALESCE covers a row that predates migration 70 (NULL peak).
+         *
+         * Returned so the caller can read the peak back — a response echo is not
+         * persistence, and this is the one write that must not fail silently.
+         */
+        const bumped = await db
+          .update(personalAccountBalance)
+          .set({
+            peakBalance: sql`GREATEST(COALESCE(${personalAccountBalance.peakBalance}, ${personalAccountBalance.balance}), ${personalAccountBalance.balance})`,
+          })
+          .where(eq(personalAccountBalance.userId, user.id))
+          .returning();
+        return json(200, { balance: rows[0] ?? null, peakBalance: bumped[0]?.peakBalance ?? null });
       }
 
       // Get prompt options for cockpit

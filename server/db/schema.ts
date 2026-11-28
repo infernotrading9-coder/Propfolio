@@ -470,6 +470,18 @@ export const personalAccountBalance = pgTable('personal_account_balance', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').references(() => users.id).notNull().unique(),
   balance: decimal('balance', { precision: 12, scale: 2 }).notNull(),
+  /**
+   * The HIGHEST this account has ever held — the "best ever" record the coin
+   * tower draws its gold line at.
+   *
+   * Kept as a column rather than reconstructed from the trade ledger, because a
+   * ledger walk only sees TRADES: a deposit gets smeared backwards as if it had
+   * been earned, which quietly understates the peak. Bumped only by the balance
+   * feed (see `db-personal-trades` update-balance), so it can only ever rise.
+   * Nullable: a row that has not had a balance pushed since 70 ran has no record
+   * yet, and the UI simply draws no line.
+   */
+  peakBalance: decimal('peak_balance', { precision: 12, scale: 2 }),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
@@ -507,6 +519,18 @@ export const lifeCalendarItems = pgTable('life_calendar_items', {
   startTime: text('start_time'), // 'HH:MM' 24h. null = all-day (and always null for todos)
   endTime: text('end_time'), // 'HH:MM' 24h
   category: text('category'), // free text: trading | work | health | study | personal | ...
+  /**
+   * Todos only. Which horizon it belongs to: 'soon' | 'mid' | 'long'.
+   * NULL = unfiled, which the Life panel shows in its own section — so existing
+   * rows keep rendering without a backfill. Constrained in the DB (69 migration).
+   */
+  bucket: text('bucket'),
+  /**
+   * Events only. A palette KEY ('teal', 'amber', …), never a hex, so the theme can
+   * be re-tuned without rewriting rows. NULL keeps the category-derived colour that
+   * predates this column, so nothing changes until Daniel picks one.
+   */
+  color: text('color'),
   done: boolean('done').default(false).notNull(), // todos only
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),

@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   StickyNote, Plus, Trash2, Pencil, Check, ChevronDown, ChevronRight,
-  ListChecks, Zap, Target, Mountain, X, Loader2, AlertCircle, CornerDownRight, Link2,
+  ListChecks, Zap, Target, Mountain, X, Loader2, AlertCircle, CornerDownRight, Link2, Coins,
 } from 'lucide-react';
 
 export type Horizon = 'daily' | 'short_term' | 'mid_term' | 'long_term';
@@ -156,6 +156,12 @@ export const GoalsTab: React.FC = () => {
   // STAYS null if the call fails, so the bar falls back to step progress instead of
   // rendering a fake $0 of $50,000.
   const [personalBalance, setPersonalBalance] = useState<number | null>(null);
+  /**
+   * DEV ONLY. Once the ± buttons have been used, the 60s feed poll stops writing the
+   * balance — otherwise the real feed ($17) would snap the number back mid-test and
+   * the animation would look like it fired at random.
+   */
+  const devManual = useRef(false);
 
   const getAuthHeaders = useCallback(() => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -183,18 +189,27 @@ export const GoalsTab: React.FC = () => {
   // deposits" is just the arithmetic of a balance that went down.
   useEffect(() => {
     let alive = true;
-    (async () => {
+    const pull = async () => {
       try {
         const res = await fetch('/.netlify/functions/db-personal-trades?action=stats', { headers: getAuthHeaders() });
         if (!res.ok) return;
         const d = await res.json();
         const b = d?.stats?.balance;
-        if (alive && typeof b === 'number' && Number.isFinite(b)) setPersonalBalance(b);
+        if (alive && !devManual.current && typeof b === 'number' && Number.isFinite(b)) setPersonalBalance(b);
       } catch {
         /* leave it null — the bar degrades to step progress */
       }
-    })();
-    return () => { alive = false; };
+    };
+    void pull();
+    /**
+     * Re-pull on a timer so a balance that changes WHILE the tab is open actually makes
+     * the coins pop. The coin animation is driven by the CHANGE in coins-filled, so a
+     * one-shot fetch on mount could never fire it — the row would only ever show its
+     * resting state and the whole point (the dopamine hit when money lands) would be
+     * dead code. A minute is well inside how often the MCP feed moves.
+     */
+    const t = window.setInterval(pull, 60_000);
+    return () => { alive = false; window.clearInterval(t); };
   }, [getAuthHeaders]);
 
   const load = useCallback(async () => {
@@ -240,16 +255,60 @@ export const GoalsTab: React.FC = () => {
    * is done — that's the domino: finishing the last step completes the goal.
    * `seen` guards against a cycle the API should already have blocked.
    */
+  /**
+   * Notes measured by the BALANCE, not by a tick: everything underneath a
+   * balance-tracked goal.
+   *
+   * Daniel found this hole himself — "I just completed all of them without the actual
+   * balance moving. I don't think that should be possible." He was right. The bar was
+   * balance-derived, but the milestone notes beneath it were still ordinary tickable
+   * todos, so the ladder could read 100% while the bar honestly read $17. Two sources
+   * of truth for one number IS the bug. The balance wins, and the ticks go away.
+   */
+  const lockedIds = useMemo(() => {
+    const locked = new Set<string>();
+    const walk = (id: string) => {
+      for (const k of childrenOf.get(id) || []) {
+        if (locked.has(k.id)) continue;
+        locked.add(k.id);
+        walk(k.id);
+      }
+    };
+    for (const n of notes) if (isBalanceGoal(n.body)) walk(n.id);
+    return locked;
+  }, [notes, childrenOf]);
+
+  /**
+   * Has a locked note actually been reached? Only if the account balance is at or
+   * above the money in its title. The stored `completed` flag is ignored on purpose:
+   * that flag is exactly what he hand-set while the balance stayed at $17. A step
+   * with no parseable amount (a story step) cannot be derived, so it stays unreached
+   * rather than being guessed at.
+   */
+  const lockedDone = useCallback((n: PlanNote): boolean => {
+    const money = moneyFromTitle(n.title);
+    if (money == null || personalBalance == null) return false;
+    return personalBalance >= money;
+  }, [personalBalance]);
+
   const effectiveDone = useCallback((id: string, seen: Set<string> = new Set()): boolean => {
     if (seen.has(id)) return false;
     seen.add(id);
     const n = byId.get(id);
     if (!n) return false;
+    // A balance goal is complete only when the balance reaches its OWN target —
+    // never because its milestone notes were ticked along the way.
+    if (isBalanceGoal(n.body)) {
+      const target = moneyFromTitle(n.title);
+      return target != null && personalBalance != null && personalBalance >= target;
+    }
+    // Anything underneath one is measured by the balance too.
+    if (lockedIds.has(id)) return lockedDone(n);
     if (n.completed) return true;
     const kids = childrenOf.get(id) || [];
     if (kids.length === 0) return false;
     return kids.every((k) => effectiveDone(k.id, seen));
-  }, [byId, childrenOf]);
+  }, [byId, childrenOf, lockedIds, lockedDone, personalBalance]);
 
   const progressOf = useCallback((id: string): { done: number; total: number } | null => {
     const kids = childrenOf.get(id) || [];
@@ -274,6 +333,12 @@ export const GoalsTab: React.FC = () => {
   };
 
   const toggleComplete = async (note: PlanNote) => {
+    // Refuse at the handler as well as hiding the control — a locked step must not be
+    // tickable from any path.
+    if (lockedIds.has(note.id) || isBalanceGoal(note.body)) {
+      setError('That step is measured by your account balance — it ticks itself when the money lands.');
+      return;
+    }
     const next = !note.completed;
     setBusy((b) => ({ ...b, [note.id]: true }));
     // Optimistic — revert on failure so a failed write can't look saved.
@@ -356,9 +421,19 @@ export const GoalsTab: React.FC = () => {
   // a daily item sits three levels down (mid "First $500" → short "Hit first $100
   // green day" → that daily trade), so there is NO daily/short_term root to show.
 
-  /** The North Star: the goals — long-term first, then mid-term. */
+  /**
+   * The North Star: the goals — long-term first, then mid-term.
+   *
+   * ⚠️ Balance-tracked ACCOUNT goals (`[balance]`) are excluded: they moved to
+   * Trading → Personal alongside the coin tower, because that tab owns the balance they
+   * are measured by. This tab is now purely LIFE goals.
+   *
+   * The notes themselves were not touched — this is a VIEW filter, so nothing needed
+   * migrating and it reverses in one line if the split ever feels wrong.
+   */
   const northStar = useMemo(
-    () => rootNotes.filter((n) => n.horizon === 'long_term' || n.horizon === 'mid_term'),
+    () => rootNotes.filter((n) =>
+      (n.horizon === 'long_term' || n.horizon === 'mid_term') && !isBalanceGoal(n.body)),
     [rootNotes],
   );
 
@@ -366,7 +441,10 @@ export const GoalsTab: React.FC = () => {
   const allSteps = useMemo(() => {
     const horizonRank: Record<string, number> = { daily: 0, short_term: 1 };
     return notes
-      .filter((n) => n.horizon === 'daily' || n.horizon === 'short_term')
+      // `lockedIds` also excludes anything under a balance-tracked ACCOUNT goal — those
+      // moved to Trading → Personal, so their descendants must not leak into this tab's
+      // "today's execution" list either.
+      .filter((n) => (n.horizon === 'daily' || n.horizon === 'short_term') && !lockedIds.has(n.id))
       .sort((a, b) => {
         const d = (horizonRank[a.horizon] ?? 9) - (horizonRank[b.horizon] ?? 9);
         if (d !== 0) return d;
@@ -379,7 +457,7 @@ export const GoalsTab: React.FC = () => {
         // and Daniel caught the right column reading $1,250 before $500.
         return sortSiblings(a, b);
       });
-  }, [notes, effectiveDone]);
+  }, [notes, effectiveDone, lockedIds]);
 
   const openSteps = useMemo(() => allSteps.filter((n) => !effectiveDone(n.id)), [allSteps, effectiveDone]);
   const doneSteps = useMemo(() => allSteps.filter((n) => effectiveDone(n.id)), [allSteps, effectiveDone]);
@@ -438,6 +516,7 @@ export const GoalsTab: React.FC = () => {
       openCreate={openCreate}
       progressOf={progressOf}
       effectiveDone={effectiveDone}
+      lockedIds={lockedIds}
       extra={opts.extra}
       tag={opts.withTag ? tagFor(n) : undefined}
     />
@@ -528,6 +607,7 @@ export const GoalsTab: React.FC = () => {
                   return card(n, { extra: goalBar(n, kids) });
                 })
               )}
+
             </section>
 
             {/* ── RIGHT (65%) — Today's Execution: the do-now list ────────────── */}
@@ -607,18 +687,6 @@ export const GoalsTab: React.FC = () => {
 
 // ─── Balance bar ─────────────────────────────────────────────────────────────
 
-/**
- * Progress for a balance-tracked goal: ONE SEGMENT PER $1,000, filled from the live
- * balance, with the goal's own children shown as the labelled majors.
- *
- * Everything here is derived, which is the point — a computed ladder physically
- * cannot read $1,250 before $500, and it needs no 500 rows of notes to stay in step
- * with the account. A losing day simply lowers the balance and segments un-fill.
- *
- * The labelled majors are used as chips in a wrapping row rather than as captions
- * aligned under the strip: at 50 segments each is ~2% of a 340px card, so captions
- * would collide into an unreadable smear.
- */
 const BalanceBar: React.FC<{
   target: number;
   unit: number;
@@ -637,13 +705,14 @@ const BalanceBar: React.FC<{
 
   return (
     <div className="mt-2">
+      {/* 1 — the whole climb: one segment per $1,000. */}
       <div className="flex h-2 items-stretch gap-px overflow-hidden rounded-full bg-white/[0.07]">
         {Array.from({ length: notchCount }, (_, i) => {
           const fill = Math.max(0, Math.min(1, (have - i * NOTCH) / NOTCH));
           return (
             <div key={i} className="relative min-w-0 flex-1">
               <div
-                className="absolute inset-y-0 left-0 bg-cyan-400/80"
+                className="absolute inset-y-0 left-0 bg-gradient-to-r from-amber-400/70 to-cyan-400/80 transition-[width] duration-700 ease-out"
                 style={{ width: `${fill * 100}%` }}
               />
             </div>
@@ -651,33 +720,36 @@ const BalanceBar: React.FC<{
         })}
       </div>
 
+      {/* 3 — milestones: markers that light up on their own. Never tickable. */}
       {majors.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
           {majors.map((m) => {
             const passed = have >= m.value;
             return (
               <span
                 key={m.note.id}
-                title={m.note.title}
-                className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                  passed ? 'bg-emerald-400/15 text-emerald-300' : 'bg-white/5 text-white/40'
+                title={`${m.note.title} — lights up on its own at ${fmtMoney(m.value)}`}
+                className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                  passed ? 'bg-amber-400/15 text-amber-200' : 'bg-white/5 text-white/40'
                 }`}
               >
-                {passed ? '✓ ' : ''}{milestoneLabel(m.note.title)}
+                {passed ? '★ ' : ''}{milestoneLabel(m.note.title)}
               </span>
             );
           })}
         </div>
       )}
 
-      <div className="mt-1 flex items-center justify-between gap-2 text-[10px]">
+      <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px]">
         <span className={balance == null ? 'text-amber-300/70' : 'text-white/50'}>
-          {balance == null ? 'waiting on account balance' : `${fmtMoney(have)} of ${fmtMoney(target)}`}
+          {balance == null
+            ? 'waiting on account balance'
+            : `${fmtMoney(have)} of ${fmtMoney(target)} · ${(unitsDone ?? 0).toLocaleString()}/${unitsTotal.toLocaleString()} coins`}
         </span>
         <span className="text-white/35">
           {unitsDone == null
             ? `${notchCount} × ${fmtMoney(NOTCH)} milestones`
-            : `next ${fmtMoney((unitsDone + 1) * unit)} · ${unitsDone.toLocaleString()}/${unitsTotal.toLocaleString()} × ${fmtMoney(unit)}`}
+            : `next coin at ${fmtMoney((unitsDone + 1) * unit)}`}
         </span>
       </div>
     </div>
@@ -768,12 +840,18 @@ const NoteCard: React.FC<{
   openCreate: (horizon: Horizon, parentId?: string | null) => void;
   progressOf: (id: string) => { done: number; total: number } | null;
   effectiveDone: (id: string, seen?: Set<string>) => boolean;
+  /** Notes measured by the balance rather than by a tick — see GoalsTab. */
+  lockedIds: Set<string>;
 }> = ({
   note, byId, childrenOf, progress, done, isBusy, isOpen,
   onToggleExpand, onToggleComplete, onEdit, onDelete, onAddStep, onBreakdown, tag, extra,
   expanded, setExpanded, toggleComplete, openEdit, remove, openCreate,
-  progressOf, effectiveDone,
+  progressOf, effectiveDone, lockedIds,
 }) => {
+  // Locked = the balance goal itself, OR anything underneath one. The goal has to be
+  // in here too: it was the one card Daniel could still hand-tick ("I just completed
+  // all of them without the actual balance moving").
+  const locked = lockedIds.has(note.id) || isBalanceGoal(note.body);
   const parent = note.parentId ? byId.get(note.parentId) : null;
   const kids = childrenOf.get(note.id) || [];
   const hasKids = kids.length > 0;
@@ -782,6 +860,18 @@ const NoteCard: React.FC<{
   return (
     <div className={`rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 transition-opacity ${done ? 'opacity-60' : ''}`}>
       <div className="flex items-start gap-2">
+        {locked ? (
+          /* Measured by the live balance, so there is deliberately NO control here to
+             click — it lights up by itself when the money is in the account. */
+          <span
+            title="Measured by your account balance — this ticks itself when the money lands."
+            className={`mt-0.5 shrink-0 w-4 h-4 rounded border flex items-center justify-center ${
+              done ? 'bg-amber-400/25 border-amber-400/60 text-amber-200' : 'border-white/20 text-white/30'
+            }`}
+          >
+            <Coins className="w-3 h-3" />
+          </span>
+        ) : (
         <button
           onClick={onToggleComplete}
           disabled={isBusy}
@@ -792,6 +882,7 @@ const NoteCard: React.FC<{
         >
           {note.completed && <Check className="w-3 h-3 text-black" />}
         </button>
+        )}
 
         <button onClick={onToggleExpand} className="flex-1 text-left min-w-0">
           <div className={`text-sm font-medium break-words ${done ? 'line-through text-white/50' : 'text-white/90'}`}>
@@ -901,6 +992,7 @@ const NoteCard: React.FC<{
                     openCreate={openCreate}
                     progressOf={progressOf}
                     effectiveDone={effectiveDone}
+                    lockedIds={lockedIds}
                   />
                 );
               })}

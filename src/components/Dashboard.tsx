@@ -24,7 +24,8 @@ import { ShareStatsModal } from './ShareStatsModal';
 import { DebugWindow } from './DebugWindow';
 import { RulesManagementModal } from './RulesManagementModal';
 import { RulesCompliancePrompt } from './RulesCompliancePrompt';
-import { ListChecks } from 'lucide-react';
+import { GameMode } from './GameMode';
+import { ListChecks, Gamepad2 } from 'lucide-react';
 import { AccountsView } from './AccountsView';
 import { TradingModeWidget } from './TradingModeWidget';
 import BudgetTab, { type BudgetState } from './BudgetTab';
@@ -32,6 +33,7 @@ import TradingModeCockpit from "./TradingModeCockpit";
 import InstantTab from './InstantTab';
 import PropTradesTab from "./PropTradesTab";
 import { PersonalTab } from './PersonalTab';
+import { PersonalAccountGoal } from './PersonalAccountGoal';
 import { GoalsTab } from './GoalsTab';
 import { LifeCalendar } from './LifeCalendar';
 
@@ -279,7 +281,7 @@ const Dashboard: React.FC = () => {
   });
   const [fabDragging, setFabDragging] = React.useState(false);
   const fabDrag = React.useRef<{
-    id: number; dx: number; dy: number; sx: number; sy: number;
+    id: number; el: HTMLDivElement; dx: number; dy: number; sx: number; sy: number;
     w: number; h: number; lx: number; ly: number; moved: boolean;
   } | null>(null);
   /** A drag ends with a click; swallow exactly that one so dragging never opens a panel. */
@@ -295,10 +297,23 @@ const Dashboard: React.FC = () => {
     const el = e.currentTarget;
     const r = el.getBoundingClientRect();
     fabDrag.current = {
-      id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top,
+      id: e.pointerId, el, dx: e.clientX - r.left, dy: e.clientY - r.top,
       sx: r.left, sy: r.top, w: r.width, h: r.height, lx: r.left, ly: r.top, moved: false,
     };
-    el.setPointerCapture(e.pointerId);
+    /*
+     * ⚠️ DELIBERATELY CAPTURES NOTHING YET — the capture happens in `onFabMove`, once a drag
+     * has actually started. Capturing here looked harmless and is not:
+     *
+     *   With the pointer captured by this container, the browser retargets the `pointerup`
+     *   to the CONTAINER, and `click` is dispatched to the nearest common ancestor of the
+     *   press and release targets — which is then the container, NOT the button inside it.
+     *   So the button's `onClick` never ran, and ALL THREE arcade buttons (Mindset, Trading
+     *   Cockpit, Game Mode) were unclickable. Dragging kept working, which is exactly why it
+     *   went unnoticed: the panel-opening half of the feature was silently dead.
+     *
+     * Verified before the fix: pointerdown@svg → CAPTURE-GOT-on-host → pointerup@DIV →
+     * click@DIV (container), and no click on the button at all.
+     */
   };
 
   const onFabMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -307,7 +322,12 @@ const Dashboard: React.FC = () => {
     const next = clampFab(e.clientX - st.dx, e.clientY - st.dy, st.w, st.h);
     // A few pixels of travel is a TAP, not a drag — otherwise every tap would nudge them.
     if (!st.moved && Math.hypot(next.x - st.sx, next.y - st.sy) < 6) return;
-    st.moved = true;
+    if (!st.moved) {
+      // First real movement: only NOW take the pointer, so the drag keeps tracking when the
+      // finger leaves the cluster. A tap never reaches here, so its click lands on the button.
+      st.moved = true;
+      try { st.el.setPointerCapture(e.pointerId); } catch { /* nothing to capture */ }
+    }
     st.lx = next.x;
     st.ly = next.y;
     setFabDragging(true);
@@ -319,7 +339,8 @@ const Dashboard: React.FC = () => {
     if (!st || st.id !== e.pointerId) return;
     fabDrag.current = null;
     setFabDragging(false);
-    if (!st.moved) return;
+    if (!st.moved) return;   // a tap: no capture was taken, and the click goes to the button
+    try { st.el.releasePointerCapture(e.pointerId); } catch { /* already released */ }
     fabJustDragged.current = true;
     window.setTimeout(() => { fabJustDragged.current = false; }, 350);
     try {
@@ -345,6 +366,35 @@ const Dashboard: React.FC = () => {
   //    Life tab's Calendar (Nov 26 2026) — see src/components/LifeCalendar.tsx.
   //    The Obsidian-pushed agenda still shows there, in its own read-only layer.
   const [showMindset, setShowMindset] = React.useState(false);
+  /** Game Mode is an overlay, not a tab — the tabs all stay exactly as they are. */
+  const [showGameMode, setShowGameMode] = React.useState(false);
+
+  /**
+   * Start a session from INSIDE game mode.
+   *
+   * Deliberately the same two paths the cockpit's own "What are you trading?" chooser
+   * takes, so there is one behaviour rather than two that drift. The prop path POSTs
+   * `enter_cockpit` first — wrapped in try/catch, because an undeployed function must not
+   * leave him clicking a button that does nothing — then closes game mode and opens the
+   * cockpit, which is its own fixed overlay.
+   */
+  const startSessionFromGame = React.useCallback(async (propMode: boolean) => {
+    if (propMode) {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      try {
+        const u = JSON.parse(localStorage.getItem('user') || '{}');
+        if (u?.id) { headers['X-User-Id'] = String(u.id); headers['X-User-Email'] = String(u.email); }
+      } catch { /* not signed in */ }
+      try {
+        await fetch('/.netlify/functions/trading-mode', {
+          method: 'POST', headers, body: JSON.stringify({ action: 'enter_cockpit' }),
+        });
+      } catch { /* open the cockpit regardless */ }
+    }
+    setCockpitPropMode(propMode);
+    setCockpitActive(true);
+    setShowGameMode(false);
+  }, []);
   const [moodMsg, setMoodMsg] = React.useState<string>('');
   const moodAudioRef = React.useRef<HTMLAudioElement | null>(null);
 
@@ -1345,6 +1395,36 @@ const Dashboard: React.FC = () => {
               <span className="h-1 w-1 rounded-full bg-white/45" />
               <span className="h-1 w-1 rounded-full bg-white/45" />
             </div>
+
+            {/* GAME MODE — the arcade button, deliberately the loudest thing on the page.
+                A conic "metallic rainbow" face, a thick 3D edge and a slow pulse, reusing the
+                exact perspective/rotateX and `0 4px 0` edge that Mindset and Cockpit already use
+                so it reads as part of the same cabinet rather than a new style.
+                The hue-rotate is what makes it feel alive — and it costs one CSS line. */}
+            <style>{`
+@keyframes pfArcadeGlow {
+  0%, 100% { box-shadow: 0 4px 0 #78350f, 0 6px 22px rgba(251,191,36,0.45), inset 0 -2px 4px rgba(0,0,0,0.28), inset 0 2px 4px rgba(255,255,255,0.3); }
+  50%      { box-shadow: 0 4px 0 #78350f, 0 6px 34px rgba(251,191,36,0.95), 0 0 44px rgba(251,191,36,0.55), inset 0 -2px 4px rgba(0,0,0,0.28), inset 0 2px 4px rgba(255,255,255,0.3); }
+}
+@keyframes pfArcadeSpin { 0% { filter: hue-rotate(0deg); } 100% { filter: hue-rotate(360deg); } }
+.pf-arcade { animation: pfArcadeSpin 9s linear infinite, pfArcadeGlow 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .pf-arcade { animation: none !important; } }
+`}</style>
+            <button
+              onClick={() => { if (fabJustDragged.current) return; setShowGameMode(true); }}
+              className="pf-arcade relative flex h-16 w-16 select-none items-center justify-center transition-transform duration-200 hover:scale-110 active:scale-95 sm:h-20 sm:w-20"
+              title="Game Mode"
+              style={{
+                background: 'conic-gradient(from 210deg, #fde68a 0%, #f59e0b 18%, #ef4444 34%, #a855f7 52%, #3b82f6 68%, #22d3ee 84%, #fde68a 100%)',
+                borderRadius: '50%',
+                boxShadow: '0 4px 0 #78350f, 0 6px 22px rgba(251,191,36,0.45), inset 0 -2px 4px rgba(0,0,0,0.28), inset 0 2px 4px rgba(255,255,255,0.3)',
+                transform: 'perspective(300px) rotateX(15deg)',
+                border: '4px solid #78350f',
+              }}
+            >
+              <div className="pointer-events-none absolute inset-0 rounded-full" style={{ background: 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 58%)' }} />
+              <Gamepad2 className="relative h-7 w-7 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" />
+            </button>
             <div className="lg:hidden"><button onClick={() => { if (fabJustDragged.current) return; setShowMindset(true); }}
               className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center select-none active:scale-95 transition-all duration-200 hover:scale-105 lg:hidden"
               style={{
@@ -1414,6 +1494,13 @@ const Dashboard: React.FC = () => {
         )}
 
         {/* Cockpit mode selector */}
+        {showGameMode && (
+          <GameMode
+            onExit={() => setShowGameMode(false)}
+            onStartSession={startSessionFromGame}
+          />
+        )}
+
         {showCockpitMode && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm">
             <div className="bg-[#020408] border border-white/15 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl text-center">
@@ -1457,7 +1544,14 @@ const Dashboard: React.FC = () => {
             </>
           )}
           {view === 'personal' && (
-            <PersonalTab />
+            <>
+              {/* The account goal + coin tower sit ABOVE Personal Trades, because that is
+                  where the balance they measure comes from. Mounted from here rather than
+                  from inside PersonalTab so we do not have to stage that file — it holds
+                  another agent's uncommitted refactor. */}
+              <PersonalAccountGoal />
+              <PersonalTab />
+            </>
           )}
           {view === 'goals' && (
             <GoalsTab />

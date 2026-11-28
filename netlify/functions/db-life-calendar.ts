@@ -26,6 +26,8 @@ import { and, asc, eq, gte, lte, sql } from 'drizzle-orm'
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const TIME_RE = /^\d{1,2}:\d{2}$/
 const KINDS = ['event', 'todo'] as const
+/** Todo horizons. NULL is legal and means "unfiled" — see the 69 migration. */
+const BUCKETS = ['soon', 'mid', 'long'] as const
 
 const shape = (r: any) => ({
   id: r.id,
@@ -36,6 +38,8 @@ const shape = (r: any) => ({
   startTime: r.startTime,
   endTime: r.endTime,
   category: r.category,
+  bucket: r.bucket ?? null,
+  color: r.color ?? null,
   done: !!r.done,
   createdAt: r.createdAt,
   updatedAt: r.updatedAt,
@@ -111,6 +115,14 @@ export const handler: Handler = async (event) => {
       if (startTime === undefined) return json(400, { error: 'startTime must be HH:MM' }, headers)
       if (endTime === undefined) return json(400, { error: 'endTime must be HH:MM' }, headers)
 
+      // Todos carry a horizon ('soon' | 'mid' | 'long'); events carry a palette
+      // colour. Both are optional — NULL is legal and just means "not filed yet".
+      const bucket = 'bucket' in body && body.bucket ? String(body.bucket) : null
+      if (bucket && !BUCKETS.includes(bucket as any)) {
+        return json(400, { error: "bucket must be 'soon', 'mid' or 'long'" }, headers)
+      }
+      const color = !isTodo && body.color ? String(body.color).slice(0, 24) : null
+
       const [row] = await db.insert(lifeCalendarItems).values({
         userId: user.id,
         kind,
@@ -120,6 +132,8 @@ export const handler: Handler = async (event) => {
         startTime,
         endTime,
         category: body.category ? String(body.category).slice(0, 40) : null,
+        bucket: isTodo ? bucket : null,
+        color,
         done: false,
       }).returning()
       return json(200, { item: shape(row) }, headers)
@@ -162,6 +176,14 @@ export const handler: Handler = async (event) => {
       }
       if ('notes' in body) patch.notes = body.notes ? String(body.notes).slice(0, 2000) : null
       if ('category' in body) patch.category = body.category ? String(body.category).slice(0, 40) : null
+      if ('bucket' in body) {
+        const b = body.bucket ? String(body.bucket) : null
+        if (b && !BUCKETS.includes(b as any)) {
+          return json(400, { error: "bucket must be 'soon', 'mid' or 'long'" }, headers)
+        }
+        patch.bucket = b
+      }
+      if ('color' in body) patch.color = body.color ? String(body.color).slice(0, 24) : null
       if ('date' in body) {
         if (!DATE_RE.test(String(body.date))) return json(400, { error: 'date must be YYYY-MM-DD' }, headers)
         patch.date = String(body.date)

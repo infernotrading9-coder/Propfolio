@@ -5,6 +5,18 @@ import { agendaOverrides, dailyAgenda } from '../../server/db/schema'
 import { and, eq, gte, lte, or } from 'drizzle-orm'
 
 /**
+ * Today's calendar date in the trader's own timezone — DST-correct.
+ *
+ * These functions run on a UTC box, so `new Date().toISOString().slice(0,10)` is
+ * only right until ~19:00/20:00 ET, after which it quietly returns TOMORROW and the
+ * calendar opens on the wrong day. `en-CA` formats as YYYY-MM-DD, and Intl applies
+ * the America/New_York offset for the actual date, so EDT/EST is handled for us.
+ */
+function etToday(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())
+}
+
+/**
  * Daily agenda — the day-by-day schedule Whispersonalbot pushes from Obsidian.
  *
  * GET  ?date=YYYY-MM-DD                     → { date, entries, overrides, updatedAt }
@@ -103,7 +115,11 @@ export const handler: Handler = async (event) => {
         }, headers)
       }
 
-      const date = q.date || new Date().toISOString().slice(0, 10)
+      // ⚠️ NOT `new Date().toISOString().slice(0,10)` — that converts to UTC first,
+      // and these functions run on a UTC box, so after ~7pm ET "today" silently
+      // becomes TOMORROW's date on the calendar. Format in the trader's own zone
+      // instead; Intl handles the DST switch for us, so it stays right in summer.
+      const date = q.date || etToday()
       if (badDate(date)) return json(400, { error: 'date must be YYYY-MM-DD' }, headers)
       const [row] = await db.select().from(dailyAgenda)
         .where(and(eq(dailyAgenda.userId, user.id), eq(dailyAgenda.date, date))).limit(1)
