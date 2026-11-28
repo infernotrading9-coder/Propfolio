@@ -1,16 +1,36 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Coins, Volume2, VolumeX } from 'lucide-react';
 
 /**
- * The Coin Tower — the personal account's climb to its target, as coins you can count.
+ * The Coin Tower — the climb to the target, as ONE column of coins that compacts into titanium.
  *
- * EXTRACTED FROM GoalsTab when the account goal moved to Trading → Personal. It belongs
- * with the account, not with life goals: the tab it now lives on already owns the balance,
- * the daily P&L and the equity curve, which is exactly its data source.
+ * ═══ ONE TOWER, TITANIUM INGOTS (Nov 28 2026) ═══
+ * Daniel: *"we just have one tower right no nothing side to side anymore … simple goal is 10 coins
+ * and then when i hit 10 coins some cool animation comes out and the coin turns bigger and changes
+ * color maybe purple titanium … and then the other gold coins start to stack on top of those so
+ * every metallic wide coin is a thousand … same thing for when i go under it removes the big coin
+ * and gives me back smaller coins."*
  *
- * One coin is ALWAYS $100 and the count is real — a target of $50,000 is 500 coins, stacked
- * `COINS_PER_STACK` high. If the target is raised the tower recounts itself; nothing here
- * needs editing, which is why the target is the only thing the UI lets you change.
+ * So the stack, read from the ground up, is:
+ *
+ *     [ ingot · ingot · ingot … ] [ gold · gold · gold … ] [ empty sockets ]
+ *       $1,000 each, oldest first    the milestone running      what is left of it
+ *
+ * Ten gold coins ($100 each, on both sides) forge into ONE wide purple-titanium ingot worth
+ * $1,000, and the next coin starts a fresh ten on top of it. Dropping back below a milestone
+ * splits the ingot into its ten coins again.
+ *
+ * WHY ONE COMPACTING COLUMN BEATS A SKYLINE OF TOWERS: a milestone should leave a mark you can
+ * see, not another identical column. Read from the bottom, this is the history of the account in
+ * $1,000 units, and the ten-slot frame above it is the only thing you are actually working on.
+ *
+ * ⚠️ TWO THINGS HERE ARE LOAD-BEARING, AND BOTH ARE BUG FIXES:
+ *  1. NOTHING in the measured box may be sized FROM the measurement. `fill` sizes the coins to the
+ *     box; if the hero coin (or the shaft, or the frame) changed height when the coins changed
+ *     size, the observer would see its own output and oscillate forever ("shakes violently and
+ *     looks blurry").
+ *  2. A tap must never reach `setPointerCapture` (see Dashboard's arcade FABs). N/A here — no
+ *     pointer handling in this component — but never add any without reading that comment.
  */
 
 /** Money formatter. GoalsTab has its own one-liner; duplicating it beats coupling two
@@ -18,38 +38,88 @@ import { Coins, Volume2, VolumeX } from 'lucide-react';
 const fmtMoney = (n: number): string =>
   '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 
+/** ── the shape of the stack ────────────────────────────────────────────────────
+ *  All in units of ONE GOLD COIN HEIGHT, so the geometry below is a single scale factor. */
+/** How tall a titanium ingot stands, in coin heights. Taller than one coin but far shorter than
+ *  the ten it replaces — that compaction is the whole point of a milestone. */
+const INGOT_H = 1.9;
+/** An ingot is this many times WIDER than a gold coin. Daniel called it a "wide coin"; this is
+ *  what makes it read as a forged ingot rather than just a bigger dot. */
+const INGOT_W_F = 2.9;
 /**
- * Keyframes for the coin animation. Injected inline once, because Tailwind's config
- * here has no custom-keyframes plugin and this keeps the whole feature in one file.
- * `prefers-reduced-motion` switches them all off rather than animating someone who
- * asked the OS not to.
+ * The widest a gold coin may get (width ÷ height).
+ *
+ * ⚠️ THIS IS THE ONE KNOB THAT CONTROLS HOW BIG THE TOWER FEELS, and it was wrong first time out.
+ * The height solve alone fixes the coin's HEIGHT, and every coin height that fits the box came out
+ * as a narrow sliver on a phone — Daniel, on his iPad: *"Make them way wider both the gold and
+ * bigger ones on mobile at least ... they are really small."* A single column has no towers beside
+ * it to take up the width, so the width has to be spent HERE. At 1.6 the coins were discs and the
+ * tower was a 190px stick on an iPad; at 2.4 the same column is ~320px of solid metal.
+ *
+ * (Daniel's own earlier note — "2:1 is where a coin starts looking like a bar" — is why this is
+ * 2.4 and not 4: the point is a chunky coin, not a fence plank.)
  */
+const GOLD_ASPECT = 2.4;
+/** A card tower may take this much of the viewport height before it stops growing. */
+const CARD_MAX_VH = 0.45;
+/** Gap between stacked pieces, as a fraction of a coin height. */
+const GAP_F = 0.15;
+/**
+ * Card mode (the Personal tab's panel) has no height to fill, so this is its CEILING — the actual
+ * coin is the smaller of this, what the width allows, and a cut of the viewport (see `geo`).
+ */
+const CARD_COIN_PX = 44;
 
 const COIN_STYLE = `
-@keyframes pfCoinPop {
-  0%   { transform: scale(0.35) translateY(7px); opacity: 0; }
-  60%  { transform: scale(1.22) translateY(-3px); opacity: 1; }
-  100% { transform: scale(1) translateY(0); opacity: 1; }
-}
-@keyframes pfCoinGlow {
-  0%   { box-shadow: 0 0 0 0 rgba(251,191,36,0.60); }
-  100% { box-shadow: 0 0 0 12px rgba(251,191,36,0); }
-}
-/* A coin dropping into its slot and settling — gravity reads as "landed" far better
-   than a scale-up, which is what makes it feel like a game instead of a bar chart. */
+/* A coin dropping into its slot and settling. Short and snappy — "sharp and modern" means a fast
+   ease-out with a small overshoot, not a bounce that draws attention to itself. */
 @keyframes pfCoinDrop {
-  0%   { transform: translateY(-16px) scale(0.72); opacity: 0; }
-  55%  { transform: translateY(2px) scale(1.08); opacity: 1; }
-  75%  { transform: translateY(-1px) scale(0.99); }
+  0%   { transform: translateY(-14px) scale(0.7); opacity: 0; }
+  58%  { transform: translateY(1.5px) scale(1.06); opacity: 1; }
   100% { transform: translateY(0) scale(1); opacity: 1; }
 }
 /* Light catching the metal as it lands. */
 @keyframes pfCoinShine {
   0%   { filter: brightness(1); }
-  28%  { filter: brightness(2.1) saturate(1.25); }
+  26%  { filter: brightness(2.1) saturate(1.25); }
   100% { filter: brightness(1); }
 }
-/* A gold wash over the whole screen at a $1,000 crossing — the "level up" flash. */
+/* THE FORGE. Ten coins slamming together into one ingot: it arrives small and blown-out, then
+   overshoots and settles as the brightness comes back down to metal. */
+@keyframes pfIngotForge {
+  0%   { opacity: 0; transform: translateY(-6px) scaleX(0.5) scaleY(0.3); filter: brightness(3.2) saturate(0.35); }
+  48%  { opacity: 1; transform: translateY(1px) scaleX(1.05) scaleY(1.1);  filter: brightness(2) saturate(1.35); }
+  100% { opacity: 1; transform: none; filter: brightness(1) saturate(1); }
+}
+/* The specular band sweeping across a freshly forged ingot. One cheap highlight, no glow soup. */
+@keyframes pfIngotShine {
+  0%   { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
+  22%  { opacity: 0.9; }
+  100% { transform: translateX(130%) skewX(-18deg); opacity: 0; }
+}
+/* One outward ring when a milestone is forged. */
+@keyframes pfIngotPulse {
+  0%   { opacity: 0.9; transform: scale(0.9); }
+  100% { opacity: 0; transform: scale(1.3); }
+}
+/* The ten coins falling INTO the new ingot, so the merge has a direction. */
+@keyframes pfMergeIn {
+  0%   { opacity: 0.95; transform: translateY(-54px) scale(1); }
+  70%  { opacity: 0.8; }
+  100% { opacity: 0; transform: translateY(-4px) scale(0.35); }
+}
+/* THE SPLIT. Gone under a milestone: the coin is handed back upward, out of the ingot. */
+@keyframes pfCoinRise {
+  0%   { opacity: 0; transform: translateY(16px) scale(0.42); }
+  58%  { opacity: 1; transform: translateY(-2px) scale(1.07); }
+  100% { opacity: 1; transform: none; }
+}
+/* The slot that is NEXT, breathing so the eye lands on the thing to earn. */
+@keyframes pfNextPulse {
+  0%, 100% { opacity: 0.30; }
+  50%      { opacity: 0.95; }
+}
+/* A wash over the whole screen at a milestone. */
 @keyframes pfVignette {
   0%   { opacity: 0; }
   16%  { opacity: 1; }
@@ -69,56 +139,38 @@ const COIN_STYLE = `
   0%   { transform: translate(-50%, -50%) translate(0, 0) scale(0.5); opacity: 1; }
   100% { transform: translate(-50%, -50%) translate(var(--dx), var(--dy)) scale(0.9); opacity: 0; }
 }
-@keyframes pfPlusFloat {
-  0%   { transform: translate(-50%, 2px); opacity: 0; }
-  25%  { opacity: 1; }
-  100% { transform: translate(-50%, -26px); opacity: 0; }
+/* Anodised titanium: a slow iridescent drift across the metal. */
+@keyframes pfIrid {
+  0%   { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
 }
 @media (prefers-reduced-motion: reduce) {
   .pf-anim { animation: none !important; }
 }
 `;
 
-/**
- * A balance-tracked goal rendered as a game rather than a percentage.
- *
- * Three things stacked, largest to smallest:
- *   1. the $1,000 rail    — 50 segments, the whole climb at a glance;
- *   2. the coin row       — ONLY the $1,000 he is currently inside, as ten $100 coins;
- *   3. the milestones     — markers that light up by themselves when crossed.
- *
- * Everything is derived from ONE number, which is the point: a computed ladder cannot
- * read $1,250 before $500, needs no 500 rows of notes to stay in step with the
- * account, and cannot be hand-ticked (see `lockedIds`). A losing day lowers the
- * balance and the coins un-fill — which is the intent, since "a bad day adds more $100
- * deposits" is just the arithmetic of a balance that went down.
- *
- * The coin row deliberately shows a WINDOW. All 500 slots at a $17 balance is 483 empty
- * holes and reads as failure; ten slots with three filled reads as nearly there. That
- * is the difference between a progress bar and a reason to deposit another $100.
- */
-/**
- * How many $100 coins stand in one stack. 500 coins / 20 = **25 stacks**, which is the
- * arithmetic Daniel did out loud: "500 divided by 20, which is 25 stacks to the right."
- */
-const COINS_PER_STACK = 20;
+/** One gold coin — the real metal. */
+const GOLD_FILL = 'radial-gradient(circle at 34% 26%, #fffbeb 0%, #fcd34d 42%, #d97706 100%)';
+const GOLD_SHADOW =
+  '0 0 6px -1px rgba(251,191,36,0.9), '
+  + 'inset 0 0 0 1px rgba(146,64,14,0.55), '
+  + 'inset 0 1px 0 rgba(255,255,255,0.65)';
 
-/**
- * A level-up every NOTCH units — the same $1,000 step GoalsTab's money goals used.
- * It is only a DEFAULT now: the prop tower counts percent of ROI, where a $1,000
- * step would never fire, so it passes its own notch instead.
- */
+/** One $1,000 ingot — anodised purple titanium. The conic layer over the radial is what sells it:
+ *  real titanium is one grey-purple metal that throws a spectrum, not a flat violet blob. */
+const INGOT_FILL = 'radial-gradient(ellipse at 32% 22%, #f5d0fe 0%, #c084fc 34%, #7c3aed 68%, #3b0764 100%)';
+const INGOT_IRID =
+  'conic-gradient(from 210deg, #a78bfa 0%, #22d3ee 18%, #f0abfc 36%, #facc15 52%, #a78bfa 74%, #c084fc 100%)';
+const INGOT_SHADOW =
+  '0 0 18px -2px rgba(168,85,247,0.65), '
+  + 'inset 0 0 0 1px rgba(233,213,255,0.55), '
+  + 'inset 0 3px 0 rgba(255,255,255,0.32), '
+  + 'inset 0 -4px 8px rgba(46,16,101,0.75)';
+
+/** One rail segment per $1,000 — the same notch GoalsTab's money goals used. */
 const NOTCH = 1000;
 
-/**
- * Counts up to `value` whenever it changes — a ~0.65s ease-out odometer.
- *
- * The cheapest game-feel there is: a total that ticks upward makes a deposit read as a
- * SCORE, where an instant swap just looks like a re-render.
- *
- * Honours `prefers-reduced-motion` by jumping straight to the value — someone who asked
- * their OS to stop motion does not want their money rolling either.
- */
+/** Counts up to `value` whenever it changes — a ~0.65s ease-out odometer. */
 const useCountUp = (value: number | null): number => {
   const [shown, setShown] = useState(value ?? 0);
   const from = useRef(value ?? 0);
@@ -148,32 +200,15 @@ const useCountUp = (value: number | null): number => {
   return shown;
 };
 
-/**
- * The coin tower — the balance-tracked climb as coins you can actually count.
- *
- * Its own section rather than a strip inside the goal card (Daniel: "I don't want it
- * inside the same card … a separate section … and I want the coins stacked on top of
- * each other"). One coin is ALWAYS $100 and the unit is not negotiable — at a $50,000
- * target that is 500 coins, stacked 20 high and 25 across, filling bottom-to-top and
- * then left-to-right.
- *
- * That is a lot of DOM — 500 nodes — but they are trivial divs, and seeing the true
- * count IS the point. An earlier version showed a ten-coin "window" of the current
- * $1,000; that hid how much was left, which is the number he actually wants to watch
- * shrink coin by coin.
- */
 const SOUND_KEY = 'pf-coin-sound';
 
 /**
  * A tiny synthesized "clink" — no audio file, no library, ~30 lines.
  *
  * WHY WEB AUDIO AND NOT AN <audio> ELEMENT: iOS refuses to start playback without a user
- * gesture, and Daniel has already been bitten by `setTimeout`-scheduled audio being
- * unreliable there. Web Audio sidesteps both — the context is created/resumed inside a real
- * tap, and everything after that is scheduled on the AUDIO clock, not the JS timer queue,
- * so it cannot drift or get dropped by a backgrounded tab.
- *
- * The context is shared and created lazily, because iOS also caps how many you may have.
+ * gesture, and Daniel has already been bitten by `setTimeout`-scheduled audio being unreliable
+ * there. Web Audio sidesteps both — the context is created/resumed inside a real tap, and
+ * everything after that is scheduled on the AUDIO clock, not the JS timer queue.
  */
 let audioCtx: AudioContext | null = null;
 
@@ -191,17 +226,18 @@ const getAudio = (): AudioContext | null => {
 };
 
 /**
- * `coin` = a bright two-note ding for one deposit.
- * `level` = a four-note rise for a $1,000 / $5,000 crossing.
- * A pure triangle wave with an exponential decay envelope — the fast attack and short tail
- * are what make it read as metal rather than a beep.
+ * Three figures, and the FORGE one is deliberately the brightest: a milestone should be
+ * recognisable with your eyes closed.
  */
-const playChime = (kind: 'coin' | 'level') => {
+const playChime = (kind: 'coin' | 'ingot' | 'split') => {
   const ctx = getAudio();
   if (!ctx) return;
-  const notes = kind === 'coin' ? [1568, 2093] : [1047, 1319, 1568, 2093];
-  const step = kind === 'coin' ? 0 : 0.075;
-  const tail = kind === 'coin' ? 0.22 : 0.45;
+  const notes = kind === 'coin' ? [1568, 2093]
+    : kind === 'ingot' ? [784, 1047, 1319, 1568, 2093]
+    : [1319, 988, 784];
+  const step = kind === 'coin' ? 0 : kind === 'split' ? 0.1 : 0.055;
+  const tail = kind === 'coin' ? 0.22 : 0.5;
+  const peakBase = kind === 'coin' ? 0.13 : 0.15;
   notes.forEach((freq, i) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -209,7 +245,7 @@ const playChime = (kind: 'coin' | 'level') => {
     osc.frequency.value = freq;
     const start = ctx.currentTime + i * step;
     const end = start + tail;
-    const peak = (kind === 'coin' ? 0.13 : 0.15) / (1 + i * 0.4);
+    const peak = peakBase / (1 + i * 0.35);
     gain.gain.setValueAtTime(0.0001, start);
     gain.gain.exponentialRampToValueAtTime(peak, start + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, end);
@@ -219,74 +255,198 @@ const playChime = (kind: 'coin' | 'level') => {
   });
 };
 
+/** One piece of the stack, resolved. */
+interface Piece {
+  /** 'ingot' = a forged $1,000, 'gold' = a filled coin, 'empty' = a slot still to earn. */
+  kind: 'ingot' | 'gold' | 'empty';
+  /** The coin index range this piece stands for, so the record rule can be placed on it. */
+  from: number;
+  to: number;
+  /** Height in coin heights — the single number the whole layout is a multiple of. */
+  units: number;
+}
+
 export const CoinTower: React.FC<{
+  /** The goal value. Coins = target / unit, ingots = coins / coinsPerTower. */
   target: number;
   unit: number;
   balance: number | null;
-  /**
-   * The all-time high — drawn as a permanent gold rule where the best fill ever
-   * reached, so a losing day cannot erase the evidence that he got there.
-   *
-   * Only drawn when it sits strictly ABOVE the current fill; level with the fill
-   * it would just double the top edge of the coins. Null = no record yet.
-   */
+  /** The all-time high, marked on whichever piece holds it. Null = no record yet. */
   peak?: number | null;
-  /**
-   * How to print one slot's value. Defaults to money, because the personal tower
-   * counts dollars — but the prop tower counts PERCENT of ROI, where a "$10"
-   * label would simply be false. Every user-facing number goes through this.
-   */
+  /** How to print one coin's value. */
   formatValue?: (n: number) => string;
-  /**
-   * How tall one coin is, in px. The default suits a tower sitting inside a card; Game Mode
-   * passes `fill` instead and lets the coin size be derived from the page.
-   */
+  /** How to print a whole milestone — the ingot's label. */
+  formatMilestone?: (n: number) => string;
   coinPx?: number;
-  /**
-   * How many coins stand in one stack. 20 is the personal tower's arithmetic (500 coins →
-   * 25 stacks). A tower with FEW coins needs fewer per stack or it ends up as a handful of
-   * absurdly wide slabs: the prop tower's 100 coins read as coins at 10 across, not at 5.
-   */
-  coinsPerStack?: number;
-  /**
-   * Size the coins to the PAGE instead of to a fixed 8px — the full-screen Game Mode tower.
-   *
-   * Measuring instead of guessing matters here: a coin has to stay roughly coin-shaped, so the
-   * size is the smaller of what the available WIDTH allows (25 columns is a narrow column) and
-   * what the available HEIGHT allows. Deriving from the viewport height alone would blow the
-   * 10-column prop tower out to three times its natural width.
-   */
+  coinsPerTower?: number;
+  /** Size everything to the page instead of to a fixed coin size (Game Mode). */
   fill?: boolean;
-  /** A level-up every `notch` units. 1,000 for dollars, 10 for ROI percent. */
+  /** A milestone's worth of value, for the level-up award. */
   notch?: number;
-  /** The larger award tier. 5,000 for dollars, 50 for ROI percent. */
   bigNotch?: number;
   /** DEV ONLY. Passing it renders the ± buttons; production never passes it. */
   onNudge?: (delta: number) => void;
 }> = ({
-  target, unit, balance, peak = null, formatValue,
-  coinPx = 8, coinsPerStack = COINS_PER_STACK, fill = false,
+  target, unit, balance, peak = null, formatValue, formatMilestone,
+  coinPx = CARD_COIN_PX, coinsPerTower = 10, fill = false,
   notch = NOTCH, bigNotch = 5000, onNudge,
 }) => {
   const fmt = formatValue ?? fmtMoney;
+  const fmtMile = formatMilestone ?? fmtMoney;
   const have = balance ?? 0;
-  const unitsTotal = Math.max(1, Math.ceil(target / unit));
-  const filled = balance == null ? 0 : Math.max(0, Math.min(unitsTotal, Math.floor(have / unit)));
-  /** Never fewer than 4 rows, or a tiny target would render as one fat coin. */
-  const ROWS = Math.max(4, Math.round(coinsPerStack));
-  const stackCount = Math.max(1, Math.ceil(unitsTotal / ROWS));
+
+  // ── the numbers ───────────────────────────────────────────────────────────
+  const PER = Math.max(2, Math.round(coinsPerTower));          // coins per ingot — 10
+  const unitsTotal = Math.max(1, Math.ceil(target / unit));    // the whole climb, in coins
+  const filled = balance == null
+    ? 0
+    : Math.max(0, Math.min(unitsTotal, Math.floor(have / unit)));
+  const ingotsDone = Math.floor(filled / PER);
+  const ingotsTotal = Math.max(1, Math.ceil(unitsTotal / PER));
+  /** The slot the current milestone starts at, and how many slots it has (usually 10). */
+  const mileStart = ingotsDone * PER;
+  const frameSlots = Math.max(0, Math.min(PER, unitsTotal - mileStart));
+  const goldInFrame = Math.max(0, filled - mileStart);
 
   /**
-   * Which coins just landed — held in STATE, not derived from a ref.
+   * THE STACK, ground up: the ingots he has forged, then the milestone in progress (its filled
+   * coins, then its empty sockets). Nothing is drawn that is not either banked or earnable.
+   */
+  const pieces: Piece[] = React.useMemo(() => {
+    const out: Piece[] = [];
+    for (let i = 0; i < ingotsDone; i++) {
+      out.push({ kind: 'ingot', from: i * PER, to: Math.min(i * PER + PER - 1, unitsTotal - 1), units: INGOT_H });
+    }
+    for (let k = 0; k < frameSlots; k++) {
+      const idx = mileStart + k;
+      out.push({
+        kind: k < goldInFrame ? 'gold' : 'empty',
+        from: idx, to: idx, units: 1,
+      });
+    }
+    return out;
+  }, [ingotsDone, frameSlots, goldInFrame, mileStart, PER, unitsTotal]);
+
+  /** Everything above the ground, in coin heights. */
+  const totalUnits = pieces.reduce((a, p) => a + p.units, 0) || 1;
+
+  // ── geometry ──────────────────────────────────────────────────────────────
+  const guardRef = useRef<HTMLDivElement | null>(null);
+  const [box, setBox] = useState({ w: 0, h: 0, vh: 0 });
+
+  useEffect(() => {
+    // Measured in BOTH modes: fill needs the height, card mode needs the width to cap the coins.
+    // ⚠️ Only publish a CHANGE. A fresh object with identical numbers still re-renders React, and
+    // a re-render triggered by the very observer that is watching the element is how a resize loop
+    // starts. Bailing out on equal values closes that door permanently.
+    const measure = () => {
+      const w = guardRef.current?.clientWidth ?? 0;
+      const h = guardRef.current?.clientHeight ?? 0;
+      const vh = typeof window !== 'undefined' ? window.innerHeight : 0;
+      setBox((prev) => (prev.w === w && prev.h === h && prev.vh === vh ? prev : { w, h, vh }));
+    };
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    if (ro && guardRef.current) ro.observe(guardRef.current);
+    window.addEventListener('resize', measure);
+    window.addEventListener('orientationchange', measure);
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('orientationchange', measure);
+    };
+  }, [fill]);
+
+  /**
+   * THE ONE SCALE FACTOR. Solve the coin height so the WHOLE stack fits the box exactly — gaps
+   * included, because guessing the gap (as an earlier version did) is how a tall tower spilled out
+   * of the box it was measured against.
    *
-   * ⚠️ A per-render ref diff does NOT work here, and it is a subtle one. The count-up
-   * re-renders every frame, so on the very next frame the diff reports "no new coins",
-   * `isFresh` goes false, React pulls the inline `animation` style off the coin, and the
-   * drop is CANCELLED about 16ms in — looking like no animation at all. State keeps the
-   * flag set for the life of the animation and then clears it.
+   *    total height = totalUnits·h + (count − 1)·GAP_F·h
+   *
+   * Then cap it by the width: the column is `INGOT_W_F` gold-coins wide, so at a coin aspect of
+   * GOLD_ASPECT the widest it may stand is `INGOT_W_F · GOLD_ASPECT · h`.
+   */
+  const geo = React.useMemo(() => {
+    const count = pieces.length;
+    const gaps = Math.max(0, count - 1);
+    const availW = (box.w || 0) - 8;                 // a little breathing room off the edges
+    const widthCap = availW > 0 ? availW / (INGOT_W_F * GOLD_ASPECT) : Infinity;
+    /** The gap the layout will actually use, for a coin height of `h`. */
+    const gapOf = (h: number) => Math.max(0, Math.floor(GAP_F * h));
+    if (!fill) {
+      /*
+       * CARD MODE has no height to fill — the card grows with its content — so the coin is sized
+       * from the WIDTH (up to `coinPx`), then limited to a fraction of the viewport so the widget
+       * cannot swallow the tab it sits on. A fixed 24px coin made the whole tower a ~100px sliver
+       * on a phone, which is exactly the complaint above.
+       */
+      const vh = box.vh || (typeof window !== 'undefined' ? window.innerHeight : 900);
+      const byViewport = (vh * CARD_MAX_VH) / Math.max(1, totalUnits + GAP_F * gaps);
+      const h = Math.max(16, Math.min(coinPx || CARD_COIN_PX, widthCap, byViewport));
+      return { h, gap: gapOf(h) };
+    }
+    const availH = box.h
+      || (typeof window !== 'undefined' ? window.innerHeight * 0.55 : 460);
+    /*
+     * TWO STEPS, because the gap is an INTEGER and the height is not. A gap-inclusive estimate
+     * assumes a fractional gap; once the gap is floored, its remainder is height that would simply
+     * go unused (at 50 ingots that was ~34px — 8% of the box). So: estimate, floor the gap, then
+     * re-solve for the height THAT gap leaves. The result fills the box exactly, and because the
+     * floored gap is never bigger than the fractional one it can only ever come in under budget.
+     */
+    const h0 = availH / (totalUnits + GAP_F * gaps);
+    const gap = gapOf(Math.min(h0, widthCap));
+    let h = Math.min((availH - gap * gaps) / totalUnits, widthCap);
+    h = Math.max(2, Math.floor(h * 100) / 100);
+    return { h, gap };
+  }, [fill, box.w, box.h, pieces.length, totalUnits, coinPx]);
+
+  const H = geo.h;                                   // one gold coin's height
+  /** Both come straight out of the solve — never re-derived here, or the two disagree. */
+  const GAP = geo.gap;
+  const COL_W = Math.max(6, Math.round(INGOT_W_F * GOLD_ASPECT * H));   // the column's width
+  const GOLD_W = Math.floor((COL_W / INGOT_W_F) * 10) / 10;
+  const STACK_H = Math.floor(totalUnits * H + (pieces.length - 1) * GAP);
+
+  // ── animation triggers, held in STATE ─────────────────────────────────────
+  /**
+   * ⚠️ HELD IN STATE, NOT DERIVED FROM A REF. A per-render ref diff does not work here and it is
+   * subtle: the count-up re-renders every frame, so on the very next frame the diff reports "no
+   * change", React pulls the inline `animation` style off the element, and the animation is
+   * CANCELLED about 16ms in — looking like no animation at all. State keeps the flag set for the
+   * life of the animation and then clears it.
    */
   const [freshRange, setFreshRange] = useState<{ from: number; count: number } | null>(null);
+  /** The ingot index just forged, and whether an ingot was just SPLIT (he went back under). */
+  const [justForged, setJustForged] = useState<number | null>(null);
+  const [splitAt, setSplitAt] = useState<number | null>(null);
   const prevFilled = useRef<number | null>(null);
+  const prevIngots = useRef<number | null>(null);
+
+  const shown = useCountUp(balance);
+
+  useEffect(() => {
+    if (balance == null) return;
+    const prevIng = prevIngots.current;
+    prevIngots.current = ingotsDone;
+    if (prevIng == null || ingotsDone === prevIng) return;   // first paint is not an arrival
+    if (ingotsDone > prevIng) {
+      setJustForged(ingotsDone - 1);
+      const t = window.setTimeout(() => setJustForged(null), 1500);
+      return () => window.clearTimeout(t);
+    }
+    /*
+     * Going UNDER a milestone: the ingot breaks back into its ten coins.
+     * ⚠️ A bare flag, not an index. The restored coins live in the NEW frame (`mileStart` is the
+     * first of them), and an earlier version stored `mileStart + goldHeld` — the index AFTER the
+     * last one — so no coin ever matched and the split played as a silent vanish.
+     */
+    setSplitAt(Date.now());
+    const t = window.setTimeout(() => setSplitAt(null), 1200);
+    return () => window.clearTimeout(t);
+  }, [balance, ingotsDone, PER]);
+
   useEffect(() => {
     if (balance == null) return;
     const prev = prevFilled.current;
@@ -294,24 +454,31 @@ export const CoinTower: React.FC<{
     if (prev == null || filled <= prev) return;
     const count = filled - prev;
     setFreshRange({ from: filled - count, count });
-    // Long enough for the last coin's staggered drop plus its shine to finish.
-    const t = window.setTimeout(() => setFreshRange(null), 1000 + count * 30);
+    const t = window.setTimeout(() => setFreshRange(null), 900 + count * 40);
     return () => window.clearTimeout(t);
   }, [balance, filled]);
 
   /**
-   * The number rolls up to its new value instead of snapping. It is the cheapest piece of
-   * game feel there is — a total that ticks upward makes a deposit feel like a SCORE,
-   * where an instant swap just looks like a re-render.
+   * The big coin at the top of the page — the NEXT COIN, with a ring for how far the whole
+   * MILESTONE has come along.
+   *
+   * ⚠️ IN FILL MODE IT MUST NOT BE DERIVED FROM `H`. That is not a style preference: the chain
+   * H → HERO_PX → the card is taller → the measured box is shorter → H is a closed loop, and it
+   * made the whole tower flicker between two layouts every frame. The viewport cannot be moved by
+   * any coin, so it is safe.
    */
-  const shown = useCountUp(balance);
+  const HERO_PX = fill
+    ? Math.max(64, Math.min(150, Math.round((box.vh || 900) * 0.095)))
+    : Math.max(72, Math.min(104, Math.round(coinPx * 5)));
 
-  /** Progress into the CURRENT $100 — what the hero coin's ring shows. */
+  /** Progress into the milestone he is currently forging — the ring's job. */
+  const intoIngot = balance == null ? 0 : Math.min(1, goldInFrame / PER);
+  /** Progress into the coin he is currently earning. */
   const into = balance == null ? 0 : have % unit;
-  const intoUnit = balance == null ? 0 : into / unit;
   const nextAt = balance == null ? unit : have + (unit - into);
+  const toGo = Math.max(0, unit - into);
 
-  /** Sound is ON by default but mutable — a game that beeps and cannot be silenced gets closed. */
+  // ── sound ─────────────────────────────────────────────────────────────────
   const [soundOn, setSoundOn] = useState(() => {
     try { return localStorage.getItem(SOUND_KEY) !== 'off'; } catch { return true; }
   });
@@ -324,9 +491,8 @@ export const CoinTower: React.FC<{
   });
 
   /**
-   * iOS will not let audio start without a gesture, and the FEED can move the balance with no
-   * tap involved. So the context is woken on the first interaction ANYWHERE — not just on the
-   * ± buttons — otherwise a real deposit off the feed would land silently forever.
+   * iOS will not let audio start without a gesture, and the FEED can move the balance with no tap
+   * involved. So the context is woken on the first interaction ANYWHERE.
    */
   useEffect(() => {
     const wake = () => { getAudio(); };
@@ -334,11 +500,7 @@ export const CoinTower: React.FC<{
     return () => window.removeEventListener('pointerdown', wake);
   }, []);
 
-  /**
-   * $1,000 and $5,000 crossings. Compared against the PREVIOUS thresholds rather than computed
-   * per render, so a single jump of several thousand fires ONCE with the biggest award it earned
-   * instead of once per threshold it happened to pass through on the way.
-   */
+  /** Milestone crossings, compared against the previous thresholds so a jump fires ONCE. */
   const prevNotch = useRef<number | null>(null);
   const prevBig = useRef<number | null>(null);
   const [award, setAward] = useState<{ label: string; big: boolean; id: number } | null>(null);
@@ -358,156 +520,37 @@ export const CoinTower: React.FC<{
     if (!hitLvl && !hitBig) return;                 // a losing day gets no fanfare
 
     setAward(hitBig
-      ? { label: `${fmt(bigLvl * bigNotch)} banked`, big: true, id: Date.now() }
-      : { label: `${fmt(lvl * notch)} reached`, big: false, id: Date.now() });
+      ? { label: `${fmtMile(bigLvl * bigNotch)} banked`, big: true, id: Date.now() }
+      : { label: `${fmtMile(lvl * notch)} forged`, big: false, id: Date.now() });
     setBurst(Date.now());
-    // Staggered just after the coin's clink, so it lands as "clink … ta-da!" rather than the
-    // two sounds fighting in the same instant.
-    const s = window.setTimeout(() => { if (soundRef.current) playChime('level'); }, 160);
-    const t = window.setTimeout(() => { setAward(null); setBurst(null); }, hitBig ? 3400 : 2500);
+    // The FORGE figure is the bright one; it lands with the ingot, not with the banner.
+    const s = window.setTimeout(() => {
+      if (soundRef.current) playChime(hitLvl && !hitBig ? 'ingot' : 'ingot');
+    }, 120);
+    const t = window.setTimeout(() => { setAward(null); setBurst(null); }, hitBig ? 3200 : 2600);
     return () => { window.clearTimeout(s); window.clearTimeout(t); };
-  }, [balance, have, notch, bigNotch]);
+  }, [balance, have, notch, bigNotch, fmtMile]);
 
   /** One clink per deposit — a batch of five coins is ONE sound, not five overlapping ones. */
   useEffect(() => {
     if (!freshRange || !soundRef.current) return;
+    // A batch that FORGED an ingot gets the forge sound instead; two chimes on top of each other
+    // is just noise.
+    if (justForged != null) return;
     playChime('coin');
-  }, [freshRange]);
+  }, [freshRange, justForged]);
 
-  /** The tower grid's own box, measured so `fill` can size coins to the page. */
-  const guardRef = useRef<HTMLDivElement | null>(null);
-  const recordRef = useRef<HTMLDivElement | null>(null);
-  /**
-   * Width AND height are both kept, not just the width. The coin size depends on the viewport
-   * height too, and `setBoxW` with an unchanged width makes React bail out — so a pure height
-   * change (rotating the iPad, a landscape resize) would leave the tower at its old scale.
-   */
-  const [box, setBox] = useState({ w: 0, h: 0, vh: 0 });
-
+  /** The split gets its own figure — a descending one, so it is not mistaken for a win. */
   useEffect(() => {
-    if (!fill) return;
-    const measure = () => setBox({
-      w: guardRef.current?.clientWidth ?? 0,
-      // The guard is a flex-1 box, so its own height IS the space the tower may use. Reading it
-      // beats guessing a fraction of the viewport: the guess has to leave room for the readout,
-      // the hero coin and the footer, and getting that wrong either clips the page or wastes it.
-      h: guardRef.current?.clientHeight ?? 0,
-      // ⚠️ AND the viewport, purely so the hero coin has a size that CANNOT take part in the
-      // measurement above. See HERO_PX.
-      vh: typeof window !== 'undefined' ? window.innerHeight : 0,
-    });
-    measure();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-    if (ro && guardRef.current) ro.observe(guardRef.current);
-    window.addEventListener('resize', measure);
-    window.addEventListener('orientationchange', measure);
-    return () => {
-      if (ro) ro.disconnect();
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('orientationchange', measure);
-    };
-  }, [fill, stackCount, ROWS]);
+    if (splitAt == null || !soundRef.current) return;
+    playChime('split');
+  }, [splitAt]);
 
-  const gapFor = (px: number) => Math.max(2, Math.round(px * 0.18));
-  const colGapFor = (px: number) => Math.max(3, Math.round(px * 0.35));
-
-  /** Whichever way it is decided, COIN_PX is the single source of the tower's geometry. */
-  /**
-   * How tall a coin is when filling the page.
-   *
-   * The rule is FILL THE HEIGHT FIRST, then use whatever width is spare by growing the coin
-   * SIDEWAYS, up to a 2:1 ceiling. Getting this the other way round is what left the page half
-   * empty: capping the shape at 2:1 and taking the smaller of the two budgets made a tall screen
-   * stop at whichever width the 25 columns allowed, so the tower sat low and small with hundreds
-   * of pixels of nothing above it. A coin really is round, so somewhere near 1:1 is right — 2:1 is
-   * only the limit at which a coin starts looking like a bar.
-   */
-  /** The gap grows with the coin, so a budget that guessed a fixed gap over-ran the box. */
-  const GAP_RATIO = 0.18;
-
-  const COIN_PX = (() => {
-    if (!fill || box.w <= 0) return coinPx;
-    const availH = box.h || (typeof window !== 'undefined' ? window.innerHeight * 0.6 : 540);
-    const perColW = (box.w - (stackCount - 1) * colGapFor(24)) / stackCount;
-    /*
-     * Solve the height budget against the ACTUAL gap, not a stand-in. `ROWS * (px + gap(px))` is
-     * the grid's real height, and gap is ~18% of px, so step down until it genuinely fits rather
-     * than estimating — an estimate here let a tall tower spill out of the box it was measured
-     * against, which then shifted that box on the next measurement.
-     */
-    let px = Math.floor(availH / (ROWS * (1 + GAP_RATIO)));
-    while (px > 6 && ROWS * (px + gapFor(px)) > availH) px--;
-    // Never taller than a column is wide: at 1:1 that would already overflow sideways.
-    return Math.max(6, Math.min(96, Math.min(px, Math.floor(perColW))));
-  })();
-
-  /** Up to 2:1, as wide as the spare width allows — how a coin uses the room it is given. */
-  const COIN_ASPECT = (() => {
-    if (!fill || box.w <= 0) return 2;
-    const perColW = (box.w - (stackCount - 1) * colGapFor(24)) / stackCount;
-    return Math.max(1, Math.min(2, perColW / COIN_PX));
-  })();
-  const GAP_PX = gapFor(COIN_PX);
-  const COL_GAP = colGapFor(COIN_PX);
-  /**
-   * The width the grid WANTS for those coins. Applied as a max-width so a tower whose height ran
-   * out first sits centred at its natural size instead of stretching its coins sideways to fill.
-   */
-  const TOWER_W = stackCount * COIN_PX * COIN_ASPECT + (stackCount - 1) * COL_GAP;
-  /**
-   * The big coin at the top.
-   *
-   * ⚠️ IT MUST NOT BE DERIVED FROM `COIN_PX`, and that is not a style preference — deriving it
-   * from the coin size is what made the whole prop tower shake. The chain is a closed loop:
-   *
-   *     COIN_PX → HERO_PX → the card's chrome is 3px taller → the guard is 3px shorter
-   *     → COIN_PX recomputes one step smaller → HERO_PX shrinks back → … forever
-   *
-   * Measured before the fix: the layout flickered between exactly two states (px=18/guard=235
-   * and px=19/guard=232), re-laying-out and re-rasterising every frame — which is what read as
-   * "everything shakes violently and looks blurry". The personal tower hid it because its coin
-   * size sat below the 56px floor, so HERO_PX never actually changed.
-   *
-   * So in fill mode it is sized from the VIEWPORT, which no coin or card can move. In card mode
-   * a fixed multiple of the coin size is safe, because that coin size is a constant, not measured.
-   */
-  const HERO_PX = fill
-    ? Math.max(64, Math.min(160, Math.round((box.vh || 900) * 0.095)))
-    : Math.max(72, Math.min(110, Math.round(coinPx * 6.5)));
-  /** A divider every notch's worth of coins — $1,000 for dollars, 10% of ROI. */
-  const DIVIDER_ROW = Math.round(notch / unit);
-
-  /**
-   * The record line, positioned by MEASUREMENT rather than by arithmetic.
-   *
-   * Deriving the height from `row * (COIN_PX + GAP_PX)` looks like it should work
-   * and does not: the faint divider above a notch row makes that child taller, and
-   * empty cells render as bare spacers with no divider at all — so columns are not
-   * all the same height and any computed offset drifts by a pixel or two. Reading
-   * the actual rect off the record coin cannot drift, whatever the layout does.
-   */
-  const [recordY, setRecordY] = useState<number | null>(null);
-
+  /** Which piece holds the record, by coin index — arithmetic, so it cannot drift. */
   const peakUnits = peak == null || !Number.isFinite(peak)
     ? 0
     : Math.max(0, Math.min(unitsTotal, Math.floor(peak / unit)));
-  /** Above the fill only — level with it, the rule is just a second top edge. */
-  const showRecord = peakUnits > filled && peakUnits > 0;
-
-  useLayoutEffect(() => {
-    if (!showRecord) { setRecordY(null); return; }
-    const measure = () => {
-      const guard = guardRef.current;
-      const coin = recordRef.current;
-      if (!guard || !coin) { setRecordY(null); return; }
-      const g = guard.getBoundingClientRect();
-      const c = coin.getBoundingClientRect();
-      setRecordY(Math.round(g.bottom - c.top));
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [showRecord, peakUnits, filled, unit, target, unitsTotal, COIN_PX, GAP_PX]);
+  const recordAt = peakUnits > filled && peakUnits > 0 ? peakUnits - 1 : -1;
 
   return (
     <div
@@ -517,42 +560,46 @@ export const CoinTower: React.FC<{
     >
       <style>{COIN_STYLE}</style>
 
-      {/* The $1,000 "level up" wash — a gold glow round the screen edges. FIXED and
-          pointer-events-none so it covers the viewport without touching layout or stealing
-          a click, and it is not clipped by the card because no ancestor has a transform. */}
+      {/* The milestone wash — a purple glow round the screen edges, because the metal is purple.
+          FIXED and pointer-events-none so it covers the viewport without touching layout or
+          stealing a click. */}
       {burst != null && (
         <div
           aria-hidden
           className="pf-anim pointer-events-none fixed inset-0 z-[60]"
           style={{
-            boxShadow: 'inset 0 0 140px 16px rgba(251,191,36,0.45)',
-            animation: 'pfVignette 1200ms ease-out both',
+            boxShadow: 'inset 0 0 150px 18px rgba(168,85,247,0.45)',
+            animation: 'pfVignette 1300ms ease-out both',
           }}
         />
       )}
 
-      {/* The award banner, centred over the tower. Keyed on the award id so a second award
-          re-runs the animation instead of reusing a finished one. */}
+      {/* The award banner. Keyed on the award id so a second award re-runs the animation. */}
       {award != null && (
         <div
           key={award.id}
           className="pf-anim pointer-events-none absolute left-1/2 top-2 z-20 whitespace-nowrap"
-          style={{ animation: `pfBannerIn ${award.big ? 3200 : 2400}ms ease-out both` }}
+          style={{ animation: `pfBannerIn ${award.big ? 3200 : 2600}ms ease-out both` }}
         >
           <span className={`rounded-full px-3 py-1 text-[11px] font-black tracking-wide shadow-lg ${
-            award.big ? 'bg-amber-400 text-amber-950' : 'border border-amber-400/40 bg-[#02090d] text-amber-200'
+            award.big
+              ? 'bg-gradient-to-r from-fuchsia-300 via-violet-300 to-cyan-200 text-violet-950'
+              : 'border border-violet-400/40 bg-[#09040f] text-violet-200'
           }`}>
-            {award.big ? '★ ' : '● '}{award.label}
+            {award.big ? '★ ' : '◆ '}{award.label}
           </span>
         </div>
       )}
 
-      <div className="mb-2.5 flex items-center justify-between gap-2">
+      <div className="mb-2.5 flex shrink-0 items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Coins className="h-4 w-4 text-amber-300" />
           <h3 className="text-sm font-bold text-amber-200">The Coin Tower</h3>
         </div>
         <div className="flex items-center gap-1.5">
+          <span className="mr-1 hidden text-[10px] uppercase tracking-wider text-white/30 sm:inline">
+            {ingotsDone} / {ingotsTotal} ingots
+          </span>
           <button
             onClick={toggleSound}
             title={soundOn ? 'Mute the coin sound' : 'Unmute the coin sound'}
@@ -561,34 +608,34 @@ export const CoinTower: React.FC<{
           >
             {soundOn ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
           </button>
-        {onNudge && (
-          <>
-            <button
-              onClick={() => onNudge(-unit)}
-              title={`Test only — simulate losing ${fmt(unit)}`}
-              aria-label={`Simulate losing ${fmt(unit)}`}
-              className="flex h-6 w-6 items-center justify-center rounded-md border border-white/15 text-sm font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              −
-            </button>
-            <button
-              onClick={() => onNudge(unit)}
-              title={`Test only — simulate depositing ${fmt(unit)}`}
-              aria-label={`Simulate depositing ${fmt(unit)}`}
-              className="flex h-6 w-6 items-center justify-center rounded-md border border-amber-400/40 bg-amber-400/10 text-sm font-bold text-amber-200 transition-colors hover:bg-amber-400/25"
-            >
-              +
-            </button>
-          </>
-        )}
+          {onNudge && (
+            <>
+              <button
+                onClick={() => onNudge(-unit)}
+                title={`Test only — simulate losing ${fmt(unit)}`}
+                aria-label={`Simulate losing ${fmt(unit)}`}
+                className="flex h-6 w-6 items-center justify-center rounded-md border border-white/15 text-sm font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                −
+              </button>
+              <button
+                onClick={() => onNudge(unit)}
+                title={`Test only — simulate depositing ${fmt(unit)}`}
+                aria-label={`Simulate depositing ${fmt(unit)}`}
+                className="flex h-6 w-6 items-center justify-center rounded-md border border-amber-400/40 bg-amber-400/10 text-sm font-bold text-amber-200 transition-colors hover:bg-amber-400/25"
+              >
+                +
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* THE HERO COIN — the next $100, big enough to actually see, with a ring for how far
-          into it he is. This is what fixes the size problem: 500 coins MUST be small, so the
-          one that matters RIGHT NOW gets its own space and its own animation. */}
+      {/* THE HERO COIN — the next one, big enough to actually see. Its ring tracks the MILESTONE
+          (the ingot being forged), because the ten slots below already count the coins one by one;
+          the ring would be a second, slower copy of the same information. */}
       {balance != null && (
-        <div className="relative mb-3 flex items-center gap-3">
+        <div className="relative mb-3 flex shrink-0 items-center gap-3">
           <div className="relative shrink-0" style={{ height: HERO_PX, width: HERO_PX }}>
             <svg viewBox="0 0 44 44" className="h-full w-full -rotate-90">
               <circle cx="22" cy="22" r="19" fill="none" stroke="rgba(255,255,255,0.09)" strokeWidth="3" />
@@ -596,25 +643,24 @@ export const CoinTower: React.FC<{
                 cx="22" cy="22" r="19" fill="none" stroke="url(#pfGoldRing)" strokeWidth="3"
                 strokeLinecap="round"
                 strokeDasharray={2 * Math.PI * 19}
-                strokeDashoffset={2 * Math.PI * 19 * (1 - intoUnit)}
+                strokeDashoffset={2 * Math.PI * 19 * (1 - intoIngot)}
                 className="transition-[stroke-dashoffset] duration-700 ease-out"
               />
               <defs>
                 <linearGradient id="pfGoldRing" x1="0" y1="0" x2="1" y2="1">
                   <stop offset="0%" stopColor="#fde68a" />
-                  <stop offset="100%" stopColor="#d97706" />
+                  <stop offset="100%" stopColor="#a855f7" />
                 </linearGradient>
               </defs>
             </svg>
             <div className="absolute inset-0 flex items-center justify-center">
               <span
                 className="font-black text-amber-200"
-                style={{ fontSize: Math.max(11, Math.round(HERO_PX * 0.2)) }}
+                style={{ fontSize: Math.max(11, Math.round(HERO_PX * 0.19)) }}
               >
-                {Math.round(intoUnit * 100)}%
+                {Math.round(intoIngot * 100)}%
               </span>
             </div>
-            {/* Coins thrown outward when something lands. */}
             {burst != null && Array.from({ length: 6 }, (_, i) => {
               const ang = (i / 6) * Math.PI * 2 - Math.PI / 2;
               return (
@@ -622,7 +668,7 @@ export const CoinTower: React.FC<{
                   key={`${burst}-${i}`}
                   className="pf-anim pointer-events-none absolute left-1/2 top-1/2 h-1.5 w-3 rounded-full"
                   style={{
-                    background: 'radial-gradient(circle at 34% 26%, #fffbeb, #fcd34d 45%, #d97706)',
+                    background: 'radial-gradient(circle at 34% 26%, #f5d0fe, #c084fc 45%, #7c3aed)',
                     '--dx': `${Math.round(Math.cos(ang) * HERO_PX * 0.64)}px`,
                     '--dy': `${Math.round(Math.sin(ang) * HERO_PX * 0.64)}px`,
                     animation: `pfBurst 900ms cubic-bezier(.2,.8,.3,1) ${i * 24}ms both`,
@@ -634,123 +680,197 @@ export const CoinTower: React.FC<{
           <div className="min-w-0">
             <div className="text-xs font-bold text-amber-200">Next coin at {fmt(nextAt)}</div>
             <div className="text-[11px] text-white/45">
-              {fmt(Math.max(0, unit - into))} to go · coin {(filled + 1).toLocaleString()} of {unitsTotal.toLocaleString()}
+              {fmt(toGo)} to go · {goldInFrame} of {PER} coins to your {fmtMile((ingotsDone + 1) * PER * unit)} ingot
             </div>
           </div>
         </div>
       )}
 
-      {/* One column per stack, each `ROWS` coins tall. A stack's bottom row is its first coin.
-          When filling, the guard takes the leftover height and the grid sits at its bottom, so
-          the tower grows upward into whatever room the page gives it. */}
+      {/*
+        THE COLUMN. A single stack, ground up: ingots, then the milestone in flight. Nothing here
+        animates a SIZE — only transform, opacity and filter — because a changing size would feed
+        the very measurement the coin height comes from.
+      */}
       <div
         ref={guardRef}
-        className={`relative${fill ? ' flex min-h-0 flex-1 items-end justify-center' : ''}`}
+        className={`relative${fill ? ' flex min-h-0 flex-1 items-end justify-center' : ' flex justify-center'}`}
       >
-      <div
-        className="flex items-end"
-        style={{
-          height: ROWS * (COIN_PX + GAP_PX),
-          gap: COL_GAP,
-          ...(fill ? { width: '100%', maxWidth: TOWER_W } : null),
-        }}
-      >
-        {Array.from({ length: stackCount }, (_, s) => (
-          <div key={s} className="flex min-w-0 flex-1 flex-col justify-end" style={{ gap: GAP_PX }}>
-            {Array.from({ length: ROWS }, (_, k) => {
-              // Painted top-down, but a coin's index counts UP from the bottom.
-              const row = ROWS - 1 - k;
-              const idx = s * ROWS + row;
-              if (idx >= unitsTotal) return <div key={k} style={{ height: COIN_PX }} />;
-              const isFilled = idx < filled;
-              const freshIdx = isFilled && freshRange
-                && idx >= freshRange.from && idx < freshRange.from + freshRange.count
-                ? idx - freshRange.from
-                : -1;
-              return (
-                <div key={k}>
-                  {/* A faint divider at each notch so a tall stack stays countable — but only
-                      when it lands INSIDE the stack; a 10-row tower has no row 10 to mark. */}
-                  {row === DIVIDER_ROW && DIVIDER_ROW < ROWS && (
-                    <div
-                      className="w-full bg-white/[0.13]"
-                      style={{ height: 1, marginBottom: Math.max(1, Math.round(GAP_PX / 2)) }}
-                    />
-                  )}
-                  {/*
-                    The empty state is the thing that matters most here. It used to be a 4%
-                    white fill — effectively invisible — so 483 empty cells made the tower look
-                    broken instead of "waiting". Now an empty cell is a recessed SOCKET: darker
-                    than the card, with an inset shadow and a faint gold rim, so it reads as a
-                    slot built to hold a coin.
-                    Filled cells are a coin FACE: radial highlight up-and-left, a dark rim to
-                    catch the edge, and a bright top bevel. Inline styles, because the gradients
-                    and double inset shadows are unreadable as Tailwind arbitrary values.
-                  */}
+        <div
+          className="relative flex flex-col-reverse items-center overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.015]"
+          style={{
+            width: COL_W,
+            height: STACK_H,
+            gap: GAP,
+          }}
+        >
+          {pieces.map((p, i) => {
+            const isIngot = p.kind === 'ingot';
+            const isGold = p.kind === 'gold';
+            const isFreshIngot = isIngot && justForged === i;
+            const isEmpty = p.kind === 'empty';
+            const isNext = isEmpty && p.from === filled;
+            const freshIdx = isGold && freshRange
+              && p.from >= freshRange.from && p.from < freshRange.from + freshRange.count
+              ? p.from - freshRange.from
+              : -1;
+            // Going under: every coin of the new frame rises out of the ingot that broke.
+            const risingIdx = isGold && splitAt != null ? Math.min(11, p.from - mileStart) : -1;
+            const holdsRecord = !isEmpty && recordAt >= p.from && recordAt <= p.to;
+
+            return (
+              <div
+                key={`${p.kind}-${p.from}`}
+                data-piece={p.kind}
+                data-coin={p.from}
+                title={isIngot
+                  ? `Ten coins forged · ${fmtMile(p.to * unit + unit)}`
+                  : `${fmt(p.from * unit)} → ${fmt((p.from + 1) * unit)}`}
+                className="pf-anim relative shrink-0"
+                style={{
+                  height: Math.max(1, Math.floor(p.units * H * 10) / 10),
+                  width: isIngot ? '100%' : GOLD_W,
+                  borderRadius: 999,
+                  ...(isIngot ? {
+                    background: INGOT_FILL,
+                    boxShadow: INGOT_SHADOW,
+                    ...(isFreshIngot
+                      ? { animation: 'pfIngotForge 620ms cubic-bezier(.16,1,.3,1) both' }
+                      : null),
+                  } : isGold ? {
+                    background: GOLD_FILL,
+                    boxShadow: GOLD_SHADOW,
+                    ...(freshIdx >= 0 ? {
+                      animation: `pfCoinDrop 340ms cubic-bezier(.16,1,.3,1) ${Math.min(freshIdx, 12) * 34}ms both, `
+                               + `pfCoinShine 520ms ease-out ${Math.min(freshIdx, 12) * 34}ms both`,
+                    } : null),
+                    ...(risingIdx >= 0 ? {
+                      animation: `pfCoinRise 420ms cubic-bezier(.16,1,.3,1) ${Math.min(risingIdx, 11) * 42}ms both`,
+                    } : null),
+                  } : {
+                    // Empty sockets stay quiet, but not invisible: his whole tower is empty at $17
+                    // (17 dollars is not yet a $100 coin), and a tower you cannot SEE reads as
+                    // "there is no tower here".
+                    background: 'rgba(255,255,255,0.055)',
+                    boxShadow: 'inset 0 0 0 1px rgba(251,191,36,0.22), inset 0 1px 2px rgba(0,0,0,0.5)',
+                    ...(isNext ? {
+                      boxShadow: 'inset 0 0 0 1px rgba(251,191,36,0.8)',
+                      animation: 'pfNextPulse 1.9s ease-in-out infinite',
+                    } : null),
+                  }),
+                }}
+              >
+                {/* The iridescence, clipped to the ingot's own shape. */}
+                {isIngot && (
                   <div
-                    ref={idx === peakUnits - 1 ? recordRef : undefined}
-                    data-coin-idx={idx}
-                    title={`${fmt(idx * unit)} → ${fmt((idx + 1) * unit)}`}
-                    /* `pf-anim` is what the prefers-reduced-motion rule switches off — an
-                       inline `animation` alone would sail straight past it. */
-                    className="pf-anim w-full rounded-full"
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 rounded-full"
                     style={{
-                      height: COIN_PX,
-                      ...(isFilled ? {
-                        background: 'radial-gradient(circle at 34% 26%, #fffbeb 0%, #fcd34d 42%, #d97706 100%)',
-                        boxShadow: '0 0 6px -1px rgba(251,191,36,0.9), '
-                                 + 'inset 0 0 0 1px rgba(146,64,14,0.55), '
-                                 + 'inset 0 1px 0 rgba(255,255,255,0.65)',
-                      } : {
-                        background: 'rgba(255,255,255,0.035)',
-                        boxShadow: 'inset 0 0 0 1px rgba(251,191,36,0.10), '
-                                 + 'inset 0 1px 2px rgba(0,0,0,0.55)',
-                      }),
-                      ...(freshIdx >= 0 ? {
-                        animation: `pfCoinDrop 560ms cubic-bezier(.22,1.2,.36,1) ${freshIdx * 26}ms both, `
-                                 + `pfCoinShine 700ms ease-out ${freshIdx * 26}ms both`,
-                      } : null),
+                      background: INGOT_IRID,
+                      opacity: 0.22,
+                      mixBlendMode: 'overlay',
+                      animation: 'pfIrid 16s linear infinite',
                     }}
                   />
-                </div>
-              );
-            })}
-          </div>
-        ))}
+                )}
+                {/* The specular sweep across a just-forged ingot. */}
+                {isFreshIngot && (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+                  >
+                    <div
+                      className="h-full w-1/3"
+                      style={{
+                        background: 'linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.95) 50%, rgba(255,255,255,0) 100%)',
+                        animation: 'pfIngotShine 760ms cubic-bezier(.3,.7,.2,1) 90ms both',
+                      }}
+                    />
+                  </div>
+                )}
+                {/* The ten coins falling INTO it — the merge gets a direction. */}
+                {isFreshIngot && Array.from({ length: 7 }, (_, k) => (
+                  <div
+                    key={`m${k}`}
+                    aria-hidden
+                    className="pf-anim pointer-events-none absolute h-1.5 w-3 rounded-full"
+                    style={{
+                      left: `${8 + k * 13}%`,
+                      top: -6,
+                      background: GOLD_FILL,
+                      animation: `pfMergeIn 480ms cubic-bezier(.3,.7,.2,1) ${k * 26}ms both`,
+                    }}
+                  />
+                ))}
+                {/* The ring when a milestone is forged. */}
+                {isFreshIngot && (
+                  <div
+                    aria-hidden
+                    className="pf-anim pointer-events-none absolute inset-0 rounded-full border-2 border-violet-300/80"
+                    style={{ animation: 'pfIngotPulse 800ms cubic-bezier(.16,1,.3,1) both' }}
+                  />
+                )}
+                {/*
+                  THE RECORD. A gold hairline at the top edge of the piece that holds it — which is
+                  exactly the boundary where the best fill ever reached, because the record is
+                  always at a coin boundary and a piece ends at one. Anchored to `100%` rather than
+                  computed from offsets, so no gap or rounding can drift it.
+                  `h-px` is load-bearing: let the label size the box and the rule floats up.
+                */}
+                {holdsRecord && (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 z-10 flex h-px items-center gap-1.5"
+                    style={{ bottom: '100%' }}
+                  >
+                    <div className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-300/80 to-amber-300/50" />
+                    <span className="whitespace-nowrap rounded px-1 text-[9px] font-black uppercase tracking-wider text-amber-300/90">
+                      Best
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
 
-        {/* THE RECORD. A hairline gold rule at the highest fill ever reached, with the
-            number on it, so the line explains itself without a legend. Pinned to the
-            coin's measured top edge (see `recordY`) and it must not eat a click.
-
-            `h-px` is load-bearing: the container is exactly the height of the rule, so
-            `bottom: recordY` puts the RULE on the coin's top edge. Let the label size the
-            box instead and the rule floats up by half the text height — measured 6px of
-            drift before this was pinned. The label overflows the 1px box, centred on it. */}
-        {showRecord && recordY != null && (
+        {/* The break, when an ingot gave its coins back: a flare at the line it split along, which
+            is the base of the frame that now sits where the ingot was. */}
+        {splitAt != null && (
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 z-10 flex h-px items-center gap-1.5"
-            style={{ bottom: recordY - 1 }}
-          >
-            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-300/70 to-amber-300/40" />
-            <span className="whitespace-nowrap rounded px-1 text-[9px] font-black uppercase tracking-wider text-amber-300/80">
-              Best {fmt(peak as number)}
-            </span>
+            className="pf-anim pointer-events-none absolute rounded-full border-2 border-violet-300/70"
+            style={{
+              left: '50%',
+              // marginLeft, not -translate-x-1/2: the animation below owns `transform`.
+              marginLeft: -(COL_W + 8) / 2,
+              bottom: Math.round(ingotsDone * (INGOT_H * H + GAP)),
+              width: COL_W + 8,
+              height: Math.max(6, Math.round(INGOT_H * H)),
+              animation: 'pfIngotPulse 700ms cubic-bezier(.16,1,.3,1) both',
+            }}
+          />
+        )}
+
+        {/* The record, stated once, over the column. */}
+        {recordAt >= 0 && (
+          <div className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2 whitespace-nowrap rounded px-1 text-[9px] font-black uppercase tracking-wider text-amber-300">
+            ★ Best {fmt(peak as number)}
           </div>
         )}
       </div>
-      </div>
 
-      <div className="mt-2.5 flex items-center justify-between gap-2 text-[10px]">
+      <div className="mt-2.5 flex shrink-0 items-center justify-between gap-2 text-[10px]">
         <span className={balance == null ? 'text-amber-300/70' : 'text-white/50'}>
           {balance == null
             ? 'waiting on account balance'
             : `${fmt(Math.round(shown))} of ${fmt(target)}`}
         </span>
         <span className="text-white/35">
-          {filled.toLocaleString()}/{unitsTotal.toLocaleString()} coins · {stackCount} × {ROWS}
+          {ingotsDone.toLocaleString()} of {ingotsTotal.toLocaleString()} ingots · {PER} × {fmt(unit)} = {fmt(PER * unit)}
         </span>
       </div>
     </div>
   );
 };
+
+export default CoinTower;

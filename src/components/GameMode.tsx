@@ -19,23 +19,32 @@ import { CoinTower } from './CoinTower';
  * one tower at full size is the game he actually wanted. The choice persists, so the mode always
  * opens on whichever climb he was last looking at.
  *
+ * THE TOWER IS ONE COMPACTING COLUMN (Nov 28 2026). Daniel: *"we just have one tower right no
+ * nothing side to side anymore … simple goal is 10 coins and then when i hit 10 coins some cool
+ * animation comes out and the coin turns bigger and changes color maybe purple titanium … and then
+ * the other gold coins start to stack on top of those so every metallic wide coin is a thousand."*
+ * Ten $100 coins forge into one purple-titanium ingot worth $1,000; the next ten start above it.
+ * Going back under a milestone splits the ingot into its ten coins again. Only ONE climb is on
+ * screen at a time — see CoinTower for the geometry.
+ *
  * The two towers:
  *
  *  1. PERSONAL — the NinjaTrader account balance, in $100 coins, with the all-time high drawn as
  *     a permanent gold rule so a losing day cannot erase the evidence that he got there.
  *
- *  2. PROP — NET PnL, shown as ROI. Daniel: "for the firm one, it should measure pnl not evals, so
- *     it should track ROI."
+ *  2. PROP — NET PnL in dollars (`payouts − costs`), on the same $100 coin and $1,000 ingot as the
+ *     personal side. Daniel: *"for the firm one, it should measure pnl not evals, so it should
+ *     track ROI"* … then *"Also for the prop side I want it in $ instead"*.
  *
- *     Why ROI and not dollars: a prop firm's nominal account size is not money he has, and an eval
- *     passed is not money either — a "pass rate" tower would celebrate the thing that has cost him
- *     the most and earned him the least. What is actually true is `payouts − costs`: what the firms
- *     have paid him minus what he paid them. Expressing it as ROI (÷ costs) is the honest score,
- *     because it prices the result against the capital he actually risked to get it.
+ *     Why NET and not the firms' nominal sizes or eval passes: a prop firm's nominal account size
+ *     is not money he has, and an eval passed is not money either — a "pass rate" tower would
+ *     celebrate the thing that has cost him the most and earned him the least. What is actually
+ *     true is `payouts − costs`: what the firms have paid him minus what he paid them.
  *
- *     So ONE COIN IS ONE PERCENT OF ROI, and a full tower is 100% — the firms have paid back
- *     double what he put in. That keeps a coin a fixed, meaningful unit rather than a floating
- *     slice of an arbitrary target.
+ *     The TARGET is the ROI goal converted to dollars (`spend × roiTarget/100`) — at the default
+ *     100% that is exactly what he has paid the firms, so filling every ingot means earning back
+ *     every dollar they took. Switching the unit from percent to dollars changed nothing about his
+ *     progress: PnL ÷ spend IS ROI, so the same number is simply read out in $.
  *
  *     COSTS = Σ challenge.cost (what he spent on evals), PAYOUTS = Σ payouts[].amount (what was
  *     actually claimed). Both are read exactly as `PnLChart` and `PnLPeriodCard` read them, so this
@@ -56,6 +65,8 @@ const BALANCE_MARKER = /\[balance\b[^\]]*\]/i;
 const ROI_MARKER = /\[roi\b([^\]]*)\]/i;
 
 const DEFAULT_PERSONAL_TARGET = 50_000;
+/** Only used before any money has gone to a firm, so the tower has a scale to draw. */
+const DEFAULT_PROP_TARGET = 10_000;
 const DEFAULT_ROI_TARGET = 100;
 const DEFAULT_UNIT = 100;
 
@@ -67,6 +78,9 @@ const money = (n: number): string =>
   '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 
 const pct = (n: number): string => (n < 0 ? '\u2212' : '') + `${Math.abs(Math.round(n))}%`;
+
+/** PnL is signed — a losing book has to read −$3,213, not $3,213. */
+const signedMoney = (n: number): string => (n < 0 ? '\u2212' : '+') + money(Math.abs(n));
 
 function moneyFromTitle(title: string): number | null {
   const m = title.match(/\$\s?(\d[\d,]*(?:\.\d+)?)\s*([kK])?/);
@@ -124,16 +138,20 @@ export function propBook(challenges: any[]) {
 }
 
 /**
- * Best-ever ROI, walked along the real timeline of money in and out.
+ * Best-ever NET PROFIT from the firms, in dollars, walked along the real timeline of money in
+ * and out.
  *
- * Derived rather than stored, and it CAN be derived exactly here — unlike the personal balance,
- * which needs a column because a deposit is invisible to a trade ledger. On the prop side every
- * dollar is either a known cost (dated by the challenge's start) or a known payout (dated by the
- * payout), so the whole ROI path is reconstructible and the max of it is the true record.
+ * Derived rather than stored, and it CAN be derived exactly — unlike the personal balance, which
+ * needs a column because a deposit is invisible to a trade ledger. On the prop side every dollar
+ * is either a known cost (dated by the challenge's start) or a known payout (dated by the
+ * payout), so the whole path is reconstructible and the peak of it is the true record.
+ *
+ * Dollars rather than percent because Daniel asked for the prop tower "in $" — and it costs
+ * nothing, since ROI is just this divided by the spend at the same point in time.
  *
  * ISO dates sort lexically, so no Date parsing (and no timezone shift) is involved.
  */
-export function peakRoi(challenges: any[]): number {
+export function peakPnl(challenges: any[]): number {
   const events: { d: string; cost: number; paid: number }[] = [];
   for (const c of challenges || []) {
     events.push({ d: String(c?.startDate || ''), cost: Number(c?.cost) || 0, paid: 0 });
@@ -146,7 +164,7 @@ export function peakRoi(challenges: any[]): number {
   for (const e of events) {
     cost += e.cost;
     paid += e.paid;
-    if (cost > 0) best = Math.max(best, ((paid - cost) / cost) * 100);
+    best = Math.max(best, paid - cost);
   }
   return best;
 }
@@ -169,7 +187,8 @@ interface TowerSpec {
   headlineFormat: (n: number) => string;
   notch: number;
   bigNotch: number;
-  coinsPerStack: number;
+  /** One tower = one milestone, so the label under it needs its own formatter. */
+  formatMilestone: (n: number) => string;
   /** Optional extra readout under the tower. */
   detail?: string;
 }
@@ -290,7 +309,6 @@ export const GameMode: React.FC<{
 
   const towers: TowerSpec[] = useMemo(() => {
     const book = propBook(challenges);
-    const best = Math.max(peakRoi(challenges), book.roi);
 
     return [
       {
@@ -303,30 +321,39 @@ export const GameMode: React.FC<{
         peak: personalPeak,
         formatValue: money,
         headlineFormat: money,
-        // $1,000 steps, 20 coins to a stack: 500 coins = 25 stacks at a $50,000 target.
+        // Ten $100 coins to a tower, so a tower IS a $1,000 milestone and one appears per notch.
         notch: 1000,
         bigNotch: 5000,
-        coinsPerStack: 20,
+        formatMilestone: money,
       },
       {
         key: 'prop',
         label: 'Prop',
         sub: 'Net P&L from the firms',
-        value: book.roi,
-        // One coin = 1% of ROI; 10 to a stack so 100 coins read as a 10×10 grid of coins
-        // rather than five slabs the width of the page.
-        target: roiGoal ? roiTargetFromBody(roiGoal.body) : DEFAULT_ROI_TARGET,
-        unit: 1,
-        peak: best,
-        formatValue: pct,
-        headlineFormat: (n: number) => `${pct(n)} ROI`,
-        // Every 10% of ROI is a level, every 50% a big one — the dollar notches (1,000/5,000)
-        // could never fire on a percentage scale.
-        notch: 10,
-        bigNotch: 50,
-        coinsPerStack: 10,
+        value: book.pnl,
+        /*
+         * IN DOLLARS, at Daniel's request ("for the prop side I want it in $ instead"). One coin
+         * is $100 and ten coins a tower — exactly the personal side — so a prop tower is a $1,000
+         * milestone too.
+         *
+         * THE TARGET is the ROI goal converted: `spend x roiTarget/100`. At the default 100% that
+         * is simply what he has paid the firms, which is the honest prop goal — fill every tower
+         * and he has earned back every dollar they took. It also means progress is unchanged from
+         * when this tower tracked ROI, because PnL/spend IS ROI. The `[roi 250]` marker still
+         * means "aim for 250%", it just now reads out as its dollar equivalent.
+         */
+        target: book.cost > 0
+          ? book.cost * ((roiGoal ? roiTargetFromBody(roiGoal.body) : DEFAULT_ROI_TARGET) / 100)
+          : DEFAULT_PROP_TARGET,
+        unit: DEFAULT_UNIT,
+        peak: Math.max(peakPnl(challenges), book.pnl),
+        formatValue: money,
+        formatMilestone: money,
+        headlineFormat: signedMoney,
+        notch: 1000,
+        bigNotch: 5000,
         detail: book.cost > 0
-          ? `${money(book.paid)} paid − ${money(book.cost)} spent · break-even at 0%`
+          ? `${money(book.paid)} paid − ${money(book.cost)} spent · ${pct(book.roi)} ROI · break-even at $0`
           : 'No money spent with the firms yet — the tower starts at the first eval.',
       },
     ];
@@ -420,9 +447,7 @@ export const GameMode: React.FC<{
                   {tower.headlineFormat(value)}
                 </div>
                 <div className="mt-1 text-xs text-white/45">
-                  {tower.key === 'personal'
-                    ? `of ${money(tower.target)}`
-                    : `of ${tower.target}% ROI`} · {pctOfTarget}%
+                  of {money(tower.target)} · {pctOfTarget}%
                 </div>
               </div>
             </div>
@@ -447,9 +472,9 @@ export const GameMode: React.FC<{
                 balance={current}
                 peak={tower.peak}
                 formatValue={tower.formatValue}
+                formatMilestone={tower.formatMilestone}
                 notch={tower.notch}
                 bigNotch={tower.bigNotch}
-                coinsPerStack={tower.coinsPerStack}
                 onNudge={import.meta.env.DEV ? (d) => {
                   devManual.current = true;
                   setDevDeltas((s) => ({ ...s, [tower.key]: (s[tower.key] ?? 0) + d }));
@@ -461,7 +486,8 @@ export const GameMode: React.FC<{
               <div className="min-w-0">
                 <p className="text-[11px] text-white/30">
                   {held.toLocaleString()} / {totalCoins.toLocaleString()} coins · 1 coin ={' '}
-                  {tower.unit === 1 ? '1% ROI' : tower.formatValue(tower.unit)}
+                  {tower.formatValue(tower.unit)} · 10 coins forge 1 titanium ingot ={' '}
+                  {tower.formatValue(tower.unit * 10)}
                 </p>
                 {tower.detail && <p className="mt-0.5 text-[11px] text-white/25">{tower.detail}</p>}
               </div>
