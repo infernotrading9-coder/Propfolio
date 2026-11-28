@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Coins, Volume2, VolumeX } from 'lucide-react';
+import { TierTrack } from './TierTrack';
 
 /**
  * The Coin Tower — the climb to the target, as ONE column of coins that compacts into titanium.
@@ -419,6 +420,8 @@ export const CoinTower: React.FC<{
    * "big ingot" shape so Daniel can look at both and pick. Nothing in production can set it.
    */
   const [barTall, setBarTall] = useState(false);
+  /** DEV ONLY: draw every piece at ONE scale, so the two $10,000 shapes can be judged side by side. */
+  const [showShapes, setShowShapes] = useState(false);
 
   // ── the numbers ───────────────────────────────────────────────────────────
   const PER = Math.max(2, Math.round(coinsPerTower));          // coins per ingot — 10
@@ -435,6 +438,23 @@ export const CoinTower: React.FC<{
 
   /** The ladder for this render — the one thing the shape trial changes is the bar's height. */
   const barUnits = barTall ? BAR_H_TALL : BAR_H;
+
+  /**
+   * Each rung of the track, drawn in the SAME metal the tower draws — the track and the tower read
+   * the ladder from one place, so they cannot disagree about what a bar looks like.
+   */
+  const rungs = React.useMemo(
+    () => tierDefs(PER, barUnits).map((t) => ({
+      at: t.per * unit,
+      label: t.kind,
+      // width ÷ height, so a flat bar stays flat in the track.
+      aspect: t.wf / t.units,
+      ...(t.kind === 'bar'
+        ? { fill: PLAT_FILL, shadow: PLAT_SHADOW, radius: barTall ? 999 : 0 }
+        : { fill: INGOT_FILL, shadow: INGOT_SHADOW, radius: 999 }),
+    })),
+    [PER, barUnits, unit],
+  );
   const pieces: Piece[] = React.useMemo(
     () => buildStack(filled, unitsTotal, PER, barUnits),
     [filled, unitsTotal, PER, barUnits],
@@ -1062,6 +1082,24 @@ export const CoinTower: React.FC<{
       </div>
 
       {/*
+        THE LADDER, SHOWN WHOLE. This is the fix for "i dont see the bar": the tower only draws what
+        he has earned, so the $10,000 tier used to be invisible until he got there. See TierTrack for
+        why a locked rung has to be on screen.
+        Compact in game mode because the TOWER is the hero there and the track is a caption; full
+        size in the card, where there is room to spell each rung out.
+      */}
+      <div className="mt-2.5 shrink-0 border-t border-white/10 pt-2">
+        <TierTrack
+          unit={unit}
+          target={target}
+          value={Math.max(0, have)}
+          format={fmt}
+          rungs={rungs}
+          compact={fill}
+        />
+      </div>
+
+      {/*
         DEV ONLY — jump the balance to any decade, and toggle which shape the $10,000 tier wears so
         Daniel can look at both on his own device and pick. Gated on `import.meta.env.DEV` AND
         `onNudge` (production passes neither), so this compiles away to `void 0` in the bundle.
@@ -1087,6 +1125,55 @@ export const CoinTower: React.FC<{
           >
             $10k shape: <span className="text-rose-100">{barTall ? 'big ingot' : 'bar'}</span>
           </button>
+          <button
+            onClick={() => setShowShapes((v) => !v)}
+            title="Draw every piece at ONE scale"
+            className="rounded border border-rose-300/30 px-1.5 py-0.5 font-bold transition-colors hover:bg-rose-400/20"
+          >
+            shapes {showShapes ? '▾' : '▸'}
+          </button>
+        </div>
+      )}
+
+      {/*
+        DEV ONLY — EVERY PIECE AT ONE SCALE. The tower draws a bar 10.5 coin-widths wide and a coin
+        2.4, so a side-by-side at MATCHED scale is the only honest way to judge the two $10,000
+        shapes: at a matched WIDTH they all look like bars, and at a matched height the sizes lie.
+        K is one coin-height, so the widths here are exactly what the tower will draw.
+      */}
+      {import.meta.env.DEV && onNudge && showShapes && (
+        <div className="mt-2 shrink-0 rounded-md border border-dashed border-rose-400/40 p-2">
+          <div className="mb-2 text-[9px] font-black uppercase tracking-wider text-rose-300/90">
+            One scale — a coin is 2.4 × its height, a bar is 10.5
+          </div>
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+            {([
+              { wf: COIN_WF, units: 1, label: 'coin', metal: 'gold', radius: 999 },
+              { wf: INGOT_WF, units: INGOT_H, label: '$1,000 ingot', metal: 'ingot', radius: 999 },
+              { wf: BAR_WF, units: BAR_H, label: '$10,000 bar', metal: 'plat', radius: 0 },
+              { wf: BAR_WF, units: BAR_H_TALL, label: '$10,000 big ingot', metal: 'plat', radius: 999 },
+            ] as const).map((s) => {
+              const K = 20;   // one coin-height in px
+              const w = s.wf * K, h = s.units * K;
+              return (
+                <div key={s.label} className="flex flex-col items-center gap-1">
+                  <div
+                    style={{
+                      width: Math.round(w), height: Math.round(h),
+                      borderRadius: s.radius === 999 ? 999 : Math.max(2, Math.round(h * 0.16)),
+                      background: s.metal === 'plat' ? PLAT_FILL : s.metal === 'ingot' ? INGOT_FILL : GOLD_FILL,
+                      boxShadow: s.metal === 'plat' ? PLAT_SHADOW : s.metal === 'ingot' ? INGOT_SHADOW : GOLD_SHADOW,
+                    }}
+                  />
+                  <span className="text-[9px] font-black text-white/60">{s.label}</span>
+                  <span className="text-[8px] text-white/35">
+                    {/* The ASPECT (width ÷ height), not the width factor — 3.7:1 is the shape. */}
+                    {Math.round(w)}×{Math.round(h)} · {(s.wf / s.units).toFixed(1)}:1
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
